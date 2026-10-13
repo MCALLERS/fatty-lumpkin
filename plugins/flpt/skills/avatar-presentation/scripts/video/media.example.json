@@ -1,0 +1,11 @@
+{
+  "_readme": "Copy to presentation/media.json (next to script.md). Paths are relative to that file. Keys starting with _ are ignored. See SETUP.md, 'Video slides and cut scenes'.",
+  "slides": {
+    "5": {"video": "media/slide_05.mp4", "fit": "cover", "pad": "freeze", "audio": "mute"},
+    "9": {"video": "media/broll_09.mp4", "fit": "cover", "pad": "loop", "audio": "mix", "volume": 0.2, "start": 1.5}
+  },
+  "cutscenes": [
+    {"id": "A", "after_slide": 7, "video": "media/cutscene_A.mp4", "title": "The courtroom at dawn",
+     "audio": "keep", "fade": 0.6}
+  ]
+}

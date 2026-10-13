@@ -1,0 +1,65 @@
+# api_keys.txt — private settings for THIS project's presentation video.
+#
+#  1. This file is the TEMPLATE. RUN_ME.command copies it to api_keys.txt for you
+#     (or copy it yourself and rename the copy to api_keys.txt).
+#  2. Paste each value right after the = sign. No quotes needed. Save.
+#  3. Never email or share api_keys.txt. It is excluded from git.
+#
+# Settings are read in three layers; a later layer wins, and a BLANK value (KEY=) never overrides:
+#   1. ~/.config/avatar-presentation/presenter.env   your presenter profile (voice, avatar, bubble look)
+#   2. ~/.config/avatar-presentation/keys.env        API keys for every project (python3 set_keys.py --global)
+#   3. this file                                     per-project keys and overrides
+# So with a profile + global keys this file can stay empty. See what's in effect:
+#   python3 generate_presentation_video.py --profile show
+# See SETUP.md for where each value comes from.
+
+# ── API keys (or keep them in keys.env for all projects) ────────────────
+# elevenlabs.io → Developers → API Keys
+ELEVENLABS_API_KEY=
+# HeyGen → Settings → API → API token (the API is billed separately from the web plan)
+HEYGEN_API_KEY=
+# aistudio.google.com → Get API key (only needed for TTS_PROVIDER=gemini)
+GEMINI_API_KEY=
+
+# ── Who speaks the narration (blank = your presenter profile, else elevenlabs) ──
+# elevenlabs = your ElevenLabs clone · heygen = a HeyGen voice · gemini = Gemini TTS (e.g. your Gemini voice clone)
+TTS_PROVIDER=
+# ElevenLabs: the ID of YOUR cloned voice (run --list-voices). Model: eleven_multilingual_v2 (default) or eleven_v3.
+ELEVENLABS_VOICE_ID=
+ELEVENLABS_MODEL=
+# HeyGen voice id (TTS_PROVIDER=heygen). Private voices: heygen_picker.py voices
+HEYGEN_VOICE_ID=
+# HEYGEN_VOICE_SPEED=1.0     # 0.5 – 2.0
+# Gemini TTS (TTS_PROVIDER=gemini). With TTS_PROVIDER=gemini, --list-voices lists your cloned voices.
+# GEMINI_TTS_MODEL=gemini-3.8-flash-tts    # or gemini-3.8-flash-lite-tts (cheaper)
+# GEMINI_VOICE=Kore                        # a prebuilt name, or your cloned voice's voice_… id
+# GEMINI_STYLE_PROMPT=                     # short, constant delivery note, e.g. warm, unhurried, conversational
+# GEMINI_LANGUAGE=                         # optional, e.g. en-US (auto-detected when blank)
+
+# ── HeyGen (your face; blank = presenter profile) ───────────────────────
+# The ID of YOUR avatar look. To find it, run --list-avatars (or heygen_picker.py looks).
+HEYGEN_AVATAR_ID=
+# avatar        = Digital Twin / video avatar
+# talking_photo = photo avatar / look made from a still picture
+HEYGEN_CHARACTER_TYPE=
+
+# ── Optional fine-tuning (remove the leading # to use a line) ───────────
+# The presenter bubble. Changing these re-renders for free (clips are cached).
+# BUBBLE_POSITION=bottom-left   # bottom-left | bottom-right | top-left | top-right
+# BUBBLE_SHAPE=circle           # circle | rounded (rounded square, ~22% corner radius)
+# BUBBLE_SIZE=300               # px (1920x1080 frame)
+# BUBBLE_MARGIN=48              # px from the frame edge
+# BUBBLE_ZOOM=1.6               # bigger = tighter on the face (1 = the whole frame height)
+# BUBBLE_FOCUS_Y=0.40           # where your face sits vertically: 0 = top, 1 = bottom
+# BUBBLE_FOCUS_X=0.50           # where your face sits horizontally: 0 = left, 1 = right
+#
+# HEYGEN_RESOLUTION=1080p    # 4k | 1080p | 720p. HeyGen has paused 4K for Avatar IV/V (Sept 2026); 1080p is plenty for the bubble.
+# HEYGEN_ENGINE=avatar_iv    # avatar_iv (HeyGen's default) | avatar_iii (older, much cheaper) | avatar_v
+# HEYGEN_BACKGROUND=#1F2937  # plain background colour behind you
+# HEYGEN_MAX_CONCURRENT=4    # clips rendered at the same time (API allows 10)
+# HEYGEN_API_VERSION=v3      # v2 = HeyGen's legacy API, retired after 2026-10-31
+#
+# ELEVENLABS_STABILITY=0.5   # lower = more expressive, higher = steadier
+# ELEVENLABS_SIMILARITY=0.8  # how closely to stick to your recorded voice
+# ELEVENLABS_STYLE=0
+# ELEVENLABS_SPEED=1.0       # 0.7 – 1.2

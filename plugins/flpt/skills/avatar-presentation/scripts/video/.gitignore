@@ -1,0 +1,16 @@
+# secrets
+api_keys.txt
+
+# personal photo used for the draft bubble
+presenter.jpg
+presenter.jpeg
+presenter.png
+
+# generated / caches
+.venv/
+cache/
+output/
+__pycache__/
+*.pyc
+.DS_Store
+voice_sample/

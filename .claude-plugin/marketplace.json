@@ -1,0 +1,18 @@
+{
+  "name": "fatty-lumpkin",
+  "owner": {
+    "name": "Bombadillo AI"
+  },
+  "metadata": {
+    "description": "The Fatty Lumpkin Presentation Tool in Claude Code: Loom-style talks your own AI presenter gives over a deck where every slide moves.",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "flpt",
+      "source": "./plugins/flpt",
+      "description": "The Fatty Lumpkin Presentation Tool in Claude Code: Loom-style talks your own AI presenter gives over a deck where every slide moves.",
+      "version": "0.4.0"
+    }
+  ]
+}

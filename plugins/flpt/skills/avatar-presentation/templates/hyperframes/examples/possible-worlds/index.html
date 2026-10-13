@@ -1,0 +1,463 @@
+<!doctype html>
+<!--
+  WORKED EXAMPLE: "possible worlds" (from the "Why would a law firm buy GPUs?" talk).
+  The actual world sits at the centre, a ring of feasible worlds builds around it, remote worlds
+  sit outside, then Tactic / Strategy / No-regrets move build in over ~30 s (see beats.json).
+
+  LIVE SLIDE: a HyperFrames composition that builds step by step in time with the narration.
+  Output: 1920x1080, 30 fps, silent MP4 for one slide (the pipeline adds narration + presenter bubble).
+
+  Copy this folder per slide, then:
+    1. Edit the TOKENS block if the deck's look differs (or set "tokens" in beats.json).
+    2. Replace the SCENE markup/CSS below. Give every element a beat will touch an id or class.
+    3. Edit beats.json: "duration" (= the slide's narration length) and the "beats" list.
+    4. node <skill>/templates/hyperframes/render.mjs . --out <path>/slide_NN.mp4 --check-frames <dir>
+  Keep x 0-380, y 700-1080 empty (presenter bubble). Guides: render with --guides.
+  Reference: <skill>/references/hyperframes-slides.md
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Live slide: possible worlds</title>
+    <style>
+      /* ─── 1. TOKENS: the whole look lives here ─────────────────────────────── */
+      :root {
+        --ink: #17202b;
+        --paper: #f5f2ea;
+        --paper-2: #ede7da;
+        --card: #fbf9f4;
+        --rule: #ddd6c8;
+        --body: #3f4a57;
+        --muted: #5b6573;
+        --ox: #8e2c48; /* strategy / the point */
+        --blue: #1f5a85; /* facts */
+        --amber: #8a5310; /* tactics */
+        --ox-soft: #f3dfe5;
+        --blue-soft: #dde7f0;
+        --amber-soft: #f1e3cc;
+
+        --font-display: "Source Serif 4", serif; /* local woff2 below; no named fallback (it would be fetched) */
+        --font-body: "IBM Plex Sans", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace; /* for data and code */
+        --t-eyebrow: 24px;
+        --t-title: 64px;
+        --t-body: 34px;
+        --t-label: 26px;
+        --t-stat: 96px;
+
+        --margin-x: 128px;
+        --dim: 0.4; /* opacity of "quiet" elements while something else is in focus */
+
+        /* presenter bubble (pipeline overlay, bottom-left): keep this area free */
+        --bubble-x: 48px;
+        --bubble-y: 732px;
+        --bubble-d: 300px;
+        --bubble-pad: 32px; /* ring + shadow */
+      }
+
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/source-serif-4-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 400;
+        font-style: italic;
+        src: url("assets/fonts/source-serif-4-latin-400-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/source-serif-4-latin-600-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 400;
+        font-style: italic;
+        src: url("assets/fonts/ibm-plex-sans-latin-400-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 500;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+      }
+
+      @font-face {
+        font-family: "IBM Plex Mono";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Mono";
+        font-weight: 500;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+      }
+
+      /* ─── 2. FRAME + ENGINE HOOKS (keep) ───────────────────────────────────── */
+      @property --in {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      @property --lit {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--paper);
+      }
+      #slide {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+      }
+      #slide * {
+        box-sizing: border-box;
+      }
+      .lv {
+        opacity: calc(var(--in) * var(--lit));
+      }
+      .lv-w {
+        display: inline-block;
+      }
+      .stage {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: visible;
+      }
+      .lv-pen-nib {
+        fill: var(--pen, var(--ink));
+      }
+      .lv-pen-halo {
+        fill: var(--pen, var(--ink));
+        fill-opacity: 0.14;
+      }
+      .stage text {
+        font-family: var(--font-body);
+        paint-order: stroke;
+        stroke: var(--paper);
+        stroke-width: 8px;
+        stroke-linejoin: round;
+      }
+
+      .eyebrow {
+        position: absolute;
+        left: var(--margin-x);
+        top: 96px;
+        margin: 0;
+        font-size: var(--t-eyebrow);
+        font-weight: 600;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--ox);
+      }
+      .title {
+        position: absolute;
+        left: var(--margin-x);
+        top: 140px;
+        width: 1500px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: var(--t-title);
+        font-weight: 600;
+        line-height: 1.1;
+        color: var(--ink);
+      }
+      .box-op {
+        /* the modal "necessarily" box, drawn so it never depends on a font glyph */
+        display: inline-block;
+        width: 0.62em;
+        height: 0.62em;
+        border: 0.075em solid currentColor;
+        vertical-align: -0.02em;
+        margin: 0 0.08em;
+      }
+
+      .guide {
+        display: none;
+        position: absolute;
+        pointer-events: none;
+      }
+      .show-guides .guide {
+        display: block;
+      }
+      .guide-safe {
+        inset: 64px;
+        border: 2px dashed rgba(142, 44, 72, 0.5);
+      }
+      .guide-keepout {
+        left: 0;
+        top: calc(var(--bubble-y) - var(--bubble-pad));
+        width: calc(var(--bubble-x) + var(--bubble-d) + var(--bubble-pad));
+        height: calc(1080px - var(--bubble-y) + var(--bubble-pad));
+        background: rgba(142, 44, 72, 0.1);
+      }
+      .guide-bubble {
+        left: var(--bubble-x);
+        top: var(--bubble-y);
+        width: var(--bubble-d);
+        height: var(--bubble-d);
+        border-radius: 50%;
+        border: 4px solid rgba(142, 44, 72, 0.7);
+      }
+
+      /* ─── 3. SCENE: "possible worlds" (worked example) ─────────────────────── */
+      /* Don't set CSS opacity on elements a beat targets (the engine owns it); use fill-/stroke-opacity. */
+      .keys {
+        position: absolute;
+        left: var(--margin-x);
+        top: 300px;
+        width: 580px;
+        display: flex;
+        flex-direction: column;
+        gap: 34px;
+      }
+      .key {
+        display: flex;
+        gap: 22px;
+        align-items: flex-start;
+      }
+      .key svg {
+        flex: 0 0 64px;
+        height: 44px;
+        margin-top: 2px;
+      }
+      .key-name {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 40px;
+        font-weight: 600;
+        line-height: 1.1;
+        color: var(--ink);
+      }
+      .key-def {
+        margin: 6px 0 0;
+        font-size: 26px;
+        line-height: 1.3;
+        color: var(--body);
+      }
+      .key-def.formula {
+        font-family: var(--font-display);
+        font-size: 34px;
+        color: var(--ox);
+      }
+      .band {
+        fill: none;
+        stroke: var(--ox-soft);
+        stroke-width: 76;
+        stroke-linecap: round;
+      }
+      .boundary {
+        fill: none;
+        stroke: var(--blue);
+        stroke-width: 3;
+        stroke-dasharray: 2 13;
+        stroke-linecap: round;
+      }
+      .spoke {
+        stroke: var(--blue);
+        stroke-width: 2.5;
+        stroke-opacity: 0.55;
+        stroke-linecap: round;
+      }
+      .tactic-arrow {
+        fill: none;
+        stroke: var(--amber);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .node {
+        fill: var(--paper);
+        stroke: var(--blue);
+        stroke-width: 4;
+      }
+      .actual {
+        fill: var(--ink);
+      }
+      .box-bg {
+        fill: var(--paper);
+      }
+      .box-mark {
+        fill: none;
+        stroke: var(--ox);
+        stroke-width: 5;
+      }
+      .remote-dot {
+        fill: var(--paper-2);
+        stroke: var(--muted);
+        stroke-width: 2;
+        stroke-opacity: 0.7;
+      }
+      .lbl {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 3px;
+      }
+      .lbl-actual {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 0;
+        fill: var(--ink);
+      }
+      .lbl-feasible {
+        fill: var(--blue);
+      }
+      .lbl-remote {
+        fill: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="slide"
+      data-composition-id="slide"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-fps="30"
+      data-duration="30"
+    >
+      <p id="eyebrow" class="eyebrow" data-nodim>Thinking in possible worlds</p>
+      <h2 id="title" class="title" data-nodim data-anim="words">Which worlds does a move win in?</h2>
+
+      <!-- KEY (left column, clear of the presenter bubble below y 700) -->
+      <div class="keys">
+        <div id="key-tactic" class="key">
+          <svg viewBox="0 0 64 44" aria-hidden="true">
+            <path d="M6 22 H50 M40 12 L52 22 L40 32" fill="none" stroke="var(--amber)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <div>
+            <p class="key-name">Tactic</p>
+            <p class="key-def">wins in one feasible world</p>
+          </div>
+        </div>
+        <div id="key-strategy" class="key">
+          <svg viewBox="0 0 64 44" aria-hidden="true">
+            <path d="M10 22 H54" stroke="var(--ox-soft)" stroke-width="26" stroke-linecap="round" />
+            <circle cx="18" cy="22" r="7" fill="var(--ox-soft)" stroke="var(--ox)" stroke-width="3.5" />
+            <circle cx="46" cy="22" r="7" fill="var(--ox-soft)" stroke="var(--ox)" stroke-width="3.5" />
+          </svg>
+          <div>
+            <p class="key-name">Strategy</p>
+            <p class="key-def">holds across most feasible worlds</p>
+          </div>
+        </div>
+        <div id="key-noregrets" class="key">
+          <svg viewBox="0 0 64 44" aria-hidden="true">
+            <rect x="14" y="4" width="36" height="36" fill="none" stroke="var(--ox)" stroke-width="5" />
+          </svg>
+          <div>
+            <p class="key-name">No-regrets move</p>
+            <p class="key-def formula">= <span class="box-op"></span> every feasible world</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- DIAGRAM: SVG coordinates are frame pixels. Actual world at (1240, 640). -->
+      <svg class="stage" viewBox="0 0 1920 1080" aria-hidden="true">
+        <defs>
+          <mask id="boundary-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
+            <circle id="boundary-reveal" cx="1240" cy="640" r="280" fill="none" stroke="#fff" stroke-width="18" transform="rotate(-90 1240 640)" />
+          </mask>
+        </defs>
+
+        <g id="bands">
+          <path id="strategy-arc" class="band" d="M 1205.27 443.04 A 200 200 0 1 1 1205.27 836.96" />
+          <path id="noregrets-arc" class="band" d="M 1205.27 836.96 A 200 200 0 0 1 1205.27 443.04" />
+        </g>
+
+        <circle id="boundary" class="boundary" cx="1240" cy="640" r="280" mask="url(#boundary-mask)" />
+
+        <g id="remote">
+          <circle class="remote-dot" cx="770" cy="575" r="10" />
+          <circle class="remote-dot" cx="790" cy="770" r="8" />
+          <circle class="remote-dot" cx="870" cy="395" r="11" />
+          <circle class="remote-dot" cx="935" cy="945" r="9" />
+          <circle class="remote-dot" cx="1030" cy="320" r="8" />
+          <circle class="remote-dot" cx="1240" cy="990" r="10" />
+          <circle class="remote-dot" cx="1465" cy="318" r="9" />
+          <circle class="remote-dot" cx="1555" cy="950" r="8" />
+          <circle class="remote-dot" cx="1625" cy="430" r="11" />
+          <circle class="remote-dot" cx="1680" cy="810" r="9" />
+          <circle class="remote-dot" cx="1715" cy="605" r="7" />
+        </g>
+
+        <g id="feasible">
+          <g id="spokes">
+            <line class="spoke" x1="1240" y1="602" x2="1240" y2="466" />
+            <line class="spoke" x1="1266.9" y1="613.1" x2="1363.0" y2="517.0" />
+            <line class="spoke" x1="1278" y1="640" x2="1414" y2="640" />
+            <line class="spoke" x1="1266.9" y1="666.9" x2="1363.0" y2="763.0" />
+            <line class="spoke" x1="1240" y1="678" x2="1240" y2="814" />
+            <line class="spoke" x1="1213.1" y1="666.9" x2="1117.0" y2="763.0" />
+            <line class="spoke" x1="1202" y1="640" x2="1066" y2="640" />
+            <line class="spoke" x1="1213.1" y1="613.1" x2="1117.0" y2="517.0" />
+          </g>
+          <g id="nodes">
+            <circle id="n1" class="node" cx="1240" cy="440" r="22" />
+            <circle id="n2" class="node" cx="1381.4" cy="498.6" r="22" />
+            <circle id="n3" class="node" cx="1440" cy="640" r="22" />
+            <circle id="n4" class="node" cx="1381.4" cy="781.4" r="22" />
+            <circle id="n5" class="node" cx="1240" cy="840" r="22" />
+            <circle id="n6" class="node" cx="1098.6" cy="781.4" r="22" />
+            <circle id="n7" class="node" cx="1040" cy="640" r="22" />
+            <circle id="n8" class="node" cx="1098.6" cy="498.6" r="22" />
+          </g>
+        </g>
+
+        <path id="tactic-arrow" class="tactic-arrow" d="M 1282 640 L 1408 640 L 1390 626 L 1408 640 L 1390 654" />
+
+        <g id="center">
+          <rect id="box-bg" class="box-bg" x="1186" y="586" width="108" height="108" />
+          <rect id="box-mark" class="box-mark" x="1186" y="586" width="108" height="108" />
+          <circle id="actual" class="actual" cx="1240" cy="640" r="34" />
+        </g>
+
+        <text id="actual-label" class="lbl-actual" x="1240" y="738" text-anchor="middle">Actual world</text>
+        <text id="feasible-label" class="lbl lbl-feasible" x="1432" y="398">FEASIBLE WORLDS</text>
+        <text id="remote-label" class="lbl lbl-remote" x="1790" y="700" text-anchor="end">REMOTE WORLDS</text>
+      </svg>
+
+      <div class="guide guide-safe"></div>
+      <div class="guide guide-keepout"></div>
+      <div class="guide guide-bubble"></div>
+    </div>
+
+    <script src="assets/gsap.min.js"></script>
+    <script src="beats.js"></script>
+    <script src="assets/live-slide.js"></script>
+    <script>
+      window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);
+    </script>
+  </body>
+</html>

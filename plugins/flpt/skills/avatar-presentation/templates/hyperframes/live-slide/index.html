@@ -1,0 +1,382 @@
+<!doctype html>
+<!--
+  LIVE SLIDE: a HyperFrames composition that builds step by step in time with the narration.
+  Output: 1920x1080, 30 fps, silent MP4 for one slide (the pipeline adds narration + presenter bubble).
+
+  Copy this folder per slide, then:
+    1. Edit the TOKENS block if the deck's look differs (or set "tokens" in beats.json).
+    2. Replace the SCENE markup/CSS below. Give every element a beat will touch an id or class.
+    3. Edit beats.json: "duration" (= the slide's narration length) and the "beats" list.
+    4. node <skill>/templates/hyperframes/render.mjs . --out <path>/slide_NN.mp4 --check-frames <dir>
+  Keep x 0-380, y 700-1080 empty (presenter bubble). Guides: render with --guides.
+  Reference: <skill>/references/hyperframes-slides.md
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Live slide</title>
+    <style>
+      /* ─── 1. TOKENS: the whole look lives here ─────────────────────────────── */
+      :root {
+        --ink: #17202b;
+        --paper: #f5f2ea;
+        --paper-2: #ede7da;
+        --card: #fbf9f4;
+        --rule: #ddd6c8;
+        --body: #3f4a57;
+        --muted: #5b6573;
+        --ox: #8e2c48; /* strategy / the point */
+        --blue: #1f5a85; /* facts */
+        --amber: #8a5310; /* tactics */
+        --ox-soft: #f3dfe5;
+        --blue-soft: #dde7f0;
+        --amber-soft: #f1e3cc;
+
+        --font-display: "Source Serif 4", serif; /* local woff2 below; no named fallback (it would be fetched) */
+        --font-body: "IBM Plex Sans", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace; /* for data and code */
+        --t-eyebrow: 24px;
+        --t-title: 64px;
+        --t-body: 34px;
+        --t-label: 26px;
+        --t-stat: 96px;
+
+        --margin-x: 128px;
+        --dim: 0.4; /* opacity of "quiet" elements while something else is in focus */
+
+        /* presenter bubble (pipeline overlay, bottom-left): keep this area free */
+        --bubble-x: 48px;
+        --bubble-y: 732px;
+        --bubble-d: 300px;
+        --bubble-pad: 32px; /* ring + shadow */
+      }
+
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/source-serif-4-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 400;
+        font-style: italic;
+        src: url("assets/fonts/source-serif-4-latin-400-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/source-serif-4-latin-600-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Source Serif 4";
+        font-weight: 600;
+        font-style: italic;
+        src: url("assets/fonts/source-serif-4-latin-600-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 400;
+        font-style: italic;
+        src: url("assets/fonts/ibm-plex-sans-latin-400-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 500;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 600;
+        font-style: italic;
+        src: url("assets/fonts/ibm-plex-sans-latin-600-italic.woff2") format("woff2");
+      }
+
+      @font-face {
+        font-family: "IBM Plex Mono";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Mono";
+        font-weight: 500;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Mono";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+      }
+
+      /* ─── 2. FRAME + ENGINE HOOKS (keep) ───────────────────────────────────── */
+      @property --in {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      @property --lit {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--paper);
+      }
+      #slide {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+      }
+      #slide * {
+        box-sizing: border-box;
+      }
+      .lv {
+        opacity: calc(var(--in) * var(--lit));
+      }
+      .lv-w {
+        display: inline-block;
+      }
+      .stage {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: visible;
+      }
+      .lv-pen-nib {
+        fill: var(--pen, var(--ink));
+      }
+      .lv-pen-halo {
+        fill: var(--pen, var(--ink));
+        fill-opacity: 0.14;
+      }
+      .stage text {
+        font-family: var(--font-body);
+        paint-order: stroke;
+        stroke: var(--paper);
+        stroke-width: 8px;
+        stroke-linejoin: round;
+      }
+
+      .eyebrow {
+        position: absolute;
+        left: var(--margin-x);
+        top: 96px;
+        margin: 0;
+        font-size: var(--t-eyebrow);
+        font-weight: 600;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--ox);
+      }
+      .title {
+        position: absolute;
+        left: var(--margin-x);
+        top: 140px;
+        width: 1500px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: var(--t-title);
+        font-weight: 600;
+        line-height: 1.1;
+        color: var(--ink);
+      }
+      .box-op {
+        /* the modal "necessarily" box, drawn so it never depends on a font glyph */
+        display: inline-block;
+        width: 0.62em;
+        height: 0.62em;
+        border: 0.075em solid currentColor;
+        vertical-align: -0.02em;
+        margin: 0 0.08em;
+      }
+
+      .guide {
+        display: none;
+        position: absolute;
+        pointer-events: none;
+      }
+      .show-guides .guide {
+        display: block;
+      }
+      .guide-safe {
+        inset: 64px;
+        border: 2px dashed rgba(142, 44, 72, 0.5);
+      }
+      .guide-keepout {
+        left: 0;
+        top: calc(var(--bubble-y) - var(--bubble-pad));
+        width: calc(var(--bubble-x) + var(--bubble-d) + var(--bubble-pad));
+        height: calc(1080px - var(--bubble-y) + var(--bubble-pad));
+        background: rgba(142, 44, 72, 0.1);
+      }
+      .guide-bubble {
+        left: var(--bubble-x);
+        top: var(--bubble-y);
+        width: var(--bubble-d);
+        height: var(--bubble-d);
+        border-radius: 50%;
+        border: 4px solid rgba(142, 44, 72, 0.7);
+      }
+
+      /* ─── 3. SCENE: replace everything below for your slide ────────────────── */
+      .list {
+        position: absolute;
+        left: var(--margin-x);
+        top: 320px;
+        width: 780px;
+        display: flex;
+        flex-direction: column;
+        gap: 34px;
+      }
+      .item {
+        display: flex;
+        gap: 26px;
+        align-items: baseline;
+      }
+      .item .num {
+        flex: 0 0 48px;
+        font-family: var(--font-display);
+        font-size: 48px;
+        font-weight: 600;
+        color: var(--ox);
+      }
+      .item .txt {
+        font-size: var(--t-body);
+        line-height: 1.3;
+        color: var(--ink);
+      }
+      .axis {
+        stroke: var(--ink);
+        stroke-width: 3;
+        stroke-linecap: round;
+        fill: none;
+      }
+      .dot {
+        fill: var(--ox);
+      }
+      .tick {
+        font-family: var(--font-mono);
+        font-size: 24px;
+        font-weight: 500;
+        fill: var(--muted);
+      }
+      .axis-label {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 3px;
+        fill: var(--blue);
+      }
+      .stat {
+        position: absolute;
+        left: 1000px;
+        top: 660px;
+        width: 760px;
+        display: flex;
+        align-items: baseline;
+        gap: 28px;
+      }
+      .stat .num {
+        font-family: var(--font-display);
+        font-size: var(--t-stat);
+        font-weight: 600;
+        line-height: 1;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+        width: 250px;
+      }
+      .stat .cap {
+        font-size: 28px;
+        line-height: 1.35;
+        color: var(--body);
+      }
+      .closing {
+        position: absolute;
+        left: 1000px;
+        top: 860px;
+        width: 760px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 40px;
+        color: var(--ox);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="slide"
+      data-composition-id="slide"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-fps="30"
+      data-duration="20"
+    >
+      <!-- header: data-nodim keeps it bright when the spotlight dims the rest -->
+      <p id="eyebrow" class="eyebrow" data-nodim>Live slide template</p>
+      <h2 id="title" class="title" data-nodim data-anim="words">Say it, then show it</h2>
+
+      <!-- SCENE: replace -->
+      <div class="list">
+        <div id="item-1" class="item"><span class="num">1</span><span class="txt">Each beat pairs a moment in the narration with an element</span></div>
+        <div id="item-2" class="item"><span class="num">2</span><span class="txt">Beat times come from the voice track’s word timings</span></div>
+        <div id="item-3" class="item"><span class="num">3</span><span class="txt">Motion ends early, so the last frame holds</span></div>
+      </div>
+
+      <svg class="stage" viewBox="0 0 1920 1080" aria-hidden="true">
+        <text id="axis-label" class="axis-label" x="1000" y="500">BEATS ON THE TIMELINE</text>
+        <line id="axis" class="axis" x1="1000" y1="560" x2="1760" y2="560" data-anim="draw" />
+        <circle id="dot-1" class="dot" cx="1100" cy="560" r="14" data-anim="pop" />
+        <circle id="dot-2" class="dot" cx="1380" cy="560" r="14" data-anim="pop" />
+        <circle id="dot-3" class="dot" cx="1660" cy="560" r="14" data-anim="pop" />
+        <text id="tick-1" class="tick" x="1100" y="612" text-anchor="middle">2.0 s</text>
+        <text id="tick-2" class="tick" x="1380" y="612" text-anchor="middle">6.0 s</text>
+        <text id="tick-3" class="tick" x="1660" y="612" text-anchor="middle">10.0 s</text>
+      </svg>
+
+      <div id="stat" class="stat">
+        <span id="stat-num" class="num" data-from="0" data-to="20" data-suffix=" s">0 s</span>
+        <span class="cap">slide length, set by <b>duration</b> in beats.json</span>
+      </div>
+      <p id="closing" class="closing" data-anim="words">…and the last frame holds still.</p>
+
+      <!-- guides (hidden unless beats.json "guides": true or render.mjs --guides) -->
+      <div class="guide guide-safe"></div>
+      <div class="guide guide-keepout"></div>
+      <div class="guide guide-bubble"></div>
+    </div>
+
+    <script src="assets/gsap.min.js"></script>
+    <script src="beats.js"></script>
+    <script src="assets/live-slide.js"></script>
+    <script>
+      window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);
+    </script>
+  </body>
+</html>

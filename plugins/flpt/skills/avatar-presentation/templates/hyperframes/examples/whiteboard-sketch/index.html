@@ -1,0 +1,573 @@
+<!doctype html>
+<!--
+  WHITEBOARD SKETCH ("avocado toast") starter: doodles draw themselves stroke by stroke, a marker riding
+  the tip. Silent 1920x1080 30 fps MP4 per slide. The SCENE below is the doodle kit sheet: copy the doodles
+  you need, delete the rest. How to author doodles, labels and beats: README.md (same folder).
+  Keep x 0-380, y 700-1080 empty (presenter bubble) and labels 64 px from the edges.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Whiteboard sketch</title>
+    <style>
+      /* ─── 1. TOKENS: the whole look lives here ─────────────────────────────── */
+      :root {
+        --board: #fbfaf6; /* warm whiteboard */
+        --ink: #17202b; /* line work */
+        --ox: #8e2c48; /* the bad / risky path, and the final circle */
+        --blue: #1f5a85; /* the good path, facts */
+        --amber: #8a5310; /* sparingly: one extra thing (a reload, fire, gold) */
+        --muted: #5b6573;
+        /* flat "colouring-in" tints: fade them in under a finished outline */
+        --ink-tint: #e9e6de;
+        --ox-tint: #f2dbe1;
+        --blue-tint: #dbe7f2;
+        --amber-tint: #f5e4c4;
+        --white: #ffffff;
+        --blue-zone: #bcd3e8; /* stronger tints, for thick strokes such as gauge zones */
+        --ox-zone: #ebc6d0;
+
+        --w: 7px; /* marker: most outlines */
+        --w-fine: 5px; /* details: faces, ticks, fins */
+        --w-bold: 9px; /* emphasis: final circle, underline, cross-out */
+
+        --font-hand: "Caveat", cursive; /* local woff2 below; generic fallback only */
+        --t-label: 50px;
+        --t-small: 34px;
+
+        --dim: 0.4;
+
+        /* presenter bubble (pipeline overlay, bottom-left): keep this area free */
+        --bubble-x: 48px;
+        --bubble-y: 732px;
+        --bubble-d: 300px;
+        --bubble-pad: 32px;
+      }
+
+      @font-face {
+        font-family: "Caveat";
+        font-weight: 400;
+        font-style: normal;
+        src: url("assets/fonts/caveat-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Caveat";
+        font-weight: 600;
+        font-style: normal;
+        src: url("assets/fonts/caveat-latin-600-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Caveat";
+        font-weight: 700;
+        font-style: normal;
+        src: url("assets/fonts/caveat-latin-700-normal.woff2") format("woff2");
+      }
+
+      /* ─── 2. FRAME + ENGINE HOOKS + BOARD + PEN (keep) ─────────────────────── */
+      @property --in {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      @property --lit {
+        syntax: "<number>";
+        inherits: false;
+        initial-value: 1;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--board);
+      }
+      #slide {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--board);
+        color: var(--ink);
+        font-family: var(--font-hand);
+        -webkit-font-smoothing: antialiased;
+      }
+      #slide * {
+        box-sizing: border-box;
+      }
+      .lv {
+        opacity: calc(var(--in) * var(--lit));
+      }
+      .lv-w {
+        display: inline-block;
+      }
+      .stage,
+      .board-tex {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: visible;
+      }
+      /* static: the board never animates, so the last frame stays still */
+      .board-vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse 78% 74% at 52% 46%, rgba(23, 32, 43, 0) 58%, rgba(23, 32, 43, 0.07) 100%);
+      }
+
+      /* doodle strokes: marker ink, round caps and joins. Colour = the class on the group. */
+      .d path {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: var(--w);
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .d .fine {
+        stroke-width: var(--w-fine);
+      }
+      .d .bold {
+        stroke-width: var(--w-bold);
+      }
+      .d .dot {
+        stroke-width: 11px; /* a zero-length stroke with a round cap = a dot */
+      }
+      .ink {
+        color: var(--ink);
+      }
+      .ox {
+        color: var(--ox);
+      }
+      .blue {
+        color: var(--blue);
+      }
+      .amber {
+        color: var(--amber);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      /* fills: flat tints under the outline, slightly off-register like real colouring-in */
+      .fill path {
+        stroke: none;
+      }
+      .f-ink {
+        fill: var(--ink-tint);
+      }
+      .f-ox {
+        fill: var(--ox-tint);
+      }
+      .f-blue {
+        fill: var(--blue-tint);
+      }
+      .f-amber {
+        fill: var(--amber-tint);
+      }
+      .f-white {
+        fill: var(--white);
+      }
+      /* dotted line: a solid white mask path draws it on (README: "Dotted lines") */
+      .dotted {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 8px;
+        stroke-linecap: round;
+        stroke-dasharray: 0.1 18;
+      }
+      .reveal {
+        fill: none;
+        stroke: #fff;
+        stroke-width: 34px;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      /* hand lettering (Caveat). A board-coloured halo keeps it legible over lines. */
+      .hand {
+        font-family: var(--font-hand);
+        font-weight: 700;
+        font-size: var(--t-label);
+        fill: currentColor;
+        paint-order: stroke;
+        stroke: var(--board);
+        stroke-width: 10px;
+        stroke-linejoin: round;
+      }
+      .hand.small {
+        font-size: var(--t-small);
+        font-weight: 600;
+      }
+      .hand tspan {
+        fill: currentColor; /* <tspan class="blue">…</tspan> colours part of a label */
+      }
+      /* a doodle scaled with its wrapper scales its strokes too: put it back to marker weight, e.g.
+         <g class="d ox reweight"> inside a scale(0.76) wrapper -> 9.5 / 7.5 px before scaling */
+      .d.reweight path {
+        stroke-width: 9.5px;
+      }
+      .d.reweight path.fine {
+        stroke-width: 7.5px;
+      }
+
+      /* the pen: a whiteboard marker whose tip sits at (0,0). --pen is set per stroke by the engine */
+      .lv-pen-nib {
+        fill: var(--pen, var(--ink));
+      }
+      .lv-pen-halo {
+        fill: var(--pen, var(--ink));
+        fill-opacity: 0.14;
+      }
+      .mk-shadow {
+        fill: rgba(23, 32, 43, 0.13);
+      }
+      .mk-tip {
+        fill: var(--pen, var(--ink));
+      }
+      .mk-collar {
+        fill: #dcd6ca;
+        stroke: var(--ink);
+        stroke-width: 2.5px;
+        stroke-linejoin: round;
+      }
+      .mk-barrel {
+        fill: #fdfcf9;
+        stroke: var(--ink);
+        stroke-width: 3px;
+      }
+      .mk-cap {
+        fill: var(--pen, var(--ink));
+        stroke: var(--ink);
+        stroke-width: 3px;
+      }
+      .mk-shine {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.45);
+        stroke-width: 4px;
+        stroke-linecap: round;
+      }
+      .mk-line {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 2px;
+        stroke-opacity: 0.35;
+        stroke-linecap: round;
+      }
+
+      .guide {
+        display: none;
+        position: absolute;
+        pointer-events: none;
+      }
+      .show-guides .guide {
+        display: block;
+      }
+      .guide-safe {
+        inset: 64px;
+        border: 2px dashed rgba(142, 44, 72, 0.5);
+      }
+      .guide-keepout {
+        left: 0;
+        top: calc(var(--bubble-y) - var(--bubble-pad));
+        width: calc(var(--bubble-x) + var(--bubble-d) + var(--bubble-pad));
+        height: calc(1080px - var(--bubble-y) + var(--bubble-pad));
+        background: rgba(142, 44, 72, 0.1);
+      }
+      .guide-bubble {
+        left: var(--bubble-x);
+        top: var(--bubble-y);
+        width: var(--bubble-d);
+        height: var(--bubble-d);
+        border-radius: 22%;
+        border: 4px solid rgba(142, 44, 72, 0.7);
+      }
+
+      /* ─── 3. SCENE: the doodle kit sheet (replace for your slide) ──────────── */
+      .kit-label {
+        font-size: var(--t-small);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="slide"
+      data-composition-id="slide"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-fps="30"
+      data-duration="33"
+    >
+      <!-- BOARD (keep): faint deterministic texture (fixed feTurbulence seeds) + a soft vignette -->
+      <svg class="board-tex" viewBox="0 0 1920 1080" aria-hidden="true">
+        <filter id="tooth" x="0" y="0" width="100%" height="100%" filterUnits="userSpaceOnUse">
+          <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="2" seed="11" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0.09  0 0 0 0 0.13  0 0 0 0 0.17  3.2 0 0 0 -1.55" />
+        </filter>
+        <filter id="mottle" x="0" y="0" width="100%" height="100%" filterUnits="userSpaceOnUse">
+          <feTurbulence type="fractalNoise" baseFrequency="0.0022 0.0042" numOctaves="3" seed="4" />
+          <feColorMatrix type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.33  0 0 0 0 0.3  2.4 0 0 0 -1.05" />
+        </filter>
+        <rect width="1920" height="1080" filter="url(#mottle)" opacity="0.10" />
+        <rect width="1920" height="1080" filter="url(#tooth)" opacity="0.055" />
+      </svg>
+      <div class="board-vignette"></div>
+
+      <!-- SCENE: one full-frame SVG, units = video pixels. Doodle = placing <g transform> > fill <g> + stroke <g>. -->
+      <svg id="stage" class="stage" viewBox="0 0 1920 1080" aria-hidden="true">
+        <defs>
+          <!-- dotted line: the visible .dotted path is revealed by this solid mask path (same d) -->
+          <mask id="kit-dots-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="1080">
+            <path id="kit-dots-reveal" class="reveal" data-pen="var(--blue)" d="M 800 930 C 860 850 980 840 1060 880" />
+          </mask>
+        </defs>
+
+        <!-- ROW 1 ───────────────────────────────────────────────────────────── -->
+        <!-- FIGURE (hero with a sword). Origin = between the feet. ~ x -32..62, y -132..0 -->
+        <g transform="translate(236 330)">
+          <g id="kit-figure" class="d ink" data-wobble="1.1" data-seed="figure">
+            <path d="M 0 -130 C 11 -130 18 -122 18 -112 C 18 -101 10 -94 0 -94 C -10 -94 -18 -102 -18 -112 C -18 -123 -10 -131 3 -130" />
+            <path d="M 0 -94 C 1 -80 -1 -62 0 -46" />
+            <path d="M -22 -1 C -16 -16 -8 -32 0 -46 C 7 -32 14 -16 23 -2" />
+            <path d="M -31 -50 C -20 -62 -10 -74 0 -80 C 8 -77 16 -72 23 -68" />
+            <path d="M 12 -51 L 60 -130" />
+            <path d="M 16 -85 L 39 -71" />
+            <path class="fine" d="M -8 -129 C -8 -140 2 -144 8 -136" />
+            <path data-wobble="0" d="M -6 -114 L -6 -113.5" />
+            <path data-wobble="0" d="M 6 -114 L 6 -113.5" />
+            <path class="fine" data-wobble="0" d="M -7 -104 Q 0 -99 7 -104" />
+          </g>
+        </g>
+        <text id="kit-figure-label" class="hand kit-label muted" x="236" y="392" text-anchor="middle">figure</text>
+
+        <!-- SAVE ICON (floppy). Origin = centre, 84 x 84. Pop the outer #kit-save, or draw -ink + fade -fill -->
+        <g transform="translate(560 262)">
+          <g id="kit-save" data-wobble="1" data-seed="save">
+            <g id="kit-save-fill" class="fill">
+              <path class="f-amber" d="M -38 -38 L 30 -39 L 42 -27 L 41 40 L -39 40 Z" />
+              <path class="f-white" d="M -25 9 L 25 9 L 25 40 L -25 40 Z" />
+            </g>
+            <g id="kit-save-ink" class="d ink">
+              <path d="M -30 -42 L 28 -42 L 42 -28 L 42 36 Q 42 42 36 42 L -36 42 Q -42 42 -42 36 L -42 -36 Q -42 -42 -36 -42 L -24 -42" />
+              <path d="M -22 -42 L -22 -14 L 22 -14 L 22 -42" />
+              <path class="fine" d="M 9 -35 L 9 -21" />
+              <path d="M -28 42 L -28 6 L 28 6 L 28 42" />
+              <path class="fine" d="M -17 19 L 17 19" />
+              <path class="fine" d="M -17 30 L 8 30" />
+            </g>
+          </g>
+        </g>
+        <text id="kit-save-label" class="hand kit-label muted" x="560" y="392" text-anchor="middle">save icon</text>
+
+        <!-- DRAGON (oxblood, fire in amber). Origin = top-left of a 370 x 240 box, facing right -->
+        <g transform="translate(730 112)">
+          <g id="kit-dragon-fill" class="fill" data-wobble="1.4" data-seed="dragon">
+            <path class="f-ox" transform="translate(5 5)" d="M 85 190 C 80 140 120 120 165 125 C 195 128 205 100 215 75 C 218 45 250 35 272 50 C 290 58 310 62 312 80 C 312 92 295 96 280 94 L 298 108 C 290 120 262 120 245 108 C 232 125 235 150 225 170 C 215 205 160 215 120 208 C 100 205 88 200 85 190 Z" />
+            <path class="f-ox" transform="translate(4 4)" d="M 140 127 C 130 100 122 70 128 36 C 142 50 158 50 166 60 C 170 76 186 78 194 88 C 194 100 190 110 184 118 Z" fill-opacity="0.7" />
+            <path class="f-amber" transform="translate(3 3)" d="M 304 104 C 322 96 340 96 360 84 C 354 93 350 98 347 101 C 357 102 366 103 376 106 C 365 110 356 112 349 113 C 354 118 359 123 364 129 C 345 125 324 118 306 112 Z" />
+          </g>
+          <g id="kit-dragon" class="d ox" data-wobble="1.4" data-seed="dragon">
+            <path d="M 85 190 C 80 140 120 120 165 125 C 195 128 205 100 215 75 C 218 45 250 35 272 50 C 290 58 310 62 312 80 C 312 92 295 96 280 94 L 298 108 C 290 120 262 120 245 108 C 232 125 235 150 225 170 C 215 205 160 215 120 208 C 100 205 88 200 85 192" />
+            <path d="M 140 127 C 130 100 122 70 128 36 C 142 50 158 50 166 60 C 170 76 186 78 194 88 C 194 100 190 110 184 118" />
+            <path d="M 88 186 C 55 200 20 188 24 156 C 26 140 34 132 44 128 L 38 114 L 60 116 L 50 134 L 43 129" />
+            <path d="M 212 196 C 212 210 210 222 208 232 L 230 233" />
+            <path d="M 118 208 C 116 218 114 226 112 234 L 134 234" />
+            <path class="fine" d="M 236 47 C 231 36 229 26 231 15 C 240 25 246 33 250 42" />
+            <path class="fine" d="M 195 113 L 189.6 101.5 L 203 101 L 196.6 89.5 L 209 89 L 202 77.5 L 214 77" />
+            <path class="fine" d="M 250 59 L 272 66" />
+            <path class="dot" data-wobble="0" d="M 263 73 L 263.5 73.5" />
+            <path class="dot" data-wobble="0" d="M 300 70 L 300.5 70.5" />
+            <path class="fine" d="M 283 95 L 288 104 L 293 96" />
+            <path class="fine" d="M 222 176 C 200 190 168 196 134 196" />
+          </g>
+          <g id="kit-fire" class="d amber" data-wobble="1" data-seed="fire">
+            <path class="fine" d="M 304 104 C 322 96 340 96 360 84 C 354 93 350 98 347 101 C 357 102 366 103 376 106 C 365 110 356 112 349 113 C 354 118 359 123 364 129 C 345 125 324 118 306 112" />
+          </g>
+        </g>
+        <text id="kit-dragon-label" class="hand kit-label muted" x="920" y="392" text-anchor="middle">dragon</text>
+
+        <!-- TREASURE CHEST (blue, gold in amber). Origin = top-left of a 250 x 160 box -->
+        <g transform="translate(1180 180)">
+          <g id="kit-chest-fill" class="fill" data-wobble="1.2" data-seed="chest">
+            <path class="f-blue" transform="translate(4 4)" d="M 20 84 C 18 32 196 28 194 82 L 196 154 L 16 156 Z" />
+            <path class="f-amber" d="M 206 150 C 206 142 240 142 240 150 C 240 158 206 158 206 150 Z" />
+          </g>
+          <g id="kit-chest" class="d blue" data-wobble="1.2" data-seed="chest">
+            <path d="M 20 84 C 18 32 196 28 194 82" />
+            <path d="M 12 84 L 202 82" />
+            <path d="M 18 86 L 16 156 L 198 154 L 196 84" />
+            <path class="fine" d="M 62 46 L 62 154" />
+            <path class="fine" d="M 152 44 L 152 154" />
+            <path class="fine" d="M 94 70 L 120 70 L 120 100 L 94 100 L 94 68" />
+            <path class="dot" data-wobble="0" d="M 107 82 L 107 83" />
+          </g>
+          <g id="kit-gold" class="d amber" data-wobble="0.8" data-seed="gold">
+            <path class="fine" d="M 206 150 C 206 142 240 142 240 150 C 240 158 206 158 206 150" />
+            <path class="fine" d="M 210 138 C 210 131 238 131 238 138 C 238 145 210 145 210 138" />
+            <path class="fine" d="M 214 126 C 214 119 236 119 236 126 C 236 133 214 133 214 126" />
+          </g>
+          <g id="kit-sparkles" class="d amber" data-wobble="0">
+            <path class="fine" d="M 196 4 C 198 16 200 18 212 20 C 200 22 198 24 196 36 C 194 24 192 22 180 20 C 192 18 194 16 196 4" />
+            <path class="fine" d="M 14 18 C 15 26 16 27 24 28 C 16 29 15 30 14 38 C 13 30 12 29 4 28 C 12 27 13 26 14 18" />
+            <path class="fine" d="M 240 86 C 241 92 242 93 248 94 C 242 95 241 96 240 102 C 239 96 238 95 232 94 C 238 93 239 92 240 86" />
+          </g>
+        </g>
+        <text id="kit-chest-label" class="hand kit-label muted" x="1300" y="392" text-anchor="middle">chest</text>
+
+        <!-- PUMP (ink). Origin = centre of the round housing; ~ x -112..108, y -88..64 -->
+        <g transform="translate(1650 280)">
+          <g id="kit-pump-fill" class="fill" data-wobble="1.1" data-seed="pump">
+            <path class="f-ink" transform="translate(4 4)" d="M 0 -46 C 26 -46 46 -26 46 0 C 46 26 26 46 0 46 C -26 46 -46 26 -46 0 C -46 -26 -26 -46 0 -46 Z" />
+          </g>
+          <g id="kit-pump" class="d ink" data-wobble="1.1" data-seed="pump">
+            <path d="M 2 -46 C 28 -46 46 -26 46 0 C 46 26 26 46 0 46 C -26 46 -46 26 -46 0 C -46 -28 -26 -47 8 -45" />
+            <path d="M -44 -12 L -104 -12 L -104 14 L -44 14" />
+            <path class="fine" d="M -112 -22 L -112 24" />
+            <path d="M 14 -44 L 14 -80 L 100 -80 L 100 -56 L 38 -56 L 38 -42" />
+            <path class="fine" d="M 108 -88 L 108 -48" />
+            <path d="M -38 38 L -50 64 L 50 64 L 38 38" />
+            <path d="M 44 -20 L 96 -20 L 96 28 L 44 28" />
+            <path class="fine" d="M 62 -20 L 62 28" />
+            <path class="fine" d="M 78 -20 L 78 28" />
+            <path class="fine" d="M 0 -2 C 10 -6 10 -18 0 -20 C -14 -22 -22 -8 -18 6 C -14 20 6 26 20 16" />
+          </g>
+        </g>
+        <text id="kit-pump-label" class="hand kit-label muted" x="1650" y="392" text-anchor="middle">pump</text>
+
+        <!-- ROW 2 ───────────────────────────────────────────────────────────── -->
+        <!-- GAUGE (blue): needle in the safe zone. Origin = centre, r 60 -->
+        <g transform="translate(236 540)">
+          <g id="kit-gauge-fill" class="fill">
+            <path class="f-white" d="M 0 -58 C 32 -58 58 -32 58 0 C 58 32 32 58 0 58 C -32 58 -58 32 -58 0 C -58 -32 -32 -58 0 -58 Z" />
+          </g>
+          <g id="kit-gauge" class="d blue" data-wobble="1" data-seed="gauge">
+            <path d="M 2 -60 C 36 -60 60 -34 60 0 C 60 34 34 60 0 60 C -34 60 -60 34 -60 0 C -60 -34 -34 -61 8 -59" />
+            <path style="stroke: var(--blue-zone); stroke-width: 13px" data-pen="var(--blue)" d="M -38.1 22 A 44 44 0 0 1 22 -38.1" />
+            <path style="stroke: var(--ox-zone); stroke-width: 13px" data-pen="var(--ox)" d="M 38.1 -22 A 44 44 0 0 1 38.1 22" />
+            <path class="fine" d="M -45 26 L -35 20" />
+            <path class="fine" d="M -45 -26 L -35 -20" />
+            <path class="fine" d="M 0 -52 L 0 -40" />
+            <path class="fine" d="M 45 -26 L 35 -20" />
+            <path class="fine" d="M 45 26 L 35 20" />
+            <path d="M 0 0 L -22 -31" />
+            <path class="dot" data-wobble="0" d="M 0 0 L 0.5 0.5" />
+            <path class="fine" d="M -9 60 L -9 78 L 9 78 L 9 60" />
+            <path class="fine" d="M -30 84 L 30 84" />
+          </g>
+        </g>
+        <text id="kit-gauge-label" class="hand kit-label muted" x="236" y="668" text-anchor="middle">gauge</text>
+
+        <!-- BROKEN PUMP (oxblood): the pump, cracked, leaking, burning money -->
+        <g transform="translate(600 568)">
+          <g id="kit-broken-fill" class="fill" data-wobble="1.1" data-seed="broken">
+            <path class="f-ox" transform="translate(4 4)" d="M 0 -46 C 26 -46 46 -26 46 0 C 46 26 26 46 0 46 C -26 46 -46 26 -46 0 C -46 -26 -26 -46 0 -46 Z" />
+          </g>
+          <g id="kit-broken" class="d ox" data-wobble="1.1" data-seed="broken">
+            <path d="M 2 -46 C 28 -46 46 -26 46 0 C 46 26 26 46 0 46 C -26 46 -46 26 -46 0 C -46 -28 -26 -47 8 -45" />
+            <path d="M -44 -12 L -96 -12 L -96 14 L -44 14" />
+            <path d="M -38 38 L -50 64 L 50 64 L 38 38" />
+            <path class="fine" d="M -22 -56 C -38 -58 -40 -80 -22 -82 C -20 -98 4 -102 10 -88 C 24 -96 40 -82 30 -68" />
+            <path class="bold" d="M -16 -44 L -4 -24 L -16 -10 L 4 6 L -6 20 L 8 44" />
+            <path class="fine" d="M -76 22 C -84 34 -82 42 -76 42 C -70 42 -68 34 -76 22" />
+          </g>
+          <g id="kit-money" class="d ox" data-wobble="0.8" data-seed="money">
+            <path d="M 88 -62 C 84 -70 66 -70 66 -60 C 66 -50 90 -52 90 -40 C 90 -28 68 -28 64 -38" />
+            <path d="M 77 -78 L 77 -22" />
+            <path d="M 130 -40 C 126 -48 108 -48 108 -38 C 108 -28 132 -30 132 -18 C 132 -6 110 -6 106 -16" />
+            <path d="M 119 -56 L 119 0" />
+          </g>
+        </g>
+        <text id="kit-broken-label" class="hand kit-label muted" x="610" y="668" text-anchor="middle">broken pump, $</text>
+
+        <!-- ARROW (ink): data-arrow adds the head from the end tangent -->
+        <g id="kit-arrow" class="d ink" data-wobble="1.6" data-seed="arrow">
+          <path data-arrow="22" d="M 830 590 C 880 540 960 530 1020 556" />
+        </g>
+        <text id="kit-arrow-label" class="hand kit-label muted" x="925" y="668" text-anchor="middle">arrow</text>
+
+        <!-- REWIND ARROW (amber): a loop that goes back where it came from -->
+        <g id="kit-rewind" class="d amber" data-wobble="1.6" data-seed="rewind">
+          <path data-arrow="22" d="M 1330 600 C 1340 510 1230 480 1180 530 C 1160 550 1160 574 1172 592" />
+        </g>
+        <text id="kit-rewind-label" class="hand kit-label muted" x="1255" y="668" text-anchor="middle">rewind</text>
+
+        <!-- CIRCLE (oxblood, bold): > 360 degrees so the ends overlap, like a real pen loop -->
+        <text id="kit-point" class="hand" x="1640" y="572" text-anchor="middle">the point</text>
+        <g id="kit-circle" class="d ox" data-wobble="2.2" data-seed="circle">
+          <path class="bold" d="M 1545 532 C 1590 490 1720 496 1738 548 C 1752 596 1660 618 1600 606 C 1540 594 1522 552 1560 524 C 1590 504 1640 500 1680 506" />
+        </g>
+        <text id="kit-circle-label" class="hand kit-label muted" x="1640" y="668" text-anchor="middle">circle</text>
+
+        <!-- ROW 3 (starts right of the bubble keep-out) ─────────────────────── -->
+        <!-- CHECK (blue) and CROSS-OUT (oxblood, two strokes over a doomed rewind arrow) -->
+        <g id="kit-check" class="d blue" data-wobble="1" data-seed="check">
+          <path class="bold" d="M 450 870 C 460 880 468 890 476 902 C 490 870 510 838 534 812" />
+        </g>
+        <g id="kit-doomed" class="d amber" data-wobble="1.4" data-seed="doomed">
+          <path data-arrow="18" d="M 720 910 C 730 840 650 820 612 860" />
+        </g>
+        <g id="kit-cross" class="d ox" data-wobble="1" data-seed="cross">
+          <path class="bold" d="M 626 818 L 716 906" />
+          <path class="bold" d="M 712 820 L 628 902" />
+        </g>
+        <text id="kit-check-label" class="hand kit-label muted" x="590" y="975" text-anchor="middle">check, cross-out</text>
+
+        <!-- DOTTED LINE (blue): the .dotted path is masked by #kit-dots-reveal (in defs) -->
+        <path id="kit-dots" class="dotted blue" mask="url(#kit-dots-mask)" d="M 800 930 C 860 850 980 840 1060 880" />
+        <g id="kit-dots-head" class="d blue" data-seed="dotshead">
+          <path class="fine" d="M 1036 856 L 1062 881 L 1028 890" />
+        </g>
+        <text id="kit-dots-label" class="hand kit-label muted" x="930" y="975" text-anchor="middle">dotted (mask)</text>
+
+        <!-- UNDERLINE + STROKE LETTERING (oxblood): short words drawn as strokes, one path per stroke -->
+        <g transform="translate(1250 812) rotate(-4)">
+          <g id="kit-letters" class="d ox" data-wobble="0.8" data-seed="letters">
+            <path d="M 34 10 C 28 0 10 -1 4 14 C -2 30 4 50 20 53 C 32 55 38 46 38 34 L 22 34" />
+            <path d="M 50 54 L 68 0 L 86 54" />
+            <path class="fine" d="M 57 35 L 80 35" />
+            <path d="M 100 54 L 104 2 L 120 34 L 136 2 L 140 54" />
+            <path d="M 184 2 L 158 2 L 156 54 L 186 54" />
+            <path class="fine" d="M 157 27 L 180 27" />
+            <path d="M 232 1 C 212 0 208 26 210 36 C 212 50 222 56 234 54 C 250 52 254 34 252 20 C 250 6 242 -1 226 2" />
+            <path d="M 266 0 L 284 54 L 302 0" />
+            <path d="M 342 2 L 316 2 L 314 54 L 344 54" />
+            <path class="fine" d="M 315 27 L 338 27" />
+            <path d="M 360 54 L 360 2 C 386 0 394 12 392 20 C 390 30 378 32 362 30 L 394 54" />
+          </g>
+          <g id="kit-underline" class="d ox" data-wobble="1.5" data-seed="underline">
+            <path class="bold" d="M -4 84 C 90 76 230 76 360 78 C 380 78 392 80 398 84" />
+          </g>
+        </g>
+        <text id="kit-letters-label" class="hand kit-label muted" x="1450" y="975" text-anchor="middle">stroke lettering, underline</text>
+
+        <!-- PEN (keep, LAST child so it rides on top): a marker, tip at 0,0; --pen colours tip + cap per stroke -->
+        <g class="lv-pen lv" style="--in: 0" aria-hidden="true">
+          <g class="lv-pen-lift">
+            <g transform="rotate(30) scale(0.92)">
+              <path class="mk-shadow" transform="translate(10 4)" d="M -6 -4 L -13 -36 L -17 -40 L -17 -170 Q -17 -178 -9 -178 L 9 -178 Q 17 -178 17 -170 L 17 -40 L 13 -36 L 6 -4 Q 0 4 -6 -4 Z" />
+              <path class="mk-tip" d="M -6 -14 L -5.5 -4 Q 0 4 5.5 -4 L 6 -14 Z" />
+              <path class="mk-collar" d="M -8 -13 L 8 -13 L 14 -38 L -14 -38 Z" />
+              <rect class="mk-barrel" x="-17" y="-150" width="34" height="114" rx="7" />
+              <path class="mk-line" d="M -9 -126 L 9 -126 M -9 -118 L 5 -118" />
+              <rect class="mk-cap" x="-17" y="-180" width="34" height="50" rx="8" />
+              <path class="mk-shine" d="M -9 -172 L -9 -140" />
+            </g>
+          </g>
+        </g>
+      </svg>
+
+      <!-- guides (hidden unless beats.json "guides": true or render.mjs --guides) -->
+      <div class="guide guide-safe"></div>
+      <div class="guide guide-keepout"></div>
+      <div class="guide guide-bubble"></div>
+    </div>
+
+    <script src="assets/gsap.min.js"></script>
+    <script src="beats.js"></script>
+    <script src="assets/hand.js"></script>
+    <script src="assets/live-slide.js"></script>
+    <script>
+      // hand.js first (arrowheads + wobble change path lengths), then the engine measures and builds.
+      Hand.apply(document.getElementById("slide"));
+      window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);
+    </script>
+  </body>
+</html>

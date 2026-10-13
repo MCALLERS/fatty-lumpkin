@@ -1,0 +1,149 @@
+'use strict';
+// Runs the vendored pipeline scripts (engine/skills/avatar-presentation/scripts) as child processes.
+// This is the only place keys leave the vault:
+//   - each command names the keys it needs, and only those are put into that one process's environment
+//   - FLPT_ENV_KEYS=1 tells the (patched) pipeline to read them from the environment, so nothing is written to disk
+//   - every output line is redacted before it reaches the renderer or a log
+// The presenter profile (look, voice, bubble: no secrets) is written to the app's own presenter.env, which the
+// pipeline finds through AVATAR_PRESENTATION_CONFIG_DIR.
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const { scriptsDir } = require('./paths');
+
+// What each command may see. Anything not listed gets no keys at all.
+const KEYS_FOR = {
+  scaffold: [],
+  render: [],
+  draft: [],
+  check: ['HEYGEN_API_KEY', 'ELEVENLABS_API_KEY', 'GEMINI_API_KEY'],
+  looks: ['HEYGEN_API_KEY'],
+  voices: ['HEYGEN_API_KEY'],
+  final: ['HEYGEN_API_KEY', 'ELEVENLABS_API_KEY', 'GEMINI_API_KEY'],
+  web: [],
+  player: [],
+};
+
+// Commands that spend money, and the provider whose approved budget they need (see broker.js).
+const PAID = { final: 'heygen' };
+
+// Non-secret presenter settings the pipeline reads, with the house defaults (signature-style.md).
+const PRESENTER_DEFAULTS = {
+  TTS_PROVIDER: 'heygen',
+  HEYGEN_CHARACTER_TYPE: 'talking_photo',
+  HEYGEN_ENGINE: 'avatar_iv',
+  HEYGEN_VOICE_ENGINE: 'elevenlabs_v3',
+  HEYGEN_RESOLUTION: '1080p',
+  HEYGEN_API_VERSION: 'v3',
+  HEYGEN_MAX_CONCURRENT: '8',
+  BUBBLE_POSITION: 'bottom-left',
+  BUBBLE_SHAPE: 'rounded',
+  BUBBLE_ZOOM: '1.6',
+  BUBBLE_FOCUS_X: '0.50',
+  BUBBLE_FOCUS_Y: '0.32',
+  EDIT_NUDGE_MS: '20',
+};
+const PRESENTER_KEYS = new Set([...Object.keys(PRESENTER_DEFAULTS), 'HEYGEN_AVATAR_ID', 'HEYGEN_VOICE_ID',
+  'HEYGEN_VOICE_SPEED', 'HEYGEN_VOICE_LANGUAGE', 'HEYGEN_BACKGROUND', 'HEYGEN_EXPRESSIVENESS', 'BUBBLE_SIZE',
+  'BUBBLE_MARGIN', 'GEMINI_VOICE', 'GEMINI_TTS_MODEL', 'ELEVENLABS_VOICE_ID', 'ELEVENLABS_MODEL']);
+
+/** Parse KEY=VALUE text, keeping only known, non-secret presenter settings. */
+function parsePresenterEnv(text) {
+  const out = {};
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*(#.*)?$/);
+    if (!m || !PRESENTER_KEYS.has(m[1]) || /_(KEY|TOKEN|SECRET)$/.test(m[1])) continue;
+    const v = m[2].replace(/^(['"])(.*)\1$/, '$2');
+    if (v) out[m[1]] = v;
+  }
+  return out;
+}
+
+function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, broker }) {
+  const scripts = scriptsDir(engineRoot);
+
+  function presenterEnvFile() { return path.join(presenterDir, 'presenter.env'); }
+
+  function writePresenter(values) {
+    const merged = { ...PRESENTER_DEFAULTS, ...parsePresenterEnv(Object.entries(values || {}).map(([k, v]) => `${k}=${v}`).join('\n')) };
+    const lines = ['# presenter.env, written by the Fatty Lumpkin Presentation Tool. No secrets here: keys live in the Keychain.'];
+    for (const [k, v] of Object.entries(merged)) lines.push(`${k}=${v}`);
+    fs.mkdirSync(presenterDir, { recursive: true });
+    const tmp = presenterEnvFile() + '.tmp';
+    fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, presenterEnvFile());
+    return merged;
+  }
+
+  function readPresenter() {
+    try { return parsePresenterEnv(fs.readFileSync(presenterEnvFile(), 'utf8')); } catch { return {}; }
+  }
+
+  /**
+   * Run one pipeline command. `kind` decides which keys it may see (KEYS_FOR). Lines are redacted before onLine.
+   * Returns { code, lines } (the last 400 redacted lines). Pass an AbortSignal to stop it.
+   */
+  function run({ kind, python, script, args = [], cwd, onLine = () => {}, signal, budgetToken }) {
+    if (!Object.prototype.hasOwnProperty.call(KEYS_FOR, kind)) throw new Error(`unknown pipeline command: ${kind}`);
+    if (PAID[kind] && !(broker && budgetToken && broker.isLive(budgetToken, PAID[kind]))) {
+      return Promise.resolve({ code: 2, lines: ['Refused: this step costs money and has no approved budget.'], refused: true });
+    }
+    const env = {
+      ...toolEnv(),
+      HOME: process.env.HOME,
+      USER: process.env.USER,
+      LANG: 'en_US.UTF-8',
+      AVATAR_PRESENTATION_CONFIG_DIR: presenterDir,
+      FLPT_ENV_KEYS: '1',
+      PYTHONUNBUFFERED: '1',
+      ...vault.env(KEYS_FOR[kind]),
+    };
+    return new Promise((resolve) => {
+      const child = spawn(python, [script, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const tail = [];
+      const take = (buf) => {
+        for (const raw of String(buf).split(/\r?\n/)) {
+          if (!raw) continue;
+          const line = redact(raw);
+          tail.push(line);
+          if (tail.length > 400) tail.shift();
+          onLine(line);
+        }
+      };
+      child.stdout.on('data', take);
+      child.stderr.on('data', take);
+      if (signal) signal.addEventListener('abort', () => child.kill('SIGTERM'), { once: true });
+      child.on('error', (e) => resolve({ code: 127, lines: [...tail, redact(`could not start ${path.basename(python)}: ${e.message}`)] }));
+      child.on('close', (code) => resolve({ code: code == null ? 1 : code, lines: tail }));
+    });
+  }
+
+  const video = (projectDir) => path.join(projectDir, 'presentation', 'video');
+  const projectPython = (projectDir) => path.join(video(projectDir), '.venv', 'bin', 'python');
+
+  return {
+    scripts,
+    writePresenter,
+    readPresenter,
+    presenterEnvFile,
+    run,
+    projectPython,
+    scaffold: (projectDir, basePython, opts = {}) => run({ kind: 'scaffold', python: basePython, script: path.join(scripts, 'scaffold.py'), args: [projectDir], cwd: path.dirname(projectDir), ...opts }),
+    render: (projectDir, opts = {}) => run({ kind: 'render', python: projectPython(projectDir), script: path.join(video(projectDir), 'render_slides.py'), cwd: video(projectDir), ...opts }),
+    draft: (projectDir, opts = {}) => run({ kind: 'draft', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--draft'], cwd: video(projectDir), ...opts }),
+    check: (projectDir, opts = {}) => run({ kind: 'check', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--check'], cwd: video(projectDir), ...opts }),
+    looks: (projectDir, opts = {}) => run({ kind: 'looks', python: projectPython(projectDir), script: path.join(video(projectDir), 'heygen_picker.py'), args: ['looks'], cwd: video(projectDir), ...opts }),
+    // Paid: one slide through HeyGen, only with a live budget token (the broker also logs the authorisation).
+    sampleFinal: (projectDir, budgetToken, opts = {}) => run({ kind: 'final', budgetToken, python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--slides', '1', '--yes'], cwd: video(projectDir), ...opts }),
+    // Paid: the whole episode through HeyGen, only with a live budget token.
+    final: (projectDir, budgetToken, opts = {}) => run({ kind: 'final', budgetToken, python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--yes'], cwd: video(projectDir), ...opts }),
+    web: (projectDir, opts = {}) => run({ kind: 'web', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--web'], cwd: video(projectDir), ...opts }),
+    player: (projectDir, opts = {}) => run({ kind: 'player', python: projectPython(projectDir), script: path.join(projectDir, 'presentation', 'player', 'build_player.py'), args: [], cwd: path.join(projectDir, 'presentation', 'player'), ...opts }),
+    finalOutput: (projectDir) => path.join(video(projectDir), 'output', 'presentation.mp4'),
+    editMasterOutput: (projectDir) => path.join(video(projectDir), 'output', 'presentation_for_editing.mov'),
+    draftOutput: (projectDir) => path.join(video(projectDir), 'output', 'draft_presentation.mp4'),
+    pickerDir: (projectDir) => path.join(video(projectDir), 'output', 'picker'),
+  };
+}
+
+module.exports = { createPipeline, parsePresenterEnv, PRESENTER_DEFAULTS, KEYS_FOR, PAID };
