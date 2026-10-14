@@ -71,7 +71,7 @@ Run it with the `grill-me` method: ask in rounds, only the questions whose prere
 
 ## Production steps
 
-Higgsfield MCP tools are `mcp__70607e9b-aa57-4029-8942-2745a1ed5025__<name>`, loaded with ToolSearch `"higgsfield"`. Every generate call puts its fields inside `params`.
+Higgsfield MCP tools are `mcp__<your Higgsfield server>__<name>`, loaded with ToolSearch `"higgsfield"`. Every generate call puts its fields inside `params`.
 
 ### 0. Budget
 - `balance` (free).

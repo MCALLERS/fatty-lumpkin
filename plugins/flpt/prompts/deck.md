@@ -13,7 +13,7 @@ You design the slide deck for "{{title}}" from the fact-checked `bullets.md`: on
 ## The seven modules
 The deck's power comes from seven repeatable modules. Every slide is built as one of them (or as a plain statement slide).
 
-**By default, use all seven at least once.** It shows the audience what FLPT can do. Skip a module only when the brief or the user's notes say so, and say which one in your report.
+**By default, use all seven at least once.** It shows the audience what FLPT can do. Skip a module only when the brief or the user's notes say so, or when the talk is too short to fit all seven (then use as many as fit), and say which ones in your report.
 
 {{modules}}
 
@@ -38,12 +38,27 @@ The deck's power comes from seven repeatable modules. Every slide is built as on
 **`deck/project/modules.json`:** which module each slide is, and how each call was handled:
 ```json
 { "slides": {
-    "<slide-id>": { "module": "chart", "call": "c1", "builds": ["on 'forty percent': the third bar grows"], "brief": "briefs/<slide-id>.md",
+    "<slide-id>": { "module": "chart", "call": "c1", "builds": [ … see Builds … ], "brief": "briefs/<slide-id>.md",
                     "inset": { "clip": "assets/calls/c2-clip.mp4", "rect": { "x": 980, "y": 260, "w": 760, "h": 428 }, "in": 0, "out": 6.5, "sound": "muted" } } },
   "cutscenes": [ { "after": "<slide-id>", "call": null, "brief": "briefs/cutscene-1.md" } ] }
 ```
 - Every slide gets an entry. `module` is one of `chart`, `sketch`, `motion`, `cosmos`, `inset`, `infographic`, or `statement` for a plain statement slide.
 - `call`, `builds`, `brief` and `inset` are optional: use them when they apply.
+
+**Builds.** The app animates them exactly as written: each slide builds as it's narrated, toward the frame you designed.
+```json
+"builds": [
+  { "say": "on 'the same 25 jokes': the 2023 card rises", "cue": "the same 25 jokes", "target": "card-2023" },
+  { "say": "then '90%+' counts up", "after": 0.3, "target": "pct-90", "do": "count" },
+  { "say": "on 'ChatGPT's jokes': the bars grow", "cue": "ChatGPT's jokes", "target": ["bar-a", "bar-b", "bar-c"], "anim": "grow", "stagger": 0.12 }
+]
+```
+- **`cue`:** the narration's exact words for that moment. The script will say them, in this order. Without a cue, a build follows the one before it (`after`, in seconds).
+- **`target`:** the `id` of an element in the slide, or a list of ids. Give every element a build touches an `id`.
+- **`anim`** (how it enters): `rise` (the default), `fade`, `pop`, `draw` (an SVG stroke draws on; add `"pen": true` for the marker), `wipe` (revealed left to right; `data-dir="up"`, `"down"` or `"left"` on the element for other ways), `grow` (from its left edge; `data-axis="y"` on the element grows it up from its base, for bars), `words` (word by word).
+- **`do`** (for what's already shown): `focus` (it stays bright, the rest dims), `unfocus`, `dim` (with `level`, e.g. 0.4), `pulse`, `count` (a number counts up: put `data-to`, and `data-decimals`, `data-prefix` or `data-suffix` as needed, on the element), `to` (e.g. `"to": {"background": "#1F5A85"}`).
+- **What has no build** is on screen from the start: the eyebrow and title should be.
+- **An element a build touches** must not set its own `opacity`, `transform` or `clip-path`: wrap it in a plain `<div id="…">` and build the wrapper.
 
 **`deck/project/briefs/*.md`:** one brief for each Cosmos cartoon and each cut scene.
 
@@ -66,7 +81,7 @@ The deck's power comes from seven repeatable modules. Every slide is built as on
   - a source line in mono, pinned clear of the bubble
   - build them from HTML `<div>`s or inline SVG shapes, with labels as HTML `<p>` placed over the SVG (SVG `<text>` doesn't get the fonts)
 - **Infographics:** one structure (process, ladder, 2×2, timeline, before/after), at most about six objects, labels touching what they name.
-- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels. It's animated later.
+- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels. It draws itself: `draw` builds with `"pen": true`, one per stroke or doodle.
 - **Images.**
   - **Allowed:** only the user's own attachments (their photos, their clips' poster frames), through the asset map.
   - **Everything else:** draw with HTML/CSS/SVG.
@@ -78,6 +93,7 @@ When every slide is written, call the `flpt` tool **`check_deck`**.
 - **What it does:** it renders the slides and reports overflow, overlapping text, text in the bubble corner, text under 24 px and wordy slides. It also returns the rendered PNG paths.
 - **Fix every reported problem, and call it again** until it's clean.
 - **It also lists any call not yet recorded in `modules.json`.** Handle each one.
+- **It checks the builds too:** every target exists, nothing it touches sets its own opacity, transform or clip-path, and every build is in the form above.
 - **Look at the slides too:** open two or three of the PNGs with Read to judge the design by eye.
 
 Then finish with your report:

@@ -1,0 +1,513 @@
+'use strict';
+// The motion engine: moving slides.
+//
+// When the deck crew writes a slide's builds in the structured form ({ cue, target, do, anim, … }, see the deck
+// prompt), FLPT turns the approved slide into a HyperFrames composition in presentation/hyperframes/slide_NN/: the
+// slide's own HTML, untouched, plus one beat per build. Then the method's own scripts (retime.py, align-beats.mjs,
+// render.mjs) time each beat to the word it's cued on and render a silent 1920x1080, 30 fps clip to
+// presentation/media/slide_NN.mp4, and media.json tells the video pipeline to play it in place of the slide's
+// picture. The free draft times the clips to the Mac's voice; after filming, they're re-timed to the real voice.
+//
+// No crew run and no spend: HyperFrames, Chrome and ffmpeg, all on this Mac. A slide without structured builds stays
+// a still, exactly as before.
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const FPS = 30;
+const RATE = 15; // characters a second, the measured pace of both voices (the HeyGen voice and the draft's `say`)
+const LEAD = 0.2; // a build starts this far ahead of its word
+const HOLD = 0.5; // the clip ends on this much stillness, so freeze-padding is invisible
+const MOTION_NOTE = 'flpt-motion'; // marks the media.json entries FLPT manages
+
+const DOS = new Set(['in', 'out', 'focus', 'unfocus', 'dim', 'pulse', 'count', 'to']);
+const ANIMS = new Set(['rise', 'fade', 'pop', 'draw', 'wipe', 'grow', 'words']);
+// Everything a build may pass on to its beat (see live-slide.js); anything else is dropped.
+const BEAT_KEYS = ['cue', 'target', 'do', 'anim', 'dur', 'ease', 'stagger', 'drawStagger', 'level', 'pen', 'to', 'value', 'after', 'say'];
+
+const FONT_CSS_RE = /^https:\/\/fonts\.googleapis\.com\/css2?\?/;
+const FONT_FILE_RE = /^https:\/\/fonts\.gstatic\.com\//;
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+const GENERIC_FONTS = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'math', 'emoji', 'inherit', 'initial', 'unset']);
+// The method's own fonts (OFL), used when the deck's faces can't be fetched: same families, local files.
+const VENDORED_FAMILIES = { 'source-serif-4': 'Source Serif 4', 'ibm-plex-sans': 'IBM Plex Sans', 'ibm-plex-mono': 'IBM Plex Mono', caveat: 'Caveat' };
+
+// The page around a slide: the same wrapper render_slides.py puts around it for the slide pictures, so a clip's last
+// frame matches the approved picture.
+const BASE_CSS = `
+html,body{margin:0;padding:0;background:#000}
+section{width:1920px;height:1080px;box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column}
+h1,h2,h3,p,ul,ol,li,table{margin:0}
+h1{font-size:96px;font-weight:600;line-height:1.1}
+h2{font-size:64px;font-weight:600;line-height:1.15}
+h3{font-size:44px;font-weight:600;line-height:1.2}
+p{font-size:32px;font-weight:400;line-height:1.4}
+ul,ol{padding-left:1.2em}
+img{display:block}
+table{border-collapse:collapse}
+th,td{padding:0.35em 0.6em}
+aside{display:none !important}
+`;
+// What the beat engine needs from the page (copied from the method's live-slide template, block 2).
+const ENGINE_CSS = `
+@property --in { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --lit { syntax: "<number>"; inherits: false; initial-value: 1; }
+#slide { position: relative; width: 1920px; height: 1080px; overflow: hidden; --dim: 0.4; --ink: #17202b; }
+.lv { opacity: calc(var(--in) * var(--lit)); }
+.lv-w { display: inline-block; }
+.lv-pen-nib { fill: var(--pen, var(--ink)); }
+.lv-pen-halo { fill: var(--pen, var(--ink)); fill-opacity: 0.14; }
+`;
+
+const exists = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+const readJson = (p, fallback = null) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return fallback; } };
+const pad2 = (n) => String(n).padStart(2, '0');
+const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+function writeAtomic(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+}
+
+function templateDir(engineRoot) {
+  return path.join(engineRoot, 'skills', 'avatar-presentation', 'templates', 'hyperframes');
+}
+
+// ── reading the deck and the script ─────────────────────────────────────────────────────────────────────────────
+
+function readDeck(dir) {
+  const pres = path.join(dir, 'presentation');
+  const project = path.join(pres, 'deck', 'project');
+  const deck = readJson(path.join(project, 'deck.json'), {}) || {};
+  const order = (Array.isArray(deck.order) ? deck.order : []).map((x) => (typeof x === 'string' ? x : x && x.id)).filter(Boolean);
+  const faces = Array.isArray(deck.faces) ? deck.faces : Object.values(deck.faces || {});
+  const modules = readJson(path.join(project, 'modules.json'), {}) || {};
+  const assetMap = readJson(path.join(pres, 'deck', 'asset_map.json'), null) || readJson(path.join(project, 'asset_map.json'), {}) || {};
+  return { pres, project, order, faces, modules, assetMap };
+}
+
+/** The narration of each slide in script.md ("## SLIDE n — title" sections, stage notes left out), by number. */
+function narrations(dir) {
+  let script = '';
+  try { script = fs.readFileSync(path.join(dir, 'presentation', 'script.md'), 'utf8'); } catch { return {}; }
+  const out = {};
+  const re = /^## SLIDE (\d+)\b[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/gm;
+  let m;
+  while ((m = re.exec(script))) out[Number(m[1])] = m[2].split('\n').filter((l) => !l.startsWith('>')).join('\n').trim();
+  return out;
+}
+
+const norm = (s) => String(s).toLowerCase().replace(/\[[^\]]*\]/g, ' ').replace(/[’']/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** A build the deck crew wrote in the structured form, as a beat; null for the older free-text builds. */
+function beatFrom(build) {
+  if (!build || typeof build !== 'object' || Array.isArray(build)) return null;
+  const doIt = build.do || 'in';
+  if (!DOS.has(doIt)) return null;
+  if (doIt !== 'unfocus' && !(typeof build.target === 'string' || (Array.isArray(build.target) && build.target.length))) return null;
+  if (build.anim && !ANIMS.has(build.anim)) return null;
+  const beat = {};
+  for (const k of BEAT_KEYS) if (build[k] !== undefined && build[k] !== null && build[k] !== '') beat[k] = build[k];
+  if (beat.do === 'in') delete beat.do;
+  return beat;
+}
+
+/**
+ * Which slides move: every slide in the deck whose modules.json entry has at least one structured build, with its
+ * number (deck order), id and beats. Free-text builds (older decks) are counted, so the app can say why a slide
+ * stays still.
+ */
+function plan(dir) {
+  const { order, modules } = readDeck(dir);
+  const entries = (modules && modules.slides) || {};
+  const slides = [];
+  let freeText = 0;
+  order.forEach((id, i) => {
+    const e = entries[id];
+    if (!e || !Array.isArray(e.builds)) return;
+    const beats = e.builds.map(beatFrom).filter(Boolean);
+    freeText += e.builds.filter((b) => typeof b === 'string').length ? 1 : 0;
+    if (beats.length) slides.push({ n: i + 1, id, module: e.module || null, beats });
+  });
+  return { slides, freeText };
+}
+
+/**
+ * First guesses for the beat times, from where each cue falls in the narration at the voices' pace. The real times
+ * come from the voice (align-beats.mjs); a cue it can't find keeps this guess.
+ */
+function provisional(beats, narration, { lead = LEAD, offset = 0 } = {}) {
+  const text = norm(narration);
+  let from = 0;
+  let prevT = offset;
+  const out = beats.map((b) => {
+    const beat = { ...b };
+    if (beat.cue) {
+      const at = text.indexOf(norm(beat.cue), from);
+      if (at >= 0) {
+        from = at + 1;
+        beat.t = Math.max(0, Math.round((offset + at / RATE - lead) * 100) / 100);
+        delete beat.after;
+        prevT = beat.t;
+        return beat;
+      }
+    }
+    if (typeof beat.after !== 'number') beat.after = 0.4;
+    prevT += beat.after;
+    return beat;
+  });
+  const duration = Math.max(3, Math.ceil(((text.length / RATE) + offset + 1) * FPS) / FPS);
+  // keep "t" first, as align-beats.mjs does, so beats.json reads in time order
+  return { beats: out.map((b) => ('t' in b ? { t: b.t, ...b } : b)), duration: Math.max(duration, prevT + 1.5) };
+}
+
+// ── checks the crew runs (check_deck, script stats) ──────────────────────────────────────────────────────────────
+
+const SVG_TAGS = new Set(['svg', 'g', 'path', 'line', 'circle', 'ellipse', 'polyline', 'polygon', 'rect']);
+
+/** The start tag of the element with this id in a slide's HTML: { tag, style, attrs } or null. */
+function elementById(html, id) {
+  const m = html.match(new RegExp(`<([a-zA-Z][\\w-]*)\\b[^>]*\\bid=["']${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`));
+  if (!m) return null;
+  const style = (m[0].match(/\sstyle\s*=\s*"([^"]*)"/i) || m[0].match(/\sstyle\s*=\s*'([^']*)'/i) || [])[1] || '';
+  return { tag: m[1].toLowerCase(), style, attrs: m[0] };
+}
+
+/**
+ * What's wrong with the deck's builds, as short lines for the crew: free-text builds (the slide won't move), targets
+ * that don't exist, elements a build touches that set their own opacity, transform or clip-path, unknown moves, a
+ * count without a number to count to, a draw on something that isn't a drawing.
+ */
+function checkBuilds(dir) {
+  const { project, modules } = readDeck(dir);
+  const out = [];
+  for (const [id, e] of Object.entries((modules && modules.slides) || {})) {
+    if (!e || !Array.isArray(e.builds) || !e.builds.length) continue;
+    let html = '';
+    try { html = fs.readFileSync(path.join(project, 'slides', `${id}.html`), 'utf8'); } catch { /* reported by the layout check */ }
+    if (e.builds.some((b) => typeof b === 'string')) { out.push(`${id}: its builds are plain text, so it won't move. Write them in the form under "Builds".`); continue; }
+    e.builds.forEach((b, i) => {
+      const n = `${id}, build ${i + 1}`;
+      const doIt = (b && b.do) || 'in';
+      if (!b || typeof b !== 'object') { out.push(`${n}: not a build.`); return; }
+      if (!DOS.has(doIt)) { out.push(`${n}: "do": "${doIt}" isn't a move (use ${[...DOS].join(', ')}).`); return; }
+      if (b.anim && !ANIMS.has(b.anim)) out.push(`${n}: "anim": "${b.anim}" isn't an entrance (use ${[...ANIMS].join(', ')}).`);
+      if (i === 0 && !b.cue) out.push(`${n}: no cue. The first build needs the words that trigger it.`);
+      const targets = [].concat(b.target || []);
+      if (!targets.length && doIt !== 'unfocus') out.push(`${n}: no target.`);
+      for (const t of targets) {
+        if (!/^[\w-]+$/.test(String(t))) continue; // a selector: the engine resolves it
+        const el = elementById(html, String(t));
+        if (!el) { out.push(`${n}: no element with id "${t}" in slides/${id}.html.`); continue; }
+        const own = (el.style.match(/(?:^|;)\s*(opacity|transform|clip-path)\s*:/gi) || []).map((x) => x.replace(/[;:\s]/g, '').toLowerCase());
+        if (own.length) out.push(`${n}: "${t}" sets its own ${[...new Set(own)].join(' and ')}. Wrap it in a plain <div id="…"> and build the wrapper.`);
+        if (doIt === 'in' && b.anim === 'draw' && !SVG_TAGS.has(el.tag)) out.push(`${n}: "draw" needs an SVG shape or group, and "${t}" is a <${el.tag}>.`);
+        if (doIt === 'count' && b.value == null && !/\sdata-to\s*=/.test(el.attrs)) out.push(`${n}: a count needs data-to on "${t}" (or "value" in the build).`);
+      }
+    });
+  }
+  return out;
+}
+
+/** The moving slides' cues the narration doesn't say (in order), as short lines for the script crew. */
+function checkCues(dir) {
+  const said = narrations(dir);
+  const out = [];
+  for (const s of plan(dir).slides) {
+    const text = norm(said[s.n] || '');
+    let from = 0;
+    for (const b of s.beats) {
+      if (!b.cue) continue;
+      const at = text.indexOf(norm(b.cue), from);
+      if (at < 0) out.push(`slide ${s.n} (${s.id}): the narration doesn't say "${b.cue}"${text.includes(norm(b.cue)) ? ' after the cue before it' : ''}. A build is cued on those words.`);
+      else from = at + 1;
+    }
+  }
+  return out;
+}
+
+// ── fonts ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The deck's faces (Google Fonts) as local files, so the clip renders with exactly the fonts the slide pictures used,
+ * and nothing is fetched at render time. Fetched once, then cached. Only fonts.googleapis.com and fonts.gstatic.com.
+ * Returns { css, files: [{ name, path }], families } or null when they can't be had (offline, odd hrefs).
+ */
+async function localFonts(faces, cacheDir, fetchImpl = globalThis.fetch) {
+  const hrefs = faces.map((f) => (f && typeof f === 'object' ? f.href : f)).filter((h) => typeof h === 'string' && FONT_CSS_RE.test(h));
+  if (!hrefs.length || !fetchImpl) return null;
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const hash = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 20);
+  const get = async (url, binary) => {
+    const res = await fetchImpl(url, { headers: { 'User-Agent': UA } });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return binary ? Buffer.from(await res.arrayBuffer()) : res.text();
+  };
+  try {
+    const files = new Map();
+    const blocks = [];
+    for (const href of hrefs) {
+      const cssFile = path.join(cacheDir, `${hash(href)}.css`);
+      let css = exists(cssFile) ? fs.readFileSync(cssFile, 'utf8') : null;
+      if (css == null) { css = await get(href, false); writeAtomic(cssFile, css); }
+      const urls = [...css.matchAll(/url\((['"]?)([^'")]+)\1\)/g)].map((m) => m[2]);
+      if (!urls.length || urls.some((u) => !FONT_FILE_RE.test(u))) return null;
+      for (const u of urls) {
+        const name = `${hash(u)}${path.extname(new URL(u).pathname) || '.woff2'}`;
+        const file = path.join(cacheDir, name);
+        if (!exists(file)) writeAtomic(file, await get(u, true));
+        files.set(name, file);
+        css = css.split(u).join(`assets/fonts/${name}`);
+      }
+      blocks.push(css);
+    }
+    const families = [...new Set(blocks.join('\n').match(/font-family:\s*['"]?([^;'"]+)/g) || [])].map((s) => s.replace(/font-family:\s*['"]?/, '').trim());
+    return { css: blocks.join('\n'), files: [...files].map(([name, p]) => ({ name, path: p })), families };
+  } catch {
+    return null;
+  }
+}
+
+/** The method's own font files for the deck's families: the fallback when the deck's faces can't be fetched. */
+function vendoredFonts(engineRoot) {
+  const T = templateDir(engineRoot);
+  const dirs = [path.join(T, 'live-slide', 'assets', 'fonts'), path.join(T, 'examples', 'whiteboard-sketch', 'assets', 'fonts')];
+  const files = [];
+  const rules = [];
+  const seen = new Set();
+  for (const d of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { continue; }
+    for (const name of names.sort()) {
+      const m = name.match(/^(.+)-latin-(\d{3})-(normal|italic)\.woff2$/);
+      if (!m || seen.has(name) || !VENDORED_FAMILIES[m[1]]) continue;
+      seen.add(name);
+      files.push({ name, path: path.join(d, name) });
+      rules.push(`@font-face { font-family: "${VENDORED_FAMILIES[m[1]]}"; font-weight: ${m[2]}; font-style: ${m[3]}; src: url("assets/fonts/${name}") format("woff2"); }`);
+    }
+  }
+  return { css: rules.join('\n'), files, families: Object.values(VENDORED_FAMILIES) };
+}
+
+/**
+ * Drop named fallback fonts (Georgia, Arial…) from every font-family list: the deck's own faces always load here, and
+ * HyperFrames would otherwise go looking for the fallbacks on the web. The picture doesn't change.
+ */
+function sanitizeFonts(html, families) {
+  const keep = new Set(families.map((f) => f.toLowerCase()));
+  const clean = (list, q) => {
+    const parts = list.replace(/&quot;/g, q).split(',').map((s) => s.trim()).filter(Boolean);
+    const kept = parts.filter((p) => { const f = p.replace(/^['"]|['"]$/g, '').toLowerCase(); return keep.has(f) || GENERIC_FONTS.has(f) || f.startsWith('var('); });
+    return (kept.length ? kept : parts.slice(-1)).join(', ');
+  };
+  return html
+    // <style> blocks: names may be in either kind of quotes
+    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (all, a, css, b) => a + css.replace(/font-family\s*:\s*([^;}]+)/gi, (m, l) => `font-family: ${clean(l, '"')}`) + b)
+    // style="…" attributes: no double quotes inside
+    .replace(/(\sstyle\s*=\s*")([^"]*)(")/gi, (all, a, css, b) => a + css.replace(/&quot;|&#39;|&#x27;|&apos;/gi, "'").replace(/font-family\s*:\s*([^;]+)/gi, (m, l) => `font-family: ${clean(l, "'")}`) + b)
+    // SVG font-family="…" attributes
+    .replace(/(\sfont-family\s*=\s*")([^"]*)(")/gi, (all, a, l, b) => a + clean(l, "'") + b);
+}
+
+// ── composing a slide ───────────────────────────────────────────────────────────────────────────────────────────
+
+function extractSection(raw) {
+  const start = raw.search(/<section\b/i);
+  if (start < 0) return null;
+  const ends = [...raw.matchAll(/<\/section\s*>/gi)];
+  return ends.length ? raw.slice(start, ends[ends.length - 1].index + ends[ends.length - 1][0].length) : `${raw.slice(start)}</section>`;
+}
+
+/** Copy the slide's /_blob/ pictures next to the composition and point the HTML at the copies. */
+function localBlobs(section, { assetMap, pres, project }, outDir, problems, sid) {
+  return section.replace(/\/_blob\/[^"'()\s&<>]+/g, (key) => {
+    const val = assetMap[key] || assetMap[key.slice('/_blob/'.length)];
+    const src = val && [path.resolve(pres, 'deck', String(val)), path.resolve(project, String(val)), path.resolve(pres, String(val))].find(exists);
+    if (!src) { problems.push(`${sid}: no picture for ${key}`); return key; }
+    const name = `${crypto.createHash('sha256').update(src).digest('hex').slice(0, 12)}${path.extname(src)}`;
+    fs.mkdirSync(path.join(outDir, 'assets', 'blobs'), { recursive: true });
+    fs.copyFileSync(src, path.join(outDir, 'assets', 'blobs', name));
+    return `assets/blobs/${name}`;
+  });
+}
+
+function page(section, fontsCss, duration) {
+  return `<!doctype html>
+<!-- Made by the Fatty Lumpkin Presentation Tool from the approved deck slide: the slide as it is, plus its builds
+     (beats.json). Re-made from the deck whenever the episode is filmed; edit the deck, not this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<style>
+${fontsCss}
+${BASE_CSS}
+${ENGINE_CSS}
+</style>
+</head>
+<body>
+<div id="slide" data-composition-id="slide" data-start="0" data-width="1920" data-height="1080" data-fps="${FPS}" data-duration="${duration}">
+${section.trim()}
+</div>
+<script src="assets/gsap.min.js"></script>
+<script src="beats.js"></script>
+<script src="assets/live-slide.js"></script>
+<script>window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);</script>
+</body>
+</html>
+`;
+}
+
+/**
+ * Write presentation/hyperframes/slide_NN/ for every moving slide: index.html (the slide + the engine), beats.json
+ * (one beat per build, first-guess times), the engine, the fonts and the pictures. Returns { slides, problems }.
+ */
+const MARKER = 'flpt-motion.json'; // in every folder FLPT makes; a folder without it is the user's own animation
+const hfDir = (dir, n) => path.join(dir, 'presentation', 'hyperframes', `slide_${pad2(n)}`);
+const sha = (file) => { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } };
+
+/** Slides with a video of the user's own in media.json: FLPT never animates those. */
+function userVideoSlides(dir) {
+  const media = readJson(path.join(dir, 'presentation', 'media.json'), {}) || {};
+  return new Set(Object.entries(media.slides || {}).filter(([, v]) => !(v && typeof v === 'object' && v.note === MOTION_NOTE)).map(([k]) => Number(k)));
+}
+
+/** The user's own HyperFrames slides (presentation/hyperframes/slide_NN without FLPT's marker), by number. */
+function bespokeSlides(dir) {
+  const root = path.join(dir, 'presentation', 'hyperframes');
+  let names = [];
+  try { names = fs.readdirSync(root); } catch { return []; }
+  return names.map((d) => d.match(/^slide_(\d{2})$/)).filter(Boolean).map((m) => Number(m[1]))
+    .filter((n) => exists(path.join(hfDir(dir, n), 'beats.json')) && !exists(path.join(hfDir(dir, n), MARKER)));
+}
+
+/**
+ * May FLPT write media/slide_NN.mp4? Yes when there's nothing there, or what's there is a clip FLPT rendered itself
+ * (its hash is in the folder's marker). Anything else is the user's, and stays.
+ */
+function clipIsOurs(dir, n) {
+  const clip = clipPath(dir, n);
+  if (!exists(clip)) return true;
+  const mark = readJson(path.join(hfDir(dir, n), MARKER), {}) || {};
+  return Boolean(mark.clip) && mark.clip === sha(clip);
+}
+
+async function compose(dir, { engineRoot, fontCacheDir, fetchImpl } = {}) {
+  const deck = readDeck(dir);
+  const problems = [];
+  const userVideo = userVideoSlides(dir);
+  const bespoke = new Set(bespokeSlides(dir));
+  const slides = plan(dir).slides.filter((s) => !userVideo.has(s.n) && !bespoke.has(s.n));
+  // FLPT's folders for slides that no longer move (or moved in the deck) go; the user's own stay.
+  const root = path.join(deck.pres, 'hyperframes');
+  for (const name of (() => { try { return fs.readdirSync(root); } catch { return []; } })()) {
+    const m = name.match(/^slide_(\d{2})$/);
+    if (m && exists(path.join(root, name, MARKER)) && !slides.some((s) => s.n === Number(m[1]))) {
+      if (clipIsOurs(dir, Number(m[1]))) fs.rmSync(clipPath(dir, Number(m[1])), { force: true });
+      fs.rmSync(path.join(root, name), { recursive: true, force: true });
+    }
+  }
+  if (!slides.length) return { slides, bespoke: [...bespoke].filter((n) => !userVideo.has(n)), problems };
+  const T = templateDir(engineRoot);
+  const engineAssets = path.join(T, 'examples', 'whiteboard-sketch', 'assets'); // engine 1.1: live slides + the pen
+  const fonts = (await localFonts(deck.faces, fontCacheDir, fetchImpl)) || vendoredFonts(engineRoot);
+  const said = narrations(dir);
+  const done = [];
+  for (const s of slides) {
+    const raw = (() => { try { return fs.readFileSync(path.join(deck.project, 'slides', `${s.id}.html`), 'utf8'); } catch { return null; } })();
+    const section = raw && extractSection(raw);
+    if (!section) { problems.push(`${s.id}: no slide file with a <section>`); continue; }
+    if (!clipIsOurs(dir, s.n)) { problems.push(`${s.id}: media/slide_${pad2(s.n)}.mp4 is a video of yours, so this slide stays as it is`); continue; }
+    const out = hfDir(dir, s.n);
+    const old = readJson(path.join(out, MARKER), {}) || {};
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.mkdirSync(path.join(out, 'assets', 'fonts'), { recursive: true });
+    for (const f of ['gsap.min.js', 'live-slide.js']) fs.copyFileSync(path.join(engineAssets, f), path.join(out, 'assets', f));
+    for (const f of fonts.files) fs.copyFileSync(f.path, path.join(out, 'assets', 'fonts', f.name));
+    const html = sanitizeFonts(localBlobs(section, deck, out, problems, s.id), fonts.families);
+    const missing = [...new Set(s.beats.flatMap((b) => [].concat(b.target || [])))]
+      .filter((t) => /^[\w-]+$/.test(t) && !new RegExp(`id=["']${t}["']`).test(html));
+    if (missing.length) problems.push(`${s.id}: builds point at ${missing.map((t) => `"${t}"`).join(', ')}, but the slide has no element with that id`);
+    const narration = said[s.n] || '';
+    const first = s.n === 1;
+    const { beats, duration } = provisional(s.beats, narration, { offset: first ? 0.5 : 0 });
+    const beatsJson = { slide: s.id, duration, fps: FPS, hold: HOLD, lead: LEAD, narration, beats };
+    writeAtomic(path.join(out, 'beats.json'), `${JSON.stringify(beatsJson, null, 1)}\n`);
+    writeAtomic(path.join(out, 'beats.js'), `window.__SLIDE__ = ${JSON.stringify({ ...beatsJson, fps: FPS })};\n`);
+    writeAtomic(path.join(out, 'index.html'), page(html, fonts.css, duration));
+    writeAtomic(path.join(out, MARKER), `${JSON.stringify({ made: 'Fatty Lumpkin Presentation Tool', slide: s.id, clip: old.clip || null }, null, 2)}\n`);
+    done.push({ ...s, dir: out });
+  }
+  return { slides: done, bespoke: [...bespoke].filter((n) => !userVideo.has(n)), problems };
+}
+
+// ── media.json ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+const clipPath = (dir, n) => path.join(dir, 'presentation', 'media', `slide_${pad2(n)}.mp4`);
+
+/**
+ * Point media.json at the moving slides' clips (slide numbers → media/slide_NN.mp4), keeping every entry FLPT
+ * didn't make (cut scenes, the user's own video slides). With no clips, FLPT's entries are removed.
+ */
+function writeMedia(dir, numbers) {
+  const file = path.join(dir, 'presentation', 'media.json');
+  const media = readJson(file, {}) || {};
+  const slides = {};
+  for (const [k, v] of Object.entries(media.slides || {})) if (!(v && typeof v === 'object' && v.note === MOTION_NOTE)) slides[k] = v;
+  for (const n of numbers) {
+    if (slides[String(n)]) continue; // the user's own video for that slide wins
+    slides[String(n)] = { video: `media/slide_${pad2(n)}.mp4`, fit: 'cover', pad: 'freeze', audio: 'mute', note: MOTION_NOTE };
+  }
+  const next = { ...media, slides };
+  if (!Object.keys(slides).length) delete next.slides;
+  if (!Object.keys(next).length) { fs.rmSync(file, { force: true }); return; }
+  writeAtomic(file, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+/** Is this a clip the pipeline can use as-is? (What render.mjs promises: 1920x1080, 30 fps, no sound.) */
+async function clipOk(file, probe) {
+  if (!exists(file)) return false;
+  try {
+    const info = await probe(file);
+    const v = (info.streams || []).find((x) => x.codec_type === 'video');
+    return Boolean(v && v.width === 1920 && v.height === 1080 && v.r_frame_rate === '30/1');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compose, time and render the moving slides for a run that has just made narration: 'draft' (the Mac's voice) or
+ * 'final' (the real voice). `retime` runs the method's retime.py with the project's Python; `probe` is ffprobe.
+ * Returns { rendered: [n], failed: [n], problems: [text] } and updates media.json to the clips that are good.
+ */
+async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime, probe, onLine = () => {}, signal }) {
+  const { slides, bespoke, problems } = await compose(dir, { engineRoot, fontCacheDir, fetchImpl });
+  // The user's own animations render too, but only into a clip path that's free or already theirs to replace.
+  const numbers = [...new Set([...slides.map((s) => s.n), ...bespoke])].sort((a, b) => a - b);
+  if (!numbers.length) { writeMedia(dir, []); return { rendered: [], failed: [], problems }; }
+  onLine(`Moving slides: timing ${numbers.length} to the ${which === 'draft' ? 'draft voice' : 'real voice'} and rendering them…`);
+  for (const n of slides.map((s) => s.n)) fs.rmSync(clipPath(dir, n), { force: true }); // FLPT's own (checked in compose)
+  const args = [path.join(templateDir(engineRoot), 'retime.py'), path.join(dir, 'presentation'), '--slides', numbers.join(',')];
+  if (which === 'draft') args.push('--draft');
+  const r = await retime(args, { onLine, signal });
+  const rendered = [];
+  const failed = [];
+  for (const n of numbers) {
+    const good = await clipOk(clipPath(dir, n), probe);
+    (good ? rendered : failed).push(n);
+    const markFile = path.join(hfDir(dir, n), MARKER);
+    if (good && exists(markFile)) writeAtomic(markFile, `${JSON.stringify({ ...readJson(markFile, {}), clip: sha(clipPath(dir, n)) }, null, 2)}\n`);
+  }
+  if (failed.length) problems.push(`Slide${failed.length > 1 ? 's' : ''} ${failed.join(', ')} stay${failed.length > 1 ? '' : 's'} still: the animation didn't render${r && r.code === 0 ? '' : ' (see the log)'}.`);
+  writeMedia(dir, rendered);
+  return { rendered, failed, problems };
+}
+
+/** Forget the clips in media.json (before a run whose timing they'd get wrong), keeping everything else. */
+function clearMedia(dir) { writeMedia(dir, []); }
+
+module.exports = { plan, compose, render, writeMedia, clearMedia, narrations, provisional, beatFrom, localFonts, vendoredFonts,
+  sanitizeFonts, extractSection, clipPath, checkBuilds, checkCues, MOTION_NOTE, BASE_CSS };

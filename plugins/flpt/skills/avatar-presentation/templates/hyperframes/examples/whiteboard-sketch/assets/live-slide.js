@@ -50,6 +50,16 @@
     to: { dur: 0.6, ease: "power2.inOut" },
   };
   var SHAPES = "path,line,circle,ellipse,polyline,polygon,rect";
+  // FLPT patch: wipes in four directions, from data-dir on the element ("up", "down", "left"; default left to right).
+  var WIPES = {
+    right: ["inset(-10% 100% -10% 0%)", "inset(-10% -2% -10% 0%)"],
+    left: ["inset(-10% 0% -10% 100%)", "inset(-10% 0% -10% -2%)"],
+    up: ["inset(100% -10% 0% -10%)", "inset(-2% -10% 0% -10%)"],
+    down: ["inset(0% -10% 100% -10%)", "inset(0% -10% -2% -10%)"],
+  };
+  function wipeOf(el) {
+    return WIPES[(el.getAttribute && el.getAttribute("data-dir")) || "right"] || WIPES.right;
+  }
   var warn = function (m) {
     if (window.console) console.warn("[live-slide] " + m);
   };
@@ -262,7 +272,7 @@
             w.style.setProperty("--in", "0");
           });
         } else if (kind === "wipe") {
-          el.style.clipPath = "inset(-10% 100% -10% 0%)";
+          el.style.clipPath = wipeOf(el)[0]; // FLPT patch: data-dir
         }
       });
     });
@@ -359,13 +369,14 @@
             );
             mark(at + dd);
           } else if (kind === "grow") {
-            var origin = el.getAttribute("data-origin") || "0% 50%";
-            tl.fromTo(
-              el,
-              { "--in": 1, scaleX: 0, transformOrigin: origin },
-              { scaleX: 1, duration: dd, ease: ee },
-              at,
-            );
+            // FLPT patch: data-axis="y" grows upward from the bottom (bars); otherwise scaleX, as before
+            var gy = el.getAttribute("data-axis") === "y";
+            var origin = el.getAttribute("data-origin") || (gy ? "50% 100%" : "0% 50%");
+            var g0 = { "--in": 1, transformOrigin: origin };
+            var g1 = { duration: dd, ease: ee };
+            g0[gy ? "scaleY" : "scaleX"] = 0;
+            g1[gy ? "scaleY" : "scaleX"] = 1;
+            tl.fromTo(el, g0, g1, at);
             mark(at + dd);
           } else if (kind === "wipe") {
             tl.set(el, { "--in": 1 }, at);
@@ -390,12 +401,7 @@
               tl.to(wst, { p: 1, duration: dd, ease: b.ease || "none", onUpdate: write, onStart: write }, at);
               penUp(wpen, at + dd, mapPt(wpen.m, { x: bb.x + bb.width, y: wy }));
             } else {
-              tl.fromTo(
-                el,
-                { clipPath: "inset(-10% 100% -10% 0%)" },
-                { clipPath: "inset(-10% -2% -10% 0%)", duration: dd, ease: ee },
-                at,
-              );
+              tl.fromTo(el, { clipPath: wipeOf(el)[0] }, { clipPath: wipeOf(el)[1], duration: dd, ease: ee }, at); // FLPT patch: data-dir
               mark(at + dd);
             }
           } else if (kind === "draw") {

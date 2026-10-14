@@ -49,6 +49,11 @@ function parseArgs(argv) {
 const die = (m, code = 1) => { console.error(`render.mjs: ${m}`); process.exit(code); };
 const log = (m) => console.log(m);
 const env = { ...process.env, DO_NOT_TRACK: "1", HYPERFRAMES_NO_TELEMETRY: "1" };
+// FLPT patch: the app's own pinned HyperFrames CLI instead of npx, so nothing is downloaded at render time.
+// Only when the app sets FLPT_HYPERFRAMES (the CLI's path); otherwise npx, as before.
+const hfRun = (hf, args, opts) => (process.env.FLPT_HYPERFRAMES
+  ? run(process.execPath, [process.env.FLPT_HYPERFRAMES, ...args], opts)
+  : run("npx", ["-y", hf, ...args], opts));
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: opts.capture ? "pipe" : "inherit", encoding: "utf8", env, cwd: opts.cwd });
@@ -188,13 +193,13 @@ function main() {
 
   if (a.check) {
     log(`· hyperframes check`);
-    const c = run("npx", ["-y", hf, "check"], { cwd: dir });
+    const c = hfRun(hf, ["check"], { cwd: dir }); // FLPT patch: hfRun
     if (c.status !== 0) die(`hyperframes check reported problems (see above)`);
   }
 
   log(`· rendering with ${hf} (quality ${quality}) → ${out}`);
   const t0 = Date.now();
-  const r = run("npx", ["-y", hf, "render", ".", "--fps", String(FPS), "--quality", quality, "--output", out, "--strict"], { cwd: dir });
+  const r = hfRun(hf, ["render", ".", "--fps", String(FPS), "--quality", quality, "--output", out, "--strict"], { cwd: dir }); // FLPT patch: hfRun
   const secs = (Date.now() - t0) / 1000;
   if (r.status !== 0 || !existsSync(out)) die(`render failed (exit ${r.status})`);
 

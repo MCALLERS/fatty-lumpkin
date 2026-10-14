@@ -22,6 +22,8 @@ const KEYS_FOR = {
   final: ['HEYGEN_API_KEY', 'ELEVENLABS_API_KEY', 'GEMINI_API_KEY'],
   web: [],
   player: [],
+  motion: [], // moving slides: word timings and HyperFrames renders, all local
+  recompose: [], // the filmed episode put back together from the cache, with no network (FLPT_CACHED_ONLY)
 };
 
 // Commands that spend money, and the provider whose approved budget they need (see broker.js).
@@ -83,7 +85,7 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
    * Run one pipeline command. `kind` decides which keys it may see (KEYS_FOR). Lines are redacted before onLine.
    * Returns { code, lines } (the last 400 redacted lines). Pass an AbortSignal to stop it.
    */
-  function run({ kind, python, script, args = [], cwd, onLine = () => {}, signal, budgetToken }) {
+  function run({ kind, python, script, args = [], cwd, onLine = () => {}, signal, budgetToken, env: extraEnv = {} }) {
     if (!Object.prototype.hasOwnProperty.call(KEYS_FOR, kind)) throw new Error(`unknown pipeline command: ${kind}`);
     if (PAID[kind] && !(broker && budgetToken && broker.isLive(budgetToken, PAID[kind]))) {
       return Promise.resolve({ code: 2, lines: ['Refused: this step costs money and has no approved budget.'], refused: true });
@@ -96,6 +98,7 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
       AVATAR_PRESENTATION_CONFIG_DIR: presenterDir,
       FLPT_ENV_KEYS: '1',
       PYTHONUNBUFFERED: '1',
+      ...extraEnv,
       ...vault.env(KEYS_FOR[kind]),
     };
     return new Promise((resolve) => {
@@ -137,6 +140,14 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
     sampleFinal: (projectDir, budgetToken, opts = {}) => run({ kind: 'final', budgetToken, python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--slides', '1', '--yes'], cwd: video(projectDir), ...opts }),
     // Paid: the whole episode through HeyGen, only with a live budget token.
     final: (projectDir, budgetToken, opts = {}) => run({ kind: 'final', budgetToken, python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--yes'], cwd: video(projectDir), ...opts }),
+    // Free: bring an episode's own copies of the pipeline scripts up to date with FLPT's patches (they were copied when
+    // the episode was made). Anchored and idempotent: a script someone edited by hand is left alone.
+    patchScripts: (projectDir, opts = {}) => run({ kind: 'motion', python: projectPython(projectDir), script: path.join(engineRoot, 'tools', 'apply_patches.py'), args: ['--video', video(projectDir)], cwd: video(projectDir), ...opts }),
+    // Free: the method's retime.py for the moving slides (word timings, beats, HyperFrames renders). No keys.
+    retime: (projectDir, args, opts = {}) => run({ kind: 'motion', python: projectPython(projectDir), script: args[0], args: args.slice(1), cwd: path.join(projectDir, 'presentation'), ...opts }),
+    // Free: the filmed episode re-assembled from the cache, now with its moving slides. No keys and no network
+    // (FLPT_CACHED_ONLY), so it can't generate or pay for anything: if something isn't cached, it stops.
+    recompose: (projectDir, opts = {}) => run({ kind: 'recompose', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--yes'], cwd: video(projectDir), ...opts, env: { FLPT_CACHED_ONLY: '1' } }),
     web: (projectDir, opts = {}) => run({ kind: 'web', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--web'], cwd: video(projectDir), ...opts }),
     player: (projectDir, opts = {}) => run({ kind: 'player', python: projectPython(projectDir), script: path.join(projectDir, 'presentation', 'player', 'build_player.py'), args: [], cwd: path.join(projectDir, 'presentation', 'player'), ...opts }),
     finalOutput: (projectDir) => path.join(video(projectDir), 'output', 'presentation.mp4'),

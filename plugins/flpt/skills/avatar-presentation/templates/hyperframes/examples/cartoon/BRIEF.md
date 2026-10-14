@@ -13,7 +13,7 @@ You make the art **and** build the slide's HyperFrames clip.
 - `shadow-series/ANIMATION_BRIEF.md` and everything it points to (the HyperFrames base brief, `hyperframes-slides.md`, the engine rules, rendering and verifying). The cartoon slide is a HyperFrames slide like any other, with the differences below.
 - Your talk's `presentation/script.md` for the narration and stage notes, and `presentation/video/est_durations.json` for the duration. If `presentation/video/output/presentation.timeline.json` exists, use its real duration.
 
-## Make the art (Higgsfield MCP: `mcp__70607e9b-aa57-4029-8942-2745a1ed5025__*`, load with ToolSearch)
+## Make the art (the Higgsfield MCP tools, `mcp__<your Higgsfield server>__*`: load them with ToolSearch "higgsfield")
 1. **Keyframes:** 4–6 per cartoon, one per storyboard beat.
    - `generate_image`, model `nano_banana_pro`, `resolution: "2k"`, `aspect_ratio: "16:9"`, with the style-frame reference.
    - Start every prompt with the style block from the style frame:

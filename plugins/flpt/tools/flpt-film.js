@@ -10,7 +10,7 @@
 // Every line the pipeline prints is redacted (keys, and their masked forms) before it is shown.
 const fs = require('fs');
 const path = require('path');
-const { app, episodeDir, pipeline, flowFor, brokerFor, redactor, library, cli, usageError, main, say } = require('./common');
+const { app, episodeDir, pipeline, flowFor, brokerFor, redactor, library, motionFor, cli, usageError, main, say } = require('./common');
 
 const USAGE = `
 Usage: flpt-film [<episode>] --draft | --check | --final --approved <US dollars> | --deliver
@@ -40,7 +40,7 @@ main(async () => {
   const pl = pipeline(dir, { broker });
   const lib = library();
   const flow = flowFor(path.dirname(dir), {
-    broker, pipeline: pl, redact: redactor(dir),
+    broker, pipeline: pl, redact: redactor(dir), motion: motionFor(pl),
     confirm: async () => true, // the user's yes was given in chat, for the amount passed with --approved (checked below)
     keep: (d, id, extra) => app('crew-library').keep(lib, d, id, extra),
   });

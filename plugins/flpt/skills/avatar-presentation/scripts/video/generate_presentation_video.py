@@ -3394,6 +3394,9 @@ def cmd_render(cfg: dict, paths, args) -> int:
         engine = SayTTS(pick_say_voice(args.say_voice), args.say_rate)
     else:
         provider = tts_provider(cfg)
+        if os.environ.get("FLPT_CACHED_ONLY") == "1":  # FLPT patch: a cached-only run gets no keys (and no network)
+            for k in provider_keys(provider) + ([] if args.no_avatar else ["HEYGEN_API_KEY"]):
+                cfg.setdefault(k, "cached-only")
         need(cfg, provider_keys(provider) + ([] if args.no_avatar else ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"]),
              paths.keys)
         try:
@@ -3410,6 +3413,9 @@ def cmd_render(cfg: dict, paths, args) -> int:
                 f"{character_type(cfg)} {cfg['HEYGEN_AVATAR_ID']} · {heygen_resolution(cfg)}")
         new_chars, clip_n, clip_s = estimate_paid(items, all_numbers, engine, cfg, paths.cache, args.tail,
                                                   regen, regen_avatar)
+        if os.environ.get("FLPT_CACHED_ONLY") == "1" and (new_chars or clip_n):  # FLPT patch
+            die(f"cached-only: this run would need paid generation ({new_chars:,} characters, {clip_n} avatar "
+                f"clips), so it stopped. Nothing was generated.")
         log("\n  Paid work in this run (anything already cached is free):")
         log(f"    {engine.label}: {new_chars:,} characters to synthesize")
         if not args.no_avatar:
@@ -3625,6 +3631,10 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.draft:
+        block_network()
+    # FLPT patch: FLPT_CACHED_ONLY=1 re-composites a final from the cache (after the moving slides are re-timed to
+    # the real voice) with no network at all, so nothing can be generated or paid for. Only when the app sets it.
+    if os.environ.get("FLPT_CACHED_ONLY") == "1" and not args.draft:
         block_network()
     init_tools()
 

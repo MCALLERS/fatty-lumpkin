@@ -29,7 +29,7 @@ function stageVars(st) {
 
 function createFlow(d) {
   // d: { settings, vault, pipeline, broker, toolEnv, chrome(), engineRoot, configDir, executable, confirm(opts), send,
-  //      basePython(), loadSdk(), redact }
+  //      basePython(), loadSdk(), redact, motion: { available(), clear(dir), render(dir, which, opts) } (optional) }
   const running = new Map(); // dir → AbortController, for agent stages
   const busy = new Set(); // dirs with a pipeline step (draft, film, deliver) under way
   const exclusive = async (dir, fn) => {
@@ -352,6 +352,27 @@ function createFlow(d) {
     return { ok: true, usd };
   }
 
+  /**
+   * The moving slides for a run that has just made its narration ('draft' or 'final'; see motion.js). Never fails the
+   * run: a slide that doesn't render stays still, and the log says why. Returns the numbers of the slides that move.
+   */
+  async function moveSlides(dir, which, onLine, signal) {
+    if (!d.motion) return [];
+    try {
+      if (!d.motion.available()) {
+        if (d.motion.plan(dir).slides.length) onLine('Moving slides need HyperFrames (Setup → Tools), so the slides stay still for now.');
+        return [];
+      }
+      const r = await d.motion.render(dir, which, { onLine, signal });
+      for (const p of r.problems) onLine(`! ${p}`);
+      return r.rendered;
+    } catch (e) {
+      onLine(`! Moving slides: ${d.redact(String(e && e.message ? e.message : e)).slice(0, 300)}`);
+      d.motion.clear(dir);
+      return [];
+    }
+  }
+
   /** Free: render the slides and narrate them with the Mac's own voice, to check timing before paying for filming. */
   async function draft(dir, onLine, signal) {
     dir = guard(dir);
@@ -360,11 +381,50 @@ function createFlow(d) {
     return exclusive(dir, async () => {
       const r1 = await d.pipeline.render(dir, { onLine, signal });
       if (r1.code !== 0) return { ok: false, error: 'The slides didn\'t render.', lines: r1.lines.slice(-10) };
-      const r = await d.pipeline.draft(dir, { onLine, signal });
+      // First the voice (its timing is what the moving slides follow), then the draft again with them in place.
+      if (d.motion) d.motion.clear(dir);
+      let r = await d.pipeline.draft(dir, { onLine, signal });
       const out = d.pipeline.draftOutput(dir);
-      const ok = r.code === 0 && exists(out);
+      let ok = r.code === 0 && exists(out);
+      if (ok && !(signal && signal.aborted) && (await moveSlides(dir, 'draft', onLine, signal)).length) {
+        onLine('Putting the draft together with its moving slides…');
+        r = await d.pipeline.draft(dir, { onLine, signal });
+        ok = r.code === 0 && exists(out);
+        if (!ok && !(signal && signal.aborted)) { // keep a draft either way: without the moving slides
+          onLine('! The moving slides didn\'t fit in, so this draft has still slides.');
+          d.motion.clear(dir);
+          r = await d.pipeline.draft(dir, { onLine, signal });
+          ok = r.code === 0 && exists(out);
+        }
+      }
       return { ok, video: ok ? out : null, error: ok ? null : 'The draft didn\'t finish. See the log.', lines: r.lines.slice(-10) };
     });
+  }
+
+  /**
+   * After filming: time the moving slides to the real voice, then put the film back together from the cache. That
+   * run has no keys and no network, so it can't spend anything. If it doesn't work out, the film keeps its stills.
+   */
+  async function addMotionToFilm(dir, onLine, signal) {
+    const moving = await moveSlides(dir, 'final', onLine, signal);
+    if (!moving.length || (signal && signal.aborted)) { if (d.motion) d.motion.clear(dir); return 0; }
+    const outs = [d.pipeline.finalOutput(dir), d.pipeline.editMasterOutput(dir)].filter(exists);
+    for (const f of outs) fs.renameSync(f, `${f}.stills`);
+    onLine('Putting the film together with its moving slides (from what was already filmed: nothing more is spent)…');
+    await d.pipeline.patchScripts(dir, { signal });
+    const r = await d.pipeline.recompose(dir, { onLine, signal });
+    const ok = r.code === 0 && exists(d.pipeline.finalOutput(dir));
+    for (const f of outs) {
+      if (ok) { fs.rmSync(`${f}.stills`, { force: true }); continue; }
+      fs.rmSync(f, { force: true });
+      fs.renameSync(`${f}.stills`, f);
+    }
+    if (!ok) {
+      d.motion.clear(dir);
+      onLine('! The moving slides couldn\'t be added, so the film keeps its still slides.');
+      return 0;
+    }
+    return moving.length;
   }
 
   async function film(dir, onLine, signal) {
@@ -382,6 +442,7 @@ function createFlow(d) {
         d.broker.authorize(token, 'heygen', { usd: est.byProvider.heygen ? est.byProvider.heygen.usd : 0, what: `${st.title}: film` });
         let r;
         try {
+          if (d.motion) d.motion.clear(dir); // filmed with still slides; the moving ones are timed to this voice next
           r = await d.pipeline.final(dir, token, { onLine, signal });
         } finally {
           // One approval, one filming run: whatever happened, the next attempt needs a fresh approval.
@@ -389,7 +450,8 @@ function createFlow(d) {
           d.broker.close(token);
         }
         const ok = r.code === 0 && exists(d.pipeline.finalOutput(dir));
-        episode.setStage(dir, 'film', { status: ok ? 'review' : 'error', error: ok ? null : (signal && signal.aborted ? 'Stopped.' : 'Filming didn\'t finish. See the log.') });
+        const moving = ok ? await addMotionToFilm(dir, onLine, signal) : 0;
+        episode.setStage(dir, 'film', { status: ok ? 'review' : 'error', movingSlides: moving, error: ok ? null : (signal && signal.aborted ? 'Stopped.' : 'Filming didn\'t finish. See the log.') });
         return { ok, video: ok ? d.pipeline.finalOutput(dir) : null, lines: r.lines.slice(-12) };
       } catch (e) {
         episode.setStage(dir, 'film', { status: 'error', error: d.redact(String(e.message || e)).slice(0, 400) });

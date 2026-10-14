@@ -41,7 +41,9 @@ def main():
     if aligner not in ("real", "pseudo"):
         raise SystemExit("--aligner must be real or pseudo")
 
-    tls = [t for t in glob.glob(str(P / "video/output/*.timeline.json")) if "draft" not in Path(t).name]
+    # FLPT patch: --draft re-times to the free draft's voice (macOS say) instead of the final narration.
+    draft = "--draft" in args
+    tls = [t for t in glob.glob(str(P / "video/output/*.timeline.json")) if ("draft" in Path(t).name) == draft]
     if not tls:
         raise SystemExit("no final timeline in video/output/ — run the pipeline (--final or --no-avatar) first")
     tl = json.load(open(max(tls, key=os.path.getmtime)))
@@ -59,7 +61,7 @@ def main():
             print(f"slide {n}: not in the timeline, skipped"); continue
         metas = []
         for j in glob.glob(str(P / "video/cache/audio/*/*.json")):
-            if "/say/" in j:
+            if ("/say/" in j) != draft:  # FLPT patch: the draft's voice is macOS say
                 continue
             m = json.load(open(j))
             if re.fullmatch(rf"slide\s+{n}", str(m.get("item", ""))):

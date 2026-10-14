@@ -6,6 +6,7 @@ const layoutqa = require('./layoutqa');
 const episode = require('./episode');
 const slop = require('./slop');
 const modules = require('./modules');
+const motion = require('./motion');
 
 async function checkDeck(projectDir, { pipeline, chrome }) {
   const deckDir = path.join(projectDir, 'presentation', 'deck', 'project');
@@ -18,10 +19,12 @@ async function checkDeck(projectDir, { pipeline, chrome }) {
   const pngs = fs.existsSync(slidesDir) ? fs.readdirSync(slidesDir).filter((f) => /^slide_\d+\.png$/.test(f)).sort().map((f) => path.join(slidesDir, f)) : [];
   const calls = pendingCalls(projectDir);
   const unused = unusedModules(projectDir);
+  const builds = motion.checkBuilds(projectDir);
   return [
     problems.length ? `${problems.length} layout problem(s):\n- ${problems.join('\n- ')}` : 'Layout check: no problems found.',
     calls.length ? `Calls not yet recorded in deck/project/modules.json: ${calls.join(', ')}. Handle each one.` : null,
-    unused.length ? `Modules not used yet: ${unused.join(', ')}. The default is all seven at least once, unless the brief or the user's notes say otherwise.` : null,
+    unused.length ? `Modules not used yet: ${unused.join(', ')}. The default is all seven at least once, unless the brief or the user's notes say otherwise or the talk is too short to fit them.` : null,
+    builds.length ? `${builds.length} build problem(s) (the app animates the builds as written):\n- ${builds.join('\n- ')}` : null,
     r.code === 0 ? `Rendered ${pngs.length} slide(s) (open a few with Read to judge them by eye):\n${pngs.join('\n')}` : `The render failed:\n${r.lines.slice(-6).join('\n')}`,
   ].filter(Boolean).join('\n\n');
 }
@@ -69,6 +72,8 @@ function scriptStats(projectDir, { minutes }) {
     `Slop score ${sc.score}/5${sc.clean ? ' (clean)' : `: ${slop.describe(sc.hits).join('; ')}`}.`,
     `Fillers: ${ums} um/uh (about 1 per 140 words is right: ~${Math.round(totalWords / 140)} here). Laugh tags: ${laughs}${laughs ? ' (remove them: laughs are off)' : ''}.`,
   ];
+  const cues = motion.checkCues(projectDir);
+  if (cues.length) out.push(`Moving slides: ${cues.length} cue(s) the narration doesn't say yet (say each one, word for word, in order):\n- ${cues.join('\n- ')}`);
   return out.join('\n');
 }
 

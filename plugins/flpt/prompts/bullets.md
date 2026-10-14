@@ -31,7 +31,7 @@ You shape the user's idea, notes or script into the **bullets** for a {{minutes}
    - infographics
    - cinematic cut scenes
 
-   **By default, use all seven at least once.** It shows what FLPT can do. Skip a module only when the brief or the user's notes say so. Across the talk:
+   **By default, use all seven at least once.** It shows what FLPT can do. Skip a module only when the brief or the user's notes say so, or when the talk is too short to fit all seven (then use as many as fit). Across the talk:
    - **A live chart:** real data, with its source.
    - **A hand-drawn chart or figure:** a concrete everyday metaphor for the most abstract idea.
    - **A motion-graphics build.**

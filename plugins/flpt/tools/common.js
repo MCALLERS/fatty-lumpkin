@@ -12,6 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { parseArgs } = require('util');
+const { execFile } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..'); // the plugin (engine/ in the repo)
 const app = (name) => require(path.join(__dirname, 'lib', 'src', 'main', name));
@@ -155,10 +156,29 @@ function brokerFor(dir) {
   };
 }
 
-/** The flow for one episode, with its own pipeline (output redacted) and spend broker. */
+/**
+ * Moving slides (the app's motion.js) for this plugin: HyperFrames runs through npx, as the method does on its own
+ * (render.mjs; the first render downloads HyperFrames and its headless Chrome, with telemetry off).
+ */
+function motionFor(pl) {
+  const motion = app('motion');
+  const t = tools();
+  const probe = (file) => new Promise((resolve, reject) => execFile(t.ffprobe || 'ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', file],
+    { timeout: 30000, maxBuffer: 8 << 20 }, (err, out) => (err ? reject(err) : resolve(JSON.parse(String(out))))));
+  return {
+    available: () => Boolean(t.node && t.ffmpeg && t.ffprobe),
+    plan: (d) => motion.plan(d),
+    clear: (d) => motion.clearMedia(d),
+    render: (d, which, o = {}) => motion.render(d, which, { engineRoot: ROOT, fontCacheDir: path.join(places().config, 'deck-fonts'),
+      retime: (args, ro) => pl.retime(d, args, ro), probe, ...o }),
+  };
+}
+
+/** The flow for one episode, with its own pipeline (output redacted), spend broker and moving slides. */
 function episodeFlow(dir, deps = {}) {
   const broker = brokerFor(dir);
-  return flowFor(path.dirname(dir), { broker, pipeline: pipeline(dir, { broker }), redact: redactor(dir), ...deps });
+  const pl = pipeline(dir, { broker });
+  return flowFor(path.dirname(dir), { broker, pipeline: pl, redact: redactor(dir), motion: motionFor(pl), ...deps });
 }
 
 /** The user's Library (library.js): the same folder the Mac app uses, unless FLPT_LIBRARY says otherwise. */
@@ -199,4 +219,4 @@ function main(fn) {
 const say = (s = '') => process.stdout.write(`${s}\n`);
 
 module.exports = { ROOT, app, places, tools, which, episodeDir, readEnvFile, isSecret, redactor, toolEnv, pipeline, flowFor, brokerFor,
-  episodeFlow, library, cli, usageError, main, say, exists, abs };
+  episodeFlow, motionFor, library, cli, usageError, main, say, exists, abs };
