@@ -1,14 +1,18 @@
 'use strict';
-// The episode flow: create → bullets → fact-check → deck → script → spend → film → deliver.
+// The episode flow: create → bullets → fact-check → deck → script → spend → film → refine → deliver.
 // Agent stages run through agents.runStage; pipeline stages run the engine's scripts directly. Every paid step goes
 // through the broker: Claude planning against an approved planning budget, filming against an approved HeyGen budget.
+// Refine (refine.js) puts add-ons on the finished film with ffmpeg alone, so it never spends anything.
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const episode = require('./episode');
 const agents = require('./agents');
 const stagetools = require('./stagetools');
 const layoutqa = require('./layoutqa');
 const modules = require('./modules');
+const motionLib = require('./motion'); // media.json: which slides are narrated without the bubble
+const refineMod = require('./refine');
 const { estimate } = require('./broker');
 const { spawn } = require('child_process');
 
@@ -27,6 +31,57 @@ function stageVars(st) {
     modules: modules.promptCatalog(), calls: modules.promptCalls(st.calls || []) };
 }
 
+// ── the player page's titles (player/player_config.json, read by the method's build_player.py) ──
+
+// What build_player.py writes when the file is missing: placeholders, never the user's own words.
+const PLAYER_PLACEHOLDERS = { page_title: 'Talk Recording', title: 'Talk title', eyebrow: 'Team meeting',
+  subtitle: 'One-line description of the talk', deck_url: '', media_note: '' };
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+/**
+ * The player page's titles from the episode: its title, the series (or FLPT) as the eyebrow, the point as the
+ * subtitle, and a media note only when the video has AI-generated cut scenes or cartoons in it.
+ */
+function playerConfig(st, { cutscenes = 0, cartoons = 0 } = {}) {
+  const i = st.intake || {};
+  const title = st.title || i.title || 'Untitled episode';
+  const note = cutscenes && cartoons ? 'The cut scenes and the cartoons are AI-generated.'
+    : cutscenes ? 'The cinematic cut scenes are AI-generated.' : cartoons ? 'The cartoons are AI-generated.' : '';
+  return { page_title: title, title, eyebrow: i.series || 'Fatty Lumpkin Presentation Tool', subtitle: i.point || '', deck_url: '', media_note: note };
+}
+
+/** What's in the filmed video: its cut scenes (the final timeline), and the Cosmos slides that play a cartoon. */
+function filmedMedia(dir, finalOutput) {
+  let cutscenes = 0;
+  try { cutscenes = (JSON.parse(fs.readFileSync(finalOutput.replace(/\.mp4$/, '.timeline.json'), 'utf8')).cutscenes || []).filter((c) => !c.placeholder).length; } catch { /* not filmed */ }
+  let slides = {};
+  try { slides = JSON.parse(fs.readFileSync(path.join(dir, 'presentation', 'media.json'), 'utf8')).slides || {}; } catch { /* none */ }
+  // A cartoon is a video of its own on a Cosmos slide (FLPT's moving title card isn't one).
+  const cartoons = motionLib.cosmosSlides(dir).filter((n) => { const e = slides[String(n)]; return e && e.video && e.note !== motionLib.MOTION_NOTE; }).length;
+  return { cutscenes, cartoons };
+}
+
+/**
+ * Write player/player_config.json from the episode, unless the user has made it their own: FLPT replaces only a
+ * missing file, build_player.py's placeholders, or the exact file FLPT wrote last time (its hash is in the record).
+ * Returns true when it wrote the file.
+ */
+function writePlayerConfig(dir, finalOutput) {
+  const file = path.join(dir, 'presentation', 'player', 'player_config.json');
+  const st = episode.read(dir);
+  let current = null;
+  try { current = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+  const placeholder = (() => { try { const j = JSON.parse(current); return Object.keys(PLAYER_PLACEHOLDERS).every((k) => j[k] === PLAYER_PLACEHOLDERS[k]) && Object.keys(j).length === 6; } catch { return false; } })();
+  const ours = current == null || placeholder || (st.player && st.player.configSha === sha256(current));
+  if (!ours) return false;
+  const text = `${JSON.stringify(playerConfig(st, filmedMedia(dir, finalOutput)), null, 1)}\n`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, text);
+  fs.renameSync(`${file}.tmp`, file);
+  episode.write(dir, { ...st, player: { configSha: sha256(text) } });
+  return true;
+}
+
 function createFlow(d) {
   // d: { settings, vault, pipeline, broker, toolEnv, chrome(), engineRoot, configDir, executable, confirm(opts), send,
   //      basePython(), loadSdk(), redact, motion: { available(), clear(dir), render(dir, which, opts) } (optional) }
@@ -35,7 +90,10 @@ function createFlow(d) {
   const exclusive = async (dir, fn) => {
     if (running.has(dir) || busy.has(dir)) throw new Error('Something is already running for this episode.');
     busy.add(dir);
-    try { return await fn(); } finally { busy.delete(dir); }
+    try {
+      if (estimating.has(dir)) await estimating.get(dir); // a free filming estimate finishing (a second or two)
+      return await fn();
+    } finally { busy.delete(dir); }
   };
 
   const projectsDir = () => d.settings.read().projectsDir;
@@ -115,13 +173,128 @@ function createFlow(d) {
       video: exists(video) ? video : null, videoAt: mtime(video), draft: exists(draft) ? draft : null, draftAt: mtime(draft),
       running: running.has(dir) || busy.has(dir),
       budgets: { anthropic: live('anthropic'), heygen: live('heygen') },
+      // Filming again costs nothing: every clip is already filmed (see approveSpend).
+      freeFilm: st.stages.spend.status === 'approved' && st.stages.spend.free === true,
       estimateSeconds: files.script ? episode.estimateSeconds(episode.parseScript(files.script)) : null,
       calls: st.calls || [],
       modules: readModulesMap(dir),
       deckOrder: readDeckOrder(dir),
       slideTitles: bulletSlides(files.bullets),
       catalog: modules.MODULES.map(({ id, name, short, ask, now, withFile }) => ({ id, name, short, ask, now, withFile })),
+      refine: refineView(dir, st),
     };
+  }
+
+  // ── Refine: add-ons on the finished film ──
+
+  /** The film's slides, for placing add-ons: from its timeline, else the deck's order. */
+  function filmSlides(dir) {
+    let tl = null;
+    try { tl = JSON.parse(fs.readFileSync(refineMod.outputs(dir).filmTimeline, 'utf8')); } catch { /* not filmed yet */ }
+    if (tl && Array.isArray(tl.slides) && tl.slides.length) return tl.slides.map((x) => ({ n: Number(x.n), title: String(x.title || '') }));
+    return readDeckOrder(dir).map((id, i) => ({ n: i + 1, title: String(id) }));
+  }
+
+  /** The refined video and master, while they're current: made from these add-ons and this film. Else null. */
+  function refinedOutputs(dir, st) {
+    const rec = st.stages.refine || {};
+    const addons = st.addons || [];
+    if (!addons.length || !rec.applied) return null;
+    const o = refineMod.outputs(dir);
+    if (rec.applied.addons !== refineMod.addonsKey(addons) || rec.applied.film !== refineMod.filmKey(o.film)) return null;
+    return exists(o.video) && exists(o.master) ? o : null;
+  }
+
+  function refineView(dir, st) {
+    const addons = st.addons || [];
+    const current = refinedOutputs(dir, st);
+    const rec = st.stages.refine || {};
+    return {
+      addons: addons.map((a) => ({ id: a.id, kind: a.kind, title: a.title, where: refineMod.where(a, addons), slide: a.slide || null, under: a.under || null,
+        phrase: a.phrase || '', sound: a.sound || null, style: a.style || null, duration: a.duration || null })),
+      slides: filmSlides(dir),
+      video: current ? current.video : null, videoAt: current ? mtime(current.video) : null,
+      outdated: Boolean(!current && addons.length && rec.applied),
+      notes: current && rec.applied && Array.isArray(rec.applied.notes) ? rec.applied.notes : [],
+    };
+  }
+
+  const refineBusy = (st) => st.stages.refine.status === 'running';
+  /** Add-ons changed: what was applied (and delivered) no longer matches. */
+  function refineChanged(st) {
+    if (st.stages.refine.status !== 'todo') st.stages.refine = { ...st.stages.refine, status: 'todo', at: new Date().toISOString() };
+    if (st.stages.deliver.status === 'approved') st.stages.deliver = { ...st.stages.deliver, status: 'stale' };
+  }
+
+  /**
+   * Add one add-on (see refine.cleanAddon). `spec.file` is an absolute path the main process resolved (from the
+   * Library, Transitions & Music, or a file the user picked); it's copied into presentation/assets/refine/.
+   */
+  function addAddon(dir, spec = {}) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
+    if (refineBusy(st)) throw new Error('Refine is applying. Change the add-ons when it\'s done.');
+    const addons = st.addons || [];
+    const a = refineMod.cleanAddon(spec, { slides: filmSlides(dir).length, addons });
+    const id = `a${addons.reduce((m, x) => Math.max(m, Number(String(x.id).slice(1)) || 0), 0) + 1}`;
+    const safe = path.basename(spec.file).normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/^-+/, '').slice(-80) || 'file';
+    const rel = path.join('assets', 'refine', `${id}-${safe}`);
+    fs.mkdirSync(path.join(dir, 'presentation', 'assets', 'refine'), { recursive: true });
+    fs.copyFileSync(spec.file, path.join(dir, 'presentation', rel), fs.constants.COPYFILE_FICLONE);
+    st.addons = [...addons, { id, ...a, file: rel, at: new Date().toISOString() }];
+    refineChanged(st);
+    episode.write(dir, st);
+    return open(dir);
+  }
+
+  /** Remove an add-on, its copied file, and any music that sat under it. */
+  function removeAddon(dir, id) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (refineBusy(st)) throw new Error('Refine is applying. Change the add-ons when it\'s done.');
+    const addons = st.addons || [];
+    if (!addons.some((x) => x.id === id)) throw new Error('That add-on is already gone.');
+    const gone = new Set([id, ...addons.filter((x) => x.under === id).map((x) => x.id)]);
+    for (const x of addons.filter((y) => gone.has(y.id))) if (x.file) fs.rmSync(path.join(dir, 'presentation', x.file), { force: true });
+    st.addons = addons.filter((x) => !gone.has(x.id));
+    refineChanged(st);
+    episode.write(dir, st);
+    return open(dir);
+  }
+
+  /**
+   * Apply: the add-ons on the approved film, with ffmpeg only (refine.apply): presentation_refined.mp4 and its
+   * CapCut-safe master. Nothing is filmed again and nothing is paid for. Ends in review (the preview) or error.
+   */
+  async function refine(dir, onLine = () => {}, signal) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
+    const addons = st.addons || [];
+    if (!addons.length) throw new Error('Add something first.');
+    const o = refineMod.outputs(dir);
+    if (!exists(o.film) || !exists(o.filmTimeline)) throw new Error('The film isn\'t there. Film it first.');
+    return exclusive(dir, async () => {
+      episode.setStage(dir, 'refine', { status: 'running', error: null });
+      try {
+        const r = await refineMod.apply({
+          pres: path.join(dir, 'presentation'), film: o.film, filmTimeline: o.filmTimeline, out: o, title: st.title,
+          addons: addons.map((a) => ({ ...a, path: path.join(dir, 'presentation', a.file) })),
+          python: d.pipeline.projectPython ? d.pipeline.projectPython(dir) : null,
+          realWords: path.join(d.engineRoot || '', 'skills', 'avatar-presentation', 'templates', 'hyperframes', 'real-words.py'),
+          env: { PATH: d.toolEnv().PATH, HOME: process.env.HOME || '', LANG: 'en_US.UTF-8' }, onLine, signal,
+          ...(d.refineTools || {}),
+        });
+        episode.setStage(dir, 'refine', { status: 'review', error: null, applied: { addons: refineMod.addonsKey(addons), film: refineMod.filmKey(o.film),
+          seconds: r.seconds, frames: r.frames, lufs: r.lufs, tp: r.tp, notes: r.notes.slice(0, 20), at: new Date().toISOString() } });
+        return { ok: true, video: r.video, notes: r.notes };
+      } catch (e) {
+        const error = signal && signal.aborted ? 'Stopped.' : d.redact(String(e && e.message ? e.message : e)).slice(0, 400);
+        episode.setStage(dir, 'refine', { status: 'error', error });
+        return { ok: false, error };
+      }
+    });
   }
 
   // ── Claude planning budget ──
@@ -204,6 +377,14 @@ function createFlow(d) {
     const s = episode.STAGES.find((x) => x.id === stageId);
     if (!s || !st.stages[stageId]) throw new Error('Unknown stage.');
     const status = st.stages[stageId].status;
+    if (stageId === 'refine') {
+      // Optional: with no add-ons it's simply approved; with some, once they're applied to this film.
+      if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
+      if (status === 'running') throw new Error('Refine is still applying.');
+      if (status === 'approved') throw new Error('There\'s nothing to approve yet.');
+      if ((st.addons || []).length && !refinedOutputs(dir, st)) throw new Error('Apply the add-ons first.');
+      return episode.setStage(dir, 'refine', { status: 'approved', skipped: !(st.addons || []).length });
+    }
     const ok = status === 'review' || (status === 'stale' && s.kind === 'agent');
     if (!ok) throw new Error('There\'s nothing to approve yet.');
     if (!episode.canRun(st, stageId)) throw new Error('Approve the earlier stages first.');
@@ -322,11 +503,92 @@ function createFlow(d) {
     return open(dir);
   }
 
-  function spendEstimate(dir) {
+  // ── what filming costs ──
+
+  // FLPT's own media.json entries reset for a new run: no clips (their timing would be wrong), and the cartoons'
+  // hidden bubbles (so no avatar clip is ever made or paid for them).
+  const resetMedia = (dir) => (d.motion ? d.motion.clear(dir) : motionLib.clearMedia(dir));
+  const PIPELINE_CPS = 14.5; // the pipeline's own pace for narration it hasn't synthesized yet (CHARS_PER_SEC)
+  // Voice alone is billed by the second at 0.2 cents: a few seconds at least, so any voice still to make is priced (and
+  // approved) at a cent or more, never at zero.
+  const voiceSeconds = (s) => (s > 0 ? Math.max(5, Math.round(s)) : 0);
+  const estimating = new Map(); // dir → the pipeline's estimate under way (a pipeline step waits for it to finish)
+
+  /**
+   * The pipeline's own estimate: what filming would make that isn't cached yet (generate_presentation_video.py --final
+   * under FLPT_ESTIMATE_ONLY: no keys, no network, nothing generated). Needs the slides rendered. Null when it can't
+   * say (no Python, an episode copy that can't be patched, no slides): then the script's estimate stands in.
+   */
+  async function pipelineEstimate(dir, { signal } = {}) {
+    if (!d.pipeline.estimate) return null;
+    try {
+      if (d.pipeline.patchScripts) await d.pipeline.patchScripts(dir, { signal }); // an episode made before the patch
+      motionLib.refreshMedia(dir); // the cartoons' hidden bubbles: their clips are never counted
+      const r = await d.pipeline.estimate(dir, { signal });
+      return r && r.code === 0 && r.estimate ? r.estimate : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The filming estimate. With the pipeline's numbers (`piped`): the avatar seconds still to film, and how many clips
+   * are already filmed (those cost nothing). Without them, from script.md: the avatar's seconds for every slide it
+   * presents. Either way, the slides narrated without the bubble (the Cosmos cartoons) count as voice alone.
+   */
+  function filmEstimate(dir, piped) {
+    let script = '';
+    try { script = fs.readFileSync(path.join(dir, 'presentation', 'script.md'), 'utf8'); } catch { /* none yet */ }
+    const hidden = new Set(motionLib.noBubbleSlides(dir));
+    const cartoons = new Set(motionLib.cosmosSlides(dir));
+    const parsed = episode.parseScript(script);
+    const per = episode.slideSeconds(parsed);
+    const voiceSlides = per.filter((s) => hidden.has(s.n));
+    const voiceLabel = voiceSlides.length && voiceSlides.every((s) => cartoons.has(s.n)) ? 'Cartoon narration (voice only)' : 'Voice only, no avatar';
+    const minutes = (s) => Math.round(s / 6) / 10;
+    let lines;
+    let film;
+    if (piped) {
+      const avatar = Math.round(piped.clipSeconds);
+      const filmed = piped.clipsTotal - piped.clips;
+      const label = !piped.clips ? (piped.clipsTotal ? `Your avatar: all ${piped.clipsTotal} clips already filmed` : 'Your avatar: no clips to film')
+        : `Your avatar for about ${minutes(avatar)} min${filmed ? ` (${filmed} of ${piped.clipsTotal} clips already filmed)` : ' of narration'}`;
+      lines = [{ rate: 'heygen_avatar_s', qty: avatar, label }];
+      const voice = voiceSeconds(piped.voiceChars / PIPELINE_CPS);
+      if (voice) lines.push({ rate: 'heygen_tts_s', qty: voice, label: voiceLabel });
+      // Nothing to pay at all: the script has narration, and every bit of it is already filmed and voiced.
+      const nothing = !piped.clips && !piped.chars && parsed.some((s) => s.narration.replace(/\[[^\]]*\]/g, '').trim());
+      film = { source: 'pipeline', clips: piped.clips, filmed, total: piped.clipsTotal, nothing };
+    } else {
+      const avatar = Math.round(per.filter((s) => !hidden.has(s.n)).reduce((a, s) => a + s.seconds, 0));
+      const voice = voiceSeconds(voiceSlides.reduce((a, s) => a + s.seconds, 0));
+      lines = [{ rate: 'heygen_avatar_s', qty: avatar, label: `Your avatar for about ${minutes(avatar)} min of narration` }];
+      if (voice) lines.push({ rate: 'heygen_tts_s', qty: voice, label: voiceLabel });
+      film = { source: 'script' };
+    }
+    return { ...estimate(lines), film };
+  }
+
+  /**
+   * What filming would cost now: the pipeline's count of what isn't filmed yet when it can give one, else the script's.
+   * Never alongside a pipeline step for this episode (then it's the script's estimate).
+   */
+  async function spendEstimate(dir) {
     dir = guard(dir);
-    const v = open(dir);
-    const secs = v.estimateSeconds || 0;
-    return estimate([{ rate: 'heygen_avatar_s', qty: secs, label: `Your avatar for about ${Math.round(secs / 6) / 10} min of narration` }]);
+    if (running.has(dir) || busy.has(dir)) return filmEstimate(dir, null);
+    if (!estimating.has(dir)) {
+      estimating.set(dir, pipelineEstimate(dir).finally(() => estimating.delete(dir)));
+    }
+    return filmEstimate(dir, await estimating.get(dir));
+  }
+
+  /** The approval dialog's line: the amount, and what it pays for. */
+  function spendDetail(est) {
+    const usd = est.byProvider.heygen ? est.byProvider.heygen.usd : 0;
+    const voice = est.lines.some((l) => l.rate === 'heygen_tts_s' && l.qty > 0);
+    const f = est.film || {};
+    const clips = f.source === 'pipeline' && f.filmed ? ` ${f.clips} of ${f.total} avatar clips to film: the other ${f.filmed} are already filmed.` : '';
+    return `About ${usd.toFixed(2)} US dollars (4.1 cents a second of avatar video${voice ? ' and 0.2 cents a second of voice alone' : ''}, plus up to 15 % margin).${clips} Nothing else will be charged.`;
   }
 
   async function approveSpend(dir) {
@@ -338,17 +600,24 @@ function createFlow(d) {
       if (st.stages.spend.status === 'approved') return { ok: true, usd: st.stages.spend.usd, already: true };
       d.broker.close(old); // the script changed since: that approval was for a different length
     }
-    const est = spendEstimate(dir);
+    const est = await spendEstimate(dir);
     const usd = est.byProvider.heygen ? est.byProvider.heygen.usd : 0;
-    if (!usd) throw new Error('The script has no narration to film.');
+    if (!usd) {
+      if (!est.film.nothing) throw new Error('The script has no narration to film.');
+      // Every clip is already filmed: nothing to pay, so nothing to approve. Filming puts it together from the cache.
+      const now = episode.read(dir);
+      now.stages.spend = { status: 'approved', at: new Date().toISOString(), usd: 0, free: true };
+      episode.write(dir, now);
+      return { ok: true, usd: 0, free: true };
+    }
     const ok = await d.confirm({ title: 'Spend money on HeyGen?', message: `Film "${st.title}" with your avatar?`,
-      detail: `About ${usd.toFixed(2)} US dollars (4.1 cents a second of avatar video, plus up to 15 % margin). Nothing else will be charged.`,
-      button: `Approve ${usd.toFixed(2)} US dollars` });
+      detail: spendDetail(est), button: `Approve ${usd.toFixed(2)} US dollars` });
     if (!ok) return { ok: false, cancelled: true };
     const tokens = d.broker.approve(est, { project: st.title, stage: 'film' });
-    st.budgets = { ...(st.budgets || {}), heygen: tokens.heygen };
-    st.stages.spend = { status: 'approved', at: new Date().toISOString(), usd };
-    episode.write(dir, st);
+    const now = episode.read(dir);
+    now.budgets = { ...(now.budgets || {}), heygen: tokens.heygen };
+    now.stages.spend = { status: 'approved', at: new Date().toISOString(), usd };
+    episode.write(dir, now);
     return { ok: true, usd };
   }
 
@@ -359,11 +628,13 @@ function createFlow(d) {
   async function moveSlides(dir, which, onLine, signal) {
     if (!d.motion) return [];
     try {
-      if (!d.motion.available()) {
-        if (d.motion.plan(dir).slides.length) onLine('Moving slides need HyperFrames (Setup → Tools), so the slides stay still for now.');
-        return [];
+      const hyperframes = d.motion.available();
+      if (!hyperframes) {
+        const p = d.motion.plan(dir);
+        if (p.slides.length) onLine('Moving slides need HyperFrames (Setup → Tools), so the slides stay still for now.');
+        if (!(p.insets || []).length) return []; // video insets need only ffmpeg: they still play
       }
-      const r = await d.motion.render(dir, which, { onLine, signal });
+      const r = await d.motion.render(dir, which, { onLine, signal, hyperframes });
       for (const p of r.problems) onLine(`! ${p}`);
       return r.rendered;
     } catch (e) {
@@ -382,7 +653,7 @@ function createFlow(d) {
       const r1 = await d.pipeline.render(dir, { onLine, signal });
       if (r1.code !== 0) return { ok: false, error: 'The slides didn\'t render.', lines: r1.lines.slice(-10) };
       // First the voice (its timing is what the moving slides follow), then the draft again with them in place.
-      if (d.motion) d.motion.clear(dir);
+      resetMedia(dir);
       let r = await d.pipeline.draft(dir, { onLine, signal });
       const out = d.pipeline.draftOutput(dir);
       let ok = r.code === 0 && exists(out);
@@ -427,31 +698,46 @@ function createFlow(d) {
     return moving.length;
   }
 
-  async function film(dir, onLine, signal) {
+  async function film(dir, onLine = () => {}, signal) {
     dir = guard(dir);
     const st = episode.read(dir);
     if (!episode.canRun(st, 'film')) throw new Error('Approve the spend first.');
     const token = st.budgets && st.budgets.heygen;
-    if (!token || !d.broker.isLive(token, 'heygen')) throw new Error('The HeyGen budget isn\'t approved (or was already used). Approve the spend again.');
+    const free = st.stages.spend.free === true; // nothing to pay: every clip was already filmed
+    if (!free && (!token || !d.broker.isLive(token, 'heygen'))) throw new Error('The HeyGen budget isn\'t approved (or was already used). Approve the spend again.');
     return exclusive(dir, async () => {
       episode.setStage(dir, 'film', { status: 'running', error: null });
       try {
         const r1 = await d.pipeline.render(dir, { onLine, signal });
         if (r1.code !== 0) { episode.setStage(dir, 'film', { status: 'error', error: 'The slides didn\'t render.' }); return { ok: false, lines: r1.lines.slice(-10) }; }
-        const est = spendEstimate(dir);
-        d.broker.authorize(token, 'heygen', { usd: est.byProvider.heygen ? est.byProvider.heygen.usd : 0, what: `${st.title}: film` });
+        // Filmed with still slides (the moving ones are timed to this voice next), and the cartoons without the bubble.
+        resetMedia(dir);
         let r;
-        try {
-          if (d.motion) d.motion.clear(dir); // filmed with still slides; the moving ones are timed to this voice next
-          r = await d.pipeline.final(dir, token, { onLine, signal });
-        } finally {
-          // One approval, one filming run: whatever happened, the next attempt needs a fresh approval.
-          d.broker.record(token, { what: `${st.title}: film`, code: r ? r.code : null });
-          d.broker.close(token);
+        if (free) {
+          // Put together from what was already filmed, with no keys and the network blocked (FLPT_CACHED_ONLY): it
+          // stops if anything isn't filmed after all. Like a budget, it's good for one run.
+          episode.setStage(dir, 'spend', { free: false });
+          onLine('Nothing to pay: putting the film together from what was already filmed…');
+          await d.pipeline.patchScripts(dir, { signal });
+          r = await d.pipeline.recompose(dir, { onLine, signal });
+        } else {
+          // Authorised against what filming costs now that the slides are rendered: only what isn't filmed yet.
+          const est = filmEstimate(dir, await pipelineEstimate(dir, { signal }));
+          if (est.film.source === 'pipeline') onLine(`To film: ${est.film.clips} of ${est.film.total} avatar clips (the rest are already filmed).`);
+          d.broker.authorize(token, 'heygen', { usd: est.byProvider.heygen ? est.byProvider.heygen.usd : 0, what: `${st.title}: film` });
+          try {
+            r = await d.pipeline.final(dir, token, { onLine, signal });
+          } finally {
+            // One approval, one filming run: whatever happened, the next attempt needs a fresh approval.
+            d.broker.record(token, { what: `${st.title}: film`, code: r ? r.code : null });
+            d.broker.close(token);
+          }
         }
         const ok = r.code === 0 && exists(d.pipeline.finalOutput(dir));
         const moving = ok ? await addMotionToFilm(dir, onLine, signal) : 0;
-        episode.setStage(dir, 'film', { status: ok ? 'review' : 'error', movingSlides: moving, error: ok ? null : (signal && signal.aborted ? 'Stopped.' : 'Filming didn\'t finish. See the log.') });
+        const error = ok ? null : signal && signal.aborted ? 'Stopped.'
+          : free ? 'It couldn\'t be put together from what was already filmed, so filming needs an approval. Nothing was spent.' : 'Filming didn\'t finish. See the log.';
+        episode.setStage(dir, 'film', { status: ok ? 'review' : 'error', movingSlides: moving, error });
         return { ok, video: ok ? d.pipeline.finalOutput(dir) : null, lines: r.lines.slice(-12) };
       } catch (e) {
         episode.setStage(dir, 'film', { status: 'error', error: d.redact(String(e.message || e)).slice(0, 400) });
@@ -462,23 +748,38 @@ function createFlow(d) {
 
   async function deliver(dir, onLine, signal) {
     dir = guard(dir);
-    const st = episode.read(dir);
-    if (!episode.canRun(st, 'deliver')) throw new Error('Approve the film first.');
+    let st = episode.read(dir);
+    if (!episode.canRun(st, 'deliver')) {
+      // Refine is optional: with no add-ons, delivering approves it on the way (FLPT for Claude Code relies on this).
+      if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
+      if ((st.addons || []).length || refineBusy(st)) throw new Error('Apply and approve the add-ons first (Refine).');
+      st = episode.setStage(dir, 'refine', { status: 'approved', skipped: true });
+    }
+    // The refined video and master when there are add-ons (they must be current), else the film's own.
+    const refined = refinedOutputs(dir, st);
+    if ((st.addons || []).length && !refined) throw new Error('The refined video is out of date: apply the add-ons again (Refine).');
+    const video = refined ? refined.video : d.pipeline.finalOutput(dir);
+    const master = refined ? refined.master : d.pipeline.editMasterOutput(dir);
     return exclusive(dir, async () => {
       episode.setStage(dir, 'deliver', { status: 'running', error: null });
       try {
-        const w = await d.pipeline.web(dir, { onLine, signal });
+        const w = await d.pipeline.web(dir, { onLine, signal, source: refined ? refined.video : null });
+        if (w.code === 0 && !writePlayerConfig(dir, d.pipeline.finalOutput(dir))) onLine('The player page keeps your own titles (player_config.json).');
         const p = w.code === 0 ? await d.pipeline.player(dir, { onLine, signal }) : w;
         const out = path.join(d.settings.read().deliverablesDir, episode.slugify(st.title));
         fs.mkdirSync(out, { recursive: true });
-        const copies = [[d.pipeline.finalOutput(dir), 'presentation.mp4'], [d.pipeline.editMasterOutput(dir), `${episode.slugify(st.title)} (for CapCut).mov`],
+        const copies = [[video, 'presentation.mp4'], [master, `${episode.slugify(st.title)} (for CapCut).mov`],
           [path.join(dir, 'presentation', 'script.md'), 'script.md']];
         for (const [src, name] of copies) if (exists(src)) fs.copyFileSync(src, path.join(out, name));
+        // CC BY music is credited, with what was done to it.
+        const credits = refined ? refineMod.musicCredits(st.addons, st.title) : null;
+        if (credits) fs.writeFileSync(path.join(out, 'music-credits.txt'), credits);
+        else fs.rmSync(path.join(out, 'music-credits.txt'), { force: true });
         const playerDir = path.join(dir, 'presentation', 'player');
         if (p.code === 0 && exists(playerDir)) fs.cpSync(playerDir, path.join(out, 'player'), { recursive: true });
-        episode.setStage(dir, 'deliver', { status: 'approved', folder: out, playerOk: p.code === 0 });
-        if (d.keep) Promise.resolve().then(() => d.keep(dir, 'deliver', { finalVideo: d.pipeline.finalOutput(dir) })).catch(() => {});
-        return { ok: true, folder: out, playerOk: p.code === 0, lines: p.lines ? p.lines.slice(-8) : [] };
+        episode.setStage(dir, 'deliver', { status: 'approved', folder: out, playerOk: p.code === 0, refined: Boolean(refined) });
+        if (d.keep) Promise.resolve().then(() => d.keep(dir, 'deliver', { finalVideo: video })).catch(() => {});
+        return { ok: true, folder: out, playerOk: p.code === 0, refined: Boolean(refined), lines: p.lines ? p.lines.slice(-8) : [] };
       } catch (e) {
         episode.setStage(dir, 'deliver', { status: 'error', error: d.redact(String(e.message || e)).slice(0, 400) });
         throw e;
@@ -487,7 +788,7 @@ function createFlow(d) {
   }
 
   return { list, create, open, runStage, cancel, approve, saveFile, spendEstimate, approveSpend, draft, film, deliver, inProjects,
-    addCall, removeCall, attachFiles, addCallLink };
+    addCall, removeCall, attachFiles, addCallLink, addAddon, removeAddon, refine };
 }
 
-module.exports = { createFlow, stageVars };
+module.exports = { createFlow, stageVars, playerConfig, writePlayerConfig };

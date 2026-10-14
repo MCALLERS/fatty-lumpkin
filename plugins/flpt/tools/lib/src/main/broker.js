@@ -3,31 +3,47 @@
 //
 // A human approves an itemised estimate; that mints a budget token with a cap. Every paid call must present a live
 // token for the right provider and fit under what's left of the cap, and every call is written to an append-only
-// ledger. Spending past the cap needs a new approval. In Phase 1 the agents' paid tools (generate_video,
-// generate_still, …) will call authorize() the same way; for Phase 0 the only paid action is the optional sample.
+// ledger. Spending past the cap needs a new approval. Paid work so far: the optional setup sample, filming, the crew's
+// planning budget, and generated media (generate.js: B-roll on Kie.ai or Higgsfield, one approval per job).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Rates measured in production (playbook Part 5). Estimates, shown to the user before any approval.
+// Rates measured in production (playbook Part 5) or read from the providers' own price pages (2026-10-13; see
+// docs/research/generation-apis.md). Estimates, shown to the user before any approval.
+// Kie.ai bills in credits at 0.005 US dollars each (Seedance 2.5 without a video input: 28, 63 and 158 credits a
+// second at 480p, 720p and 1080p). Higgsfield's API bills a prepaid US-dollar balance (not the higgsfield.ai plan
+// credits): 480p is its list price, 720p a published estimate, 1080p and the still are cautious guesses, and FLPT
+// asks Higgsfield's own free estimate endpoint for the exact price before every approval (unitUsd, below).
 const RATES = {
   heygen_avatar_s: { provider: 'heygen', unit: 'second of avatar video', usd: 0.041 },
   heygen_tts_s: { provider: 'heygen', unit: 'second of voice sample', usd: 0.002 },
-  kie_seedance_720p_s: { provider: 'kie', unit: 'second of video (720p)', usd: 0.315 },
-  kie_seedance_1080p_s: { provider: 'kie', unit: 'second of video (1080p)', usd: 0.63 },
-  higgsfield_seedance_720p_s: { provider: 'higgsfield', unit: 'second of video (720p)', credits: 7 },
-  higgsfield_seedance_1080p_s: { provider: 'higgsfield', unit: 'second of video (1080p)', credits: 12 },
-  higgsfield_still: { provider: 'higgsfield', unit: 'still (2K)', credits: 2 },
+  kie_seedance_480p_s: { provider: 'kie', unit: 'second of video (480p)', usd: 0.14, credits: 28 },
+  kie_seedance_720p_s: { provider: 'kie', unit: 'second of video (720p)', usd: 0.315, credits: 63 },
+  kie_seedance_1080p_s: { provider: 'kie', unit: 'second of video (1080p)', usd: 0.79, credits: 158 },
+  kie_still: { provider: 'kie', unit: 'still (Nano Banana Pro, 2K)', usd: 0.09, credits: 18 },
+  kie_cutout: { provider: 'kie', unit: 'cut-out (background removal)', usd: 0.005, credits: 1 },
+  higgsfield_seedance_480p_s: { provider: 'higgsfield', unit: 'second of video (480p)', usd: 0.21 },
+  higgsfield_seedance_720p_s: { provider: 'higgsfield', unit: 'second of video (720p)', usd: 0.47 },
+  higgsfield_seedance_1080p_s: { provider: 'higgsfield', unit: 'second of video (1080p)', usd: 1.16 },
+  higgsfield_still: { provider: 'higgsfield', unit: 'still (2K)', usd: 0.05 },
   anthropic_usd: { provider: 'anthropic', unit: 'US dollar of Claude usage (cap)', usd: 1 },
 };
 
+/**
+ * An itemised estimate. Each item: { rate, qty, label }, plus unitUsd / unitCredits when the provider quoted its own
+ * price for this exact job (Higgsfield's estimate endpoint), which then replaces the table's.
+ */
 function estimate(items) {
-  const lines = items.map(({ rate, qty, label }) => {
+  const lines = items.map(({ rate, qty, label, unitUsd, unitCredits }) => {
     const r = RATES[rate];
     if (!r) throw new Error(`unknown rate ${rate}`);
     const q = Math.max(0, Number(qty) || 0);
-    return { rate, label: label || r.unit, provider: r.provider, qty: q, unit: r.unit,
-      usd: r.usd != null ? +(r.usd * q).toFixed(2) : null, credits: r.credits != null ? Math.ceil(r.credits * q) : null };
+    const quoted = (v) => v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
+    const usd = quoted(unitUsd) ? Number(unitUsd) : r.usd;
+    const credits = quoted(unitCredits) ? Number(unitCredits) : r.credits;
+    return { rate, label: label || r.unit, provider: r.provider, qty: q, unit: r.unit, quoted: quoted(unitUsd) || quoted(unitCredits),
+      usd: usd != null ? +(usd * q).toFixed(2) : null, credits: credits != null ? Math.ceil(credits * q - 1e-9) : null };
   });
   const byProvider = {};
   for (const l of lines) {
@@ -95,13 +111,19 @@ function createBroker({ dir, now = () => new Date() }) {
    * After a capped call whose real cost is known: give back the unused part of what authorize() reserved, the way a
    * card pre-authorisation is settled. Never raises spending above what was authorised.
    */
-  function settle(token, { authorizedUsd = 0, actualUsd = 0, what = '' } = {}) {
+  function settle(token, { authorizedUsd = 0, actualUsd = 0, authorizedCredits = null, actualCredits = null, what = '' } = {}) {
     const b = load()[token];
     if (!b) return;
     const released = Math.max(0, Number(authorizedUsd) - Math.max(0, Number(actualUsd) || 0));
     b.spentUsd = Math.max(0, +(b.spentUsd - released).toFixed(4));
+    const entry = { kind: 'settle', token, provider: b.provider, authorizedUsd, actualUsd, releasedUsd: +released.toFixed(4), what };
+    if (authorizedCredits != null) { // a provider that bills in credits (Kie.ai) reports what it really took
+      const releasedCredits = Math.max(0, Math.floor(Number(authorizedCredits) - Math.max(0, Number(actualCredits) || 0)));
+      b.spentCredits = Math.max(0, b.spentCredits - releasedCredits);
+      Object.assign(entry, { authorizedCredits, actualCredits, releasedCredits });
+    }
     save();
-    log({ kind: 'settle', token, provider: b.provider, authorizedUsd, actualUsd, releasedUsd: +released.toFixed(4), what });
+    log(entry);
   }
 
   function record(token, entry) { log({ kind: 'job', token, ...entry }); }

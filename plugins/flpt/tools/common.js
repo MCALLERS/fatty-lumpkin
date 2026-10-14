@@ -165,12 +165,15 @@ function motionFor(pl) {
   const t = tools();
   const probe = (file) => new Promise((resolve, reject) => execFile(t.ffprobe || 'ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', file],
     { timeout: 30000, maxBuffer: 8 << 20 }, (err, out) => (err ? reject(err) : resolve(JSON.parse(String(out))))));
+  // the video insets play with ffmpeg
+  const ffmpeg = (args, { signal } = {}) => new Promise((resolve) => execFile(t.ffmpeg || 'ffmpeg', args, { maxBuffer: 16 << 20, signal },
+    (err, out, e) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, err: String(e || '') })));
   return {
     available: () => Boolean(t.node && t.ffmpeg && t.ffprobe),
     plan: (d) => motion.plan(d),
     clear: (d) => motion.clearMedia(d),
     render: (d, which, o = {}) => motion.render(d, which, { engineRoot: ROOT, fontCacheDir: path.join(places().config, 'deck-fonts'),
-      retime: (args, ro) => pl.retime(d, args, ro), probe, ...o }),
+      retime: (args, ro) => pl.retime(d, args, ro), probe, ffmpeg, ...o }),
   };
 }
 

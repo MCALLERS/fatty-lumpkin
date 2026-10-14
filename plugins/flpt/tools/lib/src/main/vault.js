@@ -6,13 +6,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// The keys FLPT knows. Anything else is refused, so a renderer bug can't fill the vault with junk.
+// The keys FLPT knows. Anything else is refused, so a renderer bug can't fill the vault with junk. Only the two the
+// app runs on are required: Anthropic (the crew) and HeyGen (narration and the avatar). The rest are for what comes
+// later or is optional, so Setup folds them away.
 const KEYS = {
   ANTHROPIC_API_KEY: { label: 'Anthropic (Claude)', required: true, help: 'console.anthropic.com → API keys' },
   HEYGEN_API_KEY: { label: 'HeyGen', required: true, help: 'app.heygen.com → Settings → API' },
-  ELEVENLABS_API_KEY: { label: 'ElevenLabs', required: true, help: 'elevenlabs.io → Developers → API keys' },
-  KIE_API_KEY: { label: 'Kie.ai', required: true, help: 'kie.ai → API keys' },
-  HIGGSFIELD_CREDENTIALS: { label: 'Higgsfield', required: true, help: 'console.higgsfield.ai → API keys ("key id:secret")' },
+  ELEVENLABS_API_KEY: { label: 'ElevenLabs (optional voice and music)', required: false, help: 'elevenlabs.io → Developers → API keys' },
+  KIE_API_KEY: { label: 'Kie.ai (generated B-roll, cartoons and cut scenes)', required: false, help: 'kie.ai → API keys' },
+  HIGGSFIELD_CREDENTIALS: { label: 'Higgsfield (generated B-roll, cartoons and cut scenes)', required: false, help: 'console.higgsfield.ai → API keys ("key id:secret")' },
   OPENART_API_KEY: { label: 'OpenArt (optional "film quality")', required: false, help: 'openart.ai → API' },
   GEMINI_API_KEY: { label: 'Gemini (optional voice clone)', required: false, help: 'aistudio.google.com → API keys' },
   OPENAI_API_KEY: { label: 'OpenAI (optional slop cleanse)', required: false, help: 'platform.openai.com → API keys' },

@@ -24,13 +24,15 @@ Usage: flpt-film [<episode>] --draft | --check | --final --approved <US dollars>
 const OPTIONS = { draft: { type: 'boolean' }, check: { type: 'boolean' }, final: { type: 'boolean' }, deliver: { type: 'boolean' }, approved: { type: 'string' } };
 const mtime = (p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } };
 const heygenUsd = (est) => (est.byProvider.heygen ? est.byProvider.heygen.usd : 0);
+// Every avatar clip is already filmed (the pipeline counted what isn't): nothing to pay.
+const nothingToPay = (est) => Boolean(!heygenUsd(est) && est.film && est.film.nothing);
 
 main(async () => {
   const { positionals, values } = cli(USAGE, OPTIONS);
   const modes = ['draft', 'check', 'final', 'deliver'].filter((m) => values[m]);
   if (modes.length !== 1) usageError(USAGE, 'Pick one of --draft, --check, --final or --deliver.');
   if (values.approved != null && !values.final) usageError(USAGE, '--approved goes with --final.');
-  if (values.final && !(Number(values.approved) > 0)) usageError(USAGE, '--final needs --approved <the amount the user said yes to, in US dollars>.');
+  if (values.final && !/^\d+(\.\d+)?$/.test(String(values.approved || ''))) usageError(USAGE, '--final needs --approved <the amount the user said yes to, in US dollars>.');
 
   const dir = episodeDir(positionals[0]);
   const episode = app('episode');
@@ -60,13 +62,14 @@ main(async () => {
     const r1 = await pl.render(dir, { onLine: line });
     if (r1.code !== 0) throw new Error('The slides didn\'t render.');
     const r = await pl.check(dir, { onLine: line });
-    const est = flow.spendEstimate(dir);
+    const est = await flow.spendEstimate(dir);
     const usd = heygenUsd(est);
+    const voice = est.lines.some((l) => l.rate === 'heygen_tts_s');
     say('');
-    say(usd ? `Estimate: about ${usd.toFixed(2)} US dollars. ${est.lines[0].label}, on HeyGen at 4.1 cents a second. The approval allows up to 15 % more, for re-tries.`
-      : 'The script has no narration to film yet.');
+    if (usd) say(`Estimate: about ${usd.toFixed(2)} US dollars on HeyGen. ${est.lines.map((l) => l.label).join('; ')}: 4.1 cents a second of avatar video${voice ? ', 0.2 cents of voice alone' : ''}. The approval allows up to 15 % more, for re-tries.`);
+    else say(nothingToPay(est) ? `Nothing to pay: ${est.film.total ? `all ${est.film.total} avatar clips are` : 'everything is'} already filmed.` : 'The script has no narration to film yet.');
     say(draftIsCurrent() ? 'Draft: there is one of the current script.' : 'Draft: none of the current script yet. Make it first (free) with --draft.');
-    if (usd) say(`Only after the user says yes: node "${__filename}" "${dir}" --final --approved ${usd.toFixed(2)}`);
+    if (usd || nothingToPay(est)) say(`Only after the user says yes: node "${__filename}" "${dir}" --final --approved ${usd.toFixed(2)}`);
     return r.code === 0 ? 0 : 1;
   }
 
@@ -74,15 +77,17 @@ main(async () => {
     const approved = Number(values.approved);
     if (!episode.canRun(st, 'spend')) throw new Error('Approve the script first.');
     if (!draftIsCurrent()) throw new Error('Make the free draft of the current script first (--draft), so the user can check its timing before paying.');
-    const usd = heygenUsd(flow.spendEstimate(dir));
-    if (!usd) throw new Error('The script has no narration to film.');
+    const est = await flow.spendEstimate(dir);
+    const usd = heygenUsd(est);
+    if (!usd && !nothingToPay(est)) throw new Error('The script has no narration to film.');
     if (usd > approved + 0.005) throw new Error(`Filming now comes to about ${usd.toFixed(2)} US dollars, more than the ${approved.toFixed(2)} the user approved. Show them the new estimate (--check) and ask again.`);
     // An older approval for a shorter script can't cover this one: close it, so this run gets its own.
     const old = st.budgets && st.budgets.heygen;
     if (old && st.stages.spend.status === 'approved' && (st.stages.spend.usd || 0) + 0.005 < usd) broker.close(old);
     const a = await flow.approveSpend(dir);
     if (!a.ok) throw new Error('Filming wasn\'t approved.');
-    say(`Approved by the user: ${approved.toFixed(2)} US dollars (estimate ${usd.toFixed(2)}; ledger in ${path.join(dir, 'spend')}). Filming…`);
+    say(a.free ? 'Nothing to pay: every avatar clip is already filmed, so the film is put together from them…'
+      : `Approved by the user: ${approved.toFixed(2)} US dollars (estimate ${usd.toFixed(2)}; ledger in ${path.join(dir, 'spend')}). Filming…`);
     const r = await flow.film(dir, line);
     if (!r.ok) throw new Error('Filming didn\'t finish. See the lines above.');
     say(`\nVideo: ${r.video}`);

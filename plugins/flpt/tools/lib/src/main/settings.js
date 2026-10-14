@@ -15,7 +15,9 @@ function defaults() {
     projectsDir: path.join(os.homedir(), 'Documents', 'FLPT'),
     deliverablesDir: path.join(os.homedir(), 'Desktop'),
     presenter: null, // { lookId, lookName, voiceId, voiceName, engine, bubble: {...} }
-    providers: { video: 'kie', stills: 'higgsfield', filmQuality: false }, // OpenArt only when filmQuality
+    // OpenArt only when filmQuality. Stills moved to Kie.ai on 2026-10-14 (Michael): Higgsfield's API has no Nano Banana
+    // Pro and no cut-outs. `v` marks settings saved since then.
+    providers: { video: 'kie', stills: 'kie', filmQuality: false, v: 2 },
     libraryDir: '', // the Asset Library; '' = <projectsDir>/Library (see libraryDirOf), else an absolute folder
     ytDlpPath: '', // Clippy's yt-dlp; '' = FLPT's pinned copy, then PATH and the usual places (toolchain.findYtDlp)
   };
@@ -24,6 +26,11 @@ function defaults() {
 /** Where the Library lives: the chosen folder, or "Library" inside the projects folder (so it follows that folder). */
 function libraryDirOf(s) {
   return s.libraryDir || path.join(s.projectsDir, 'Library');
+}
+
+/** The Transitions & Music repository: its own folder beside the Library, in the projects folder. */
+function addonsDirOf(s) {
+  return path.join(s.projectsDir, 'Transitions & Music');
 }
 
 const str = (v, max = 512) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -47,8 +54,10 @@ const SCHEMA = {
     const p = v && typeof v === 'object' ? v : {};
     return {
       video: VIDEO_ROUTES.includes(p.video) ? p.video : d.providers.video,
-      stills: VIDEO_ROUTES.includes(p.stills) ? p.stills : d.providers.stills,
+      // Before v2 nobody could choose the stills route (no screen for it), so a saved one is the old default.
+      stills: p.v === 2 && VIDEO_ROUTES.includes(p.stills) ? p.stills : d.providers.stills,
       filmQuality: p.filmQuality === true,
+      v: 2,
     };
   },
   libraryDir: (v) => (typeof v === 'string' && path.isAbsolute(v) ? path.resolve(v) : ''),
@@ -95,4 +104,4 @@ function createSettings({ dir }) {
   return { read, write, persisted: () => lastPersisted, file };
 }
 
-module.exports = { createSettings, defaults, libraryDirOf };
+module.exports = { createSettings, defaults, libraryDirOf, addonsDirOf };

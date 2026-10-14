@@ -17,9 +17,11 @@ const crypto = require('crypto');
 const linkmeta = require('./linkmeta');
 const { parseTime, formatTime } = require('./timecode');
 
-const KINDS = ['clip', 'image', 'article', 'website', 'wiki', 'video-link', 'audio', 'document', 'note', 'flpt'];
+// transition and music are the Transitions & Music repository's kinds (addons.js), which reuses this module.
+const KINDS = ['clip', 'image', 'article', 'website', 'wiki', 'video-link', 'audio', 'document', 'note', 'flpt', 'transition', 'music'];
 const LINK_KINDS = ['article', 'website', 'wiki', 'video-link'];
-const ADDED_BY = ['you', 'clippy', 'crew', 'import', 'episode'];
+const ADDED_BY = ['you', 'clippy', 'crew', 'import', 'episode', 'flpt'];
+const ADDON_STYLES = ['card', 'overlay'];
 const ID_RE = /^[a-z0-9][a-z0-9-]{2,90}$/;
 const RESERVED = new Set(['item.json', 'thumb.jpg', 'snapshot.png']);
 const EXTS = {
@@ -117,6 +119,19 @@ function linkKey(url) {
   return u.href.replace(/\/(?=$|\?)/, '');
 }
 
+/**
+ * How a generated item was made (generate.js): provider, model, the prompt sent, the line it pays off, the job id and
+ * what it cost. Null for anything that wasn't generated.
+ */
+function generatedOf(g) {
+  if (!g || typeof g !== 'object' || !str(g.provider, 40)) return null;
+  return {
+    provider: str(g.provider, 40), model: str(g.model, 120), prompt: str(g.prompt, 4000), line: str(g.line, 1000),
+    jobId: str(String(g.jobId == null ? '' : g.jobId), 200), costUsd: num(g.costUsd), credits: num(g.credits),
+    duration: num(g.duration), resolution: str(g.resolution, 12), aspect: str(g.aspect, 12), at: validIso(g.at),
+  };
+}
+
 /** Every item read from disk goes through here, so a hand-edited or damaged item.json can't break anything. */
 function normalize(raw, id) {
   const o = raw && typeof raw === 'object' ? raw : {};
@@ -124,13 +139,22 @@ function normalize(raw, id) {
   const inFolder = (v) => (typeof v === 'string' && v && !/[/\\]/.test(v) && v !== '.' && v !== '..' ? v : null);
   const clip = o.clip && typeof o.clip === 'object' ? { url: httpOrEmpty(o.clip.url), start: str(o.clip.start, 24), end: str(o.clip.end, 24) } : null;
   const origin = o.origin && typeof o.origin === 'object' ? { from: str(o.origin.from, 120), path: str(o.origin.path, 1000), id: str(String(o.origin.id == null ? '' : o.origin.id), 60) } : null;
+  const generated = generatedOf(src.generated);
+  // A transition or a piece of music: what FLPT needs to place it (a card or an overlay with its cut point) or credit it.
+  const a = o.addon && typeof o.addon === 'object' ? o.addon : null;
+  const addon = a ? {
+    ref: str(a.ref, 80), group: str(a.group, 60), style: ADDON_STYLES.includes(a.style) ? a.style : null,
+    cut: num(a.cut) != null && num(a.cut) >= 0 && num(a.cut) < 60 ? num(a.cut) : null,
+    credit: str(a.credit, 2000), license: str(a.license, 80), licenseUrl: httpOrEmpty(a.licenseUrl), changes: str(a.changes, 1000),
+  } : null;
   return {
     id: id || str(o.id, 100),
     kind: KINDS.includes(o.kind) ? o.kind : 'note',
     title: str(o.title, MAX.title).trim() || 'Untitled',
     notes: str(o.notes, MAX.notes),
     tags: cleanTags(o.tags),
-    source: { url: httpOrEmpty(src.url), site: str(src.site, 120), author: str(src.author, 200), authorUrl: httpOrEmpty(src.authorUrl), rights: str(src.rights, 400), description: str(src.description, 1000) },
+    source: { url: httpOrEmpty(src.url), site: str(src.site, 120), author: str(src.author, 200), authorUrl: httpOrEmpty(src.authorUrl), rights: str(src.rights, 400),
+      description: str(src.description, generated ? 4000 : 1000), ...(generated ? { generated } : {}) },
     file: inFolder(o.file),
     thumb: inFolder(o.thumb),
     snapshot: inFolder(o.snapshot),
@@ -148,6 +172,7 @@ function normalize(raw, id) {
     usedIn: Array.isArray(o.usedIn) ? o.usedIn.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.slice(0, 200)).slice(0, 500) : [],
     sha256: typeof o.sha256 === 'string' && /^[0-9a-f]{64}$/.test(o.sha256) ? o.sha256 : null,
     origin: origin && (origin.from || origin.path) ? origin : null,
+    addon: addon && Object.values(addon).some((v) => v !== null && v !== '') ? addon : null,
   };
 }
 
@@ -396,6 +421,7 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
         id, kind, title, notes: str(input.notes, MAX.notes), tags: input.tags, source: input.source || {}, file, audio,
         ...(t || {}), width, height, duration, bytes, clip: input.clip || null,
         addedBy: ADDED_BY.includes(input.addedBy) ? input.addedBy : 'you', addedAt: new Date().toISOString(), usedIn: [], sha256, origin: input.origin || null,
+        addon: input.addon || null,
       }, id);
       writeJsonAtomic(path.join(stage, 'item.json'), item);
       fs.mkdirSync(itemsDir, { recursive: true });
@@ -462,12 +488,16 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     try { return { file, raw: JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { throw new Error('That item isn\'t in the Library any more.'); }
   }
 
-  /** Change an item's title, notes or tags (nothing else). Unknown fields in item.json are kept as they are. */
+  /**
+   * Change an item's title, notes or tags (and, for a piece of music in the Transitions & Music repository, its credit
+   * line): nothing else. Unknown fields in item.json are kept as they are.
+   */
   function update(id, patch = {}) {
     const { file, raw } = readRaw(id);
     if (typeof patch.title === 'string' && patch.title.trim()) raw.title = patch.title.trim().slice(0, MAX.title);
     if (typeof patch.notes === 'string') raw.notes = patch.notes.slice(0, MAX.notes);
     if (patch.tags !== undefined) raw.tags = cleanTags(patch.tags);
+    if (typeof patch.credit === 'string' && raw.kind === 'music') raw.addon = { ...(raw.addon && typeof raw.addon === 'object' ? raw.addon : {}), credit: patch.credit.trim().slice(0, 2000) };
     raw.updatedAt = new Date().toISOString();
     writeJsonAtomic(file, raw);
     const item = normalize(raw, id);
@@ -653,7 +683,7 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     const by = ADDED_BY.includes(meta.addedBy) ? meta.addedBy : 'you';
     if (by === 'crew' && type !== 'image') throw new Error('The crew can save links and pictures to the Library, nothing else.');
     const kind = KINDS.includes(meta.kind) && !LINK_KINDS.includes(meta.kind) ? meta.kind : KIND_FOR_TYPE[type];
-    return add({ kind, file: p, title: meta.title, notes: meta.notes, tags: meta.tags, source: meta.source, clip: meta.clip, origin: meta.origin, addedBy: by });
+    return add({ kind, file: p, title: meta.title, notes: meta.notes, tags: meta.tags, source: meta.source, clip: meta.clip, origin: meta.origin, addon: meta.addon, addedBy: by });
   }
 
   /**

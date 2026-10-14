@@ -24,7 +24,20 @@ const KEYS_FOR = {
   player: [],
   motion: [], // moving slides: word timings and HyperFrames renders, all local
   recompose: [], // the filmed episode put back together from the cache, with no network (FLPT_CACHED_ONLY)
+  estimate: [], // what filming would make that isn't cached yet, with no network (FLPT_ESTIMATE_ONLY)
 };
+
+/** The estimate-only run's one JSON line, checked: { chars, clips, clipSeconds, clipsTotal, voiceChars } or null. */
+function parseEstimate(lines) {
+  const line = [...(lines || [])].reverse().find((l) => l.trim().startsWith('{"flpt_estimate"'));
+  let e;
+  try { e = JSON.parse(line).flpt_estimate; } catch { return null; }
+  const int = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+  const out = { chars: int(e && e.chars), clips: int(e && e.clips), clipSeconds: e && Number.isFinite(e.clip_seconds) && e.clip_seconds >= 0 ? e.clip_seconds : null,
+    clipsTotal: int(e && e.clips_total), voiceChars: int(e && e.voice_chars) };
+  if (Object.values(out).some((v) => v === null) || out.clips > out.clipsTotal || (out.clips > 0) !== (out.clipSeconds > 0)) return null;
+  return out;
+}
 
 // Commands that spend money, and the provider whose approved budget they need (see broker.js).
 const PAID = { final: 'heygen' };
@@ -123,6 +136,11 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
 
   const video = (projectDir) => path.join(projectDir, 'presentation', 'video');
   const projectPython = (projectDir) => path.join(video(projectDir), '.venv', 'bin', 'python');
+  const mainScript = (projectDir) => path.join(video(projectDir), 'generate_presentation_video.py');
+  // The runs that promise nothing can be spent need the episode's own copy of the pipeline to know the promise (an
+  // episode made before a patch gets it with patchScripts). Without it, they refuse rather than run a plain --final.
+  const knows = (projectDir, flag) => { try { return fs.readFileSync(mainScript(projectDir), 'utf8').includes(`os.environ.get("${flag}") == "1"`); } catch { return false; } };
+  const unpatched = (flag) => ({ code: 2, lines: [`Refused: this episode's copy of the pipeline doesn't know ${flag} yet.`], refused: true });
 
   return {
     scripts,
@@ -147,8 +165,18 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
     retime: (projectDir, args, opts = {}) => run({ kind: 'motion', python: projectPython(projectDir), script: args[0], args: args.slice(1), cwd: path.join(projectDir, 'presentation'), ...opts }),
     // Free: the filmed episode re-assembled from the cache, now with its moving slides. No keys and no network
     // (FLPT_CACHED_ONLY), so it can't generate or pay for anything: if something isn't cached, it stops.
-    recompose: (projectDir, opts = {}) => run({ kind: 'recompose', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--final', '--yes'], cwd: video(projectDir), ...opts, env: { FLPT_CACHED_ONLY: '1' } }),
-    web: (projectDir, opts = {}) => run({ kind: 'web', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--web'], cwd: video(projectDir), ...opts }),
+    recompose: async (projectDir, opts = {}) => (knows(projectDir, 'FLPT_CACHED_ONLY')
+      ? run({ kind: 'recompose', python: projectPython(projectDir), script: mainScript(projectDir), args: ['--final', '--yes'], cwd: video(projectDir), ...opts, env: { FLPT_CACHED_ONLY: '1' } })
+      : unpatched('FLPT_CACHED_ONLY')),
+    // Free: what filming would cost now, counting only what isn't cached yet (FLPT_ESTIMATE_ONLY: no keys, no network,
+    // nothing generated). Needs the slides rendered. Returns { code, lines, estimate } (estimate: see parseEstimate).
+    estimate: async (projectDir, opts = {}) => {
+      if (!knows(projectDir, 'FLPT_ESTIMATE_ONLY')) return { ...unpatched('FLPT_ESTIMATE_ONLY'), estimate: null };
+      const r = await run({ kind: 'estimate', python: projectPython(projectDir), script: mainScript(projectDir), args: ['--final'], cwd: video(projectDir), ...opts, env: { FLPT_ESTIMATE_ONLY: '1' } });
+      return { ...r, estimate: r.code === 0 ? parseEstimate(r.lines) : null };
+    },
+    // Free: the web parts. `source` is another video to make them from (Refine's), with its own .timeline.json beside it.
+    web: (projectDir, opts = {}) => run({ kind: 'web', python: projectPython(projectDir), script: path.join(video(projectDir), 'generate_presentation_video.py'), args: ['--web', ...(opts.source ? ['--web-source', opts.source] : [])], cwd: video(projectDir), ...opts }),
     player: (projectDir, opts = {}) => run({ kind: 'player', python: projectPython(projectDir), script: path.join(projectDir, 'presentation', 'player', 'build_player.py'), args: [], cwd: path.join(projectDir, 'presentation', 'player'), ...opts }),
     finalOutput: (projectDir) => path.join(video(projectDir), 'output', 'presentation.mp4'),
     editMasterOutput: (projectDir) => path.join(video(projectDir), 'output', 'presentation_for_editing.mov'),
@@ -157,4 +185,4 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
   };
 }
 
-module.exports = { createPipeline, parsePresenterEnv, PRESENTER_DEFAULTS, KEYS_FOR, PAID };
+module.exports = { createPipeline, parsePresenterEnv, parseEstimate, PRESENTER_DEFAULTS, KEYS_FOR, PAID };

@@ -58,6 +58,13 @@ function next(dir, st) {
   if (id === 'spend') return `Spend: the free draft (${tool('flpt-film')} ${q} --draft), then the estimate (--check), then ask the user.`;
   if (id === 'film') return s.status === 'review' ? `Film is ready: show the video. Approved: ${tool('flpt-episode')} approve ${q} film`
     : `Film: only after the user said yes to the estimate: ${tool('flpt-film')} ${q} --final --approved <amount>`;
+  if (id === 'refine') {
+    // Add-ons on the finished film are the Mac app's Refine step; with none, delivering approves it on the way.
+    const n = (st.addons || []).length;
+    if (!n) return `Deliver: ${tool('flpt-film')} ${q} --deliver (Refine, the Mac app's optional add-ons step, has nothing to add).`;
+    return s.status === 'review' ? `Refine: ${n} add-on${n === 1 ? '' : 's'} applied in the Mac app: show the refined video. Approved: ${tool('flpt-episode')} approve ${q} refine`
+      : `Refine: ${n} add-on${n === 1 ? '' : 's'} to apply in the Mac app (or remove there), then deliver.`;
+  }
   return s.status === 'approved' ? 'Delivered.' : `Deliver: ${tool('flpt-film')} ${q} --deliver`;
 }
 

@@ -25,3 +25,5 @@ Then run `/flpt:setup`, and `/flpt:new` to start an episode.
 | `/flpt:library [search … \| add … \| open]` | your Library, shared with the Mac app |
 
 Anything that costs money (HeyGen filming, any generation) runs only after you say yes to a stated amount.
+
+Third-party notices: `plugins/flpt/THIRD-PARTY-NOTICES.md`.

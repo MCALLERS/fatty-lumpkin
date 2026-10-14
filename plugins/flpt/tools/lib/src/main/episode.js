@@ -13,6 +13,8 @@ const STAGES = [
   { id: 'script', label: 'Script', kind: 'agent', model: 'opus', web: false, budgetUsd: 4 },
   { id: 'spend', label: 'Spend', kind: 'gate' },
   { id: 'film', label: 'Film', kind: 'pipeline' },
+  // Add-ons on the finished film (clips, transitions, music, b-roll), with ffmpeg only. Optional: with none, approve it.
+  { id: 'refine', label: 'Refine', kind: 'pipeline' },
   { id: 'deliver', label: 'Deliver', kind: 'pipeline' },
 ];
 const STAGE_IDS = STAGES.map((s) => s.id);
@@ -23,8 +25,22 @@ function slugify(title) {
 
 function stateFile(dir) { return path.join(dir, 'flpt-project.json'); }
 
+/**
+ * A record from before a stage existed gets it: Refine (added after 0.5.1) counts as approved for an episode already
+ * delivered, and is still to do for any other. The next write keeps it.
+ */
+function migrate(st) {
+  if (!st || typeof st !== 'object' || !st.stages || typeof st.stages !== 'object') return st;
+  for (const id of STAGE_IDS) {
+    if (st.stages[id] && typeof st.stages[id] === 'object') continue;
+    const delivered = st.stages.deliver && st.stages.deliver.status === 'approved';
+    st.stages[id] = { status: id === 'intake' || (id === 'refine' && delivered) ? 'approved' : 'todo' };
+  }
+  return st;
+}
+
 function read(dir) {
-  try { return JSON.parse(fs.readFileSync(stateFile(dir), 'utf8')); } catch { return null; }
+  try { return migrate(JSON.parse(fs.readFileSync(stateFile(dir), 'utf8'))); } catch { return null; }
 }
 
 function write(dir, state) {
@@ -123,14 +139,18 @@ function parseScript(text) {
  * 0.5 s per [pause] and 0.3 s per [short pause], plus the pipeline's 0.6 s tail per slide and the lead on slide 1.
  */
 function estimateSeconds(slides) {
-  let total = 0;
-  for (const [i, s] of slides.entries()) {
+  return Math.round(slideSeconds(slides).reduce((a, s) => a + s.seconds, 0));
+}
+
+/** The same estimate, slide by slide: [{ n, seconds }] (the lead before the first slide counts on that slide). */
+function slideSeconds(slides) {
+  return slides.map((s, i) => {
     const pauses = (s.narration.match(/\[pause\]/gi) || []).length;
     const short = (s.narration.match(/\[short pause\]/gi) || []).length;
     const chars = s.narration.replace(/\[[^\]]*\]/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().length;
-    total += chars / 16.5 + pauses * 0.5 + short * 0.3 + 0.6 + (i === 0 ? 0.5 : 0);
-  }
-  return Math.round(total);
+    return { n: s.n, seconds: chars / 16.5 + pauses * 0.5 + short * 0.3 + 0.6 + (i === 0 ? 0.5 : 0) };
+  });
 }
 
-module.exports = { STAGES, STAGE_IDS, slugify, read, write, create, current, canRun, setStage, addCost, parseScript, estimateSeconds, slideTarget, clean };
+module.exports = { STAGES, STAGE_IDS, slugify, read, write, create, current, canRun, setStage, addCost, parseScript, estimateSeconds,
+  slideSeconds, slideTarget, clean, migrate };

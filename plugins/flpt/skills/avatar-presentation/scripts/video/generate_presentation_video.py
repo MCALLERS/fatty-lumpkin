@@ -3393,6 +3393,12 @@ def cmd_render(cfg: dict, paths, args) -> int:
     if draft:
         engine = SayTTS(pick_say_voice(args.say_voice), args.say_rate)
     else:
+        # FLPT patch: the app's filming estimate (FLPT_ESTIMATE_ONLY=1) gets no keys: placeholders stand in (the network
+        # is blocked, and nothing is generated). Only when the app sets it.
+        if os.environ.get("FLPT_ESTIMATE_ONLY") == "1":
+            for k in provider_keys(tts_provider(cfg)) + ([] if args.no_avatar else ["HEYGEN_API_KEY"]):
+                if is_secret(k) and not cfg.get(k):
+                    cfg[k] = "estimate-only"
         provider = tts_provider(cfg)
         if os.environ.get("FLPT_CACHED_ONLY") == "1":  # FLPT patch: a cached-only run gets no keys (and no network)
             for k in provider_keys(provider) + ([] if args.no_avatar else ["HEYGEN_API_KEY"]):
@@ -3416,6 +3422,20 @@ def cmd_render(cfg: dict, paths, args) -> int:
         if os.environ.get("FLPT_CACHED_ONLY") == "1" and (new_chars or clip_n):  # FLPT patch
             die(f"cached-only: this run would need paid generation ({new_chars:,} characters, {clip_n} avatar "
                 f"clips), so it stopped. Nothing was generated.")
+        if os.environ.get("FLPT_ESTIMATE_ONLY") == "1":  # FLPT patch: the paid work as one JSON line, then stop
+            adir = paths.cache / "audio" / engine.tag
+            voice_chars = 0  # narration still to synthesize with no avatar clip (hidden-bubble slides, voiceovers)
+            for it in items:
+                if not it.text or (it.kind == "slide" and it.bubble):
+                    continue
+                spoken = spoken_text(engine, it.text)
+                rid = it.n if it.kind == "slide" else it.after
+                if spoken and (rid in regen or not (adir / f"{narration_hash(engine, spoken)}.wav").exists()):
+                    voice_chars += len(spoken)
+            print(json.dumps({"flpt_estimate": {"chars": new_chars, "clips": clip_n, "clip_seconds": round(clip_s, 2),
+                                                "clips_total": sum(1 for s in work_slides if s.bubble),
+                                                "voice_chars": voice_chars}}), flush=True)
+            return 0
         log("\n  Paid work in this run (anything already cached is free):")
         log(f"    {engine.label}: {new_chars:,} characters to synthesize")
         if not args.no_avatar:
@@ -3638,6 +3658,9 @@ def main() -> int:
         block_network()
     init_tools()
 
+    # FLPT patch: the app's filming estimate (FLPT_ESTIMATE_ONLY=1) never touches the network. Only when it's set.
+    if os.environ.get("FLPT_ESTIMATE_ONLY") == "1":
+        block_network()
     p = Paths()
     p.slides_dir = (args.slides_dir or PRES_DIR / "slides").expanduser().resolve()
     p.script = (args.script or PRES_DIR / "script.md").expanduser().resolve()

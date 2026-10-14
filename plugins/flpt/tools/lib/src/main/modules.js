@@ -39,8 +39,8 @@ const MODULES = [
     id: 'inset', name: 'Video insets',
     short: 'A clip playing inside a slide.',
     ask: 'Play this clip inside slide 3 while I talk about the launch.',
-    now: 'the slide with the clip\'s frame and poster, plus the inset\'s exact placement for your editor',
-    crew: 'Design the slide with a clear frame for the clip (about 40 % of the width, a thin rule or a monitor/TV drawn around it, clear of the bubble corner) and show the clip\'s poster frame inside it (an <img> through deck/asset_map.json). Record in modules.json the clip (its path), the frame\'s exact rectangle on the 1920×1080 slide, the in and out points, and the sound policy (muted unless the user says otherwise). Never fetch or download video yourself: use only clips the user attached or picked from their Library.',
+    now: 'the slide with the clip playing in its frame, from its cue to its out point (muted unless the user wants its sound)',
+    crew: 'Design the slide with a clear frame for the clip (about 40 % of the width, a thin rule or a monitor/TV drawn around it, clear of the bubble corner) and show the clip\'s poster frame inside it (an <img> through deck/asset_map.json): the slide shows it before and after the clip plays. Record the inset in modules.json (see "inset" under Output): the clip (its path), the frame\'s exact rectangle on the 1920×1080 slide, the in and out points, the sound ("muted" unless the user wants it "on"), and the cue: the narration\'s words when it starts. Never fetch or download video yourself: use only clips the user attached or picked from their Library.',
   },
   {
     id: 'infographic', name: 'Infographics',

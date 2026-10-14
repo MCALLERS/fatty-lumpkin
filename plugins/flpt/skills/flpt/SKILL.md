@@ -22,7 +22,7 @@ One at a time. After each one, show the user what it made and **stop for their a
 5. **Script.** `prompt <episode> script`.
 6. **Spend.** Make the free draft (`flpt-film <episode> --draft`, in the Mac's own voice) and give the user its path. Then `flpt-film <episode> --check` for the estimate, and ask: "Film it for about N US dollars?" Stop there.
 7. **Film.** Only after a clear yes in the user's own next message: `flpt-film <episode> --final --approved N`, in the background (it takes a while). Then show the video.
-8. **Deliver.** `flpt-film <episode> --deliver`.
+8. **Deliver.** `flpt-film <episode> --deliver`. (The Mac app's optional Refine step, for clips, transitions, music and b-roll on the finished film, is approved on the way when there's nothing to add.)
 
 To pick an episode up later: `flpt-episode status <episode>`.
 

@@ -58,7 +58,7 @@ At most one memorable line per slide, said plainly.
 **Modules:** a slide's stage note names its module. Write the narration to fit it:
 - **Motion slides:** say the words its builds are cued on, in that order.
 - **A Cosmos cartoon:** its narration is the vignette's (40–70 s, the bubble hidden), with the phrases that cue its keyframes. The stage note says `> Cosmos-style cartoon, narrated, bubble hidden.`
-- **A video inset:** leave room for the clip.
+- **A video inset:** leave room for the clip, and say its cue (the inset's `cue` in modules.json), word for word: the clip starts on those words.
 
 **Punctuation:** if a slide has a clip slot, B-roll payoff or interruption, mark it in a stage note:
 - `> Optional clip slot: <moment, official source>`

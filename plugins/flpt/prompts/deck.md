@@ -39,11 +39,12 @@ The deck's power comes from seven repeatable modules. Every slide is built as on
 ```json
 { "slides": {
     "<slide-id>": { "module": "chart", "call": "c1", "builds": [ … see Builds … ], "brief": "briefs/<slide-id>.md",
-                    "inset": { "clip": "assets/calls/c2-clip.mp4", "rect": { "x": 980, "y": 260, "w": 760, "h": 428 }, "in": 0, "out": 6.5, "sound": "muted" } } },
+                    "inset": { "clip": "assets/calls/c2-clip.mp4", "rect": { "x": 980, "y": 260, "w": 760, "h": 428 }, "in": 0, "out": 6.5, "sound": "muted", "cue": "watch what happens" } } },
   "cutscenes": [ { "after": "<slide-id>", "call": null, "brief": "briefs/cutscene-1.md" } ] }
 ```
 - Every slide gets an entry. `module` is one of `chart`, `sketch`, `motion`, `cosmos`, `inset`, `infographic`, or `statement` for a plain statement slide.
 - `call`, `builds`, `brief` and `inset` are optional: use them when they apply.
+- **`inset`** (a video inset; the app plays it): `clip` is the clip's path in your folder (`assets/calls/…`, or `assets/library/…` for a Library item); `rect` is the frame's exact rectangle on the 1920×1080 slide; `in` and `out` are seconds into the clip; `sound` is `"muted"`, or `"on"` when the user wants the clip's sound (then the script leaves room for it); `cue` (optional) is the narration's exact words when the clip starts, else it starts half a second into the slide.
 
 **Builds.** The app animates them exactly as written: each slide builds as it's narrated, toward the frame you designed.
 ```json
