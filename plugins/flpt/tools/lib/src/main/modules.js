@@ -18,8 +18,8 @@ const MODULES = [
     id: 'sketch', name: 'Hand-drawn charts',
     short: 'Your notebook sketch, drawn stroke by stroke.',
     ask: 'Animate the chart in this photo of my notebook.',
-    now: 'the drawing, which draws itself stroke by stroke as it\'s narrated',
-    crew: 'The whiteboard look: a warm-white board (#FBFAF6), marker strokes as SVG paths (one continuous path per stroke, 6–10 px, round caps, a slight hand wobble), ink plus one or two accent inks, hand-lettered labels of 1–3 words in Caveat (add the Caveat face to deck.json), and an underline or circle on the punchline. Doodle concrete things, not boxes and arrows. When the user attaches a photo of their notebook, Read it and reproduce what it shows (the chart\'s shape, axes, labels, numbers, arrows and doodles) faithfully and cleanly; anything you can\'t read becomes [needs number] and goes in your report. It draws itself: a "draw" build with "pen": true for each stroke (or each doodle, with drawStagger), cued to its word, and labels written on with "wipe". Read the playbook, Part 1 §4.',
+    now: 'the drawing, which draws itself stroke by stroke as it\'s narrated (marked "animate", the animator crew draws it with the method\'s doodle kit and marker)',
+    crew: 'The whiteboard look: a warm-white board (#FBFAF6), marker strokes as SVG paths (one continuous path per stroke, 6–10 px, round caps, a slight hand wobble), ink plus one or two accent inks, hand-lettered labels of 1–3 words in Caveat (add the Caveat face to deck.json), and an underline or circle on the punchline. Doodle concrete things, not boxes and arrows. When the user attaches a photo of their notebook, Read it and reproduce what it shows (the chart\'s shape, axes, labels, numbers, arrows and doodles) faithfully and cleanly; anything you can\'t read becomes [needs number] and goes in your report. It draws itself: a "draw" build with "pen": true for each stroke (or each doodle, with drawStagger), cued to its word, and labels written on with "wipe". Mark the talk\'s whiteboard sketch "animate" (see Output) so the animator crew draws it with the kit. Read the playbook, Part 1 §4.',
   },
   {
     id: 'motion', name: 'Motion graphics',
@@ -32,8 +32,8 @@ const MODULES = [
     id: 'cosmos', name: 'Cosmos cartoons',
     short: 'A backstory, told as a narrated cartoon.',
     ask: 'Make this short story a Cosmos cartoon and tie it to the main point.',
-    now: 'the vignette\'s brief and a title card (the cartoon is generated later, after you approve its cost)',
-    crew: 'A narrated slide becomes a short painted documentary with the presenter\'s bubble hidden: 4–6 painted keyframes, each cued to a verbatim narration phrase, slow pushes and parallax, ink-wipes between beats, 40–70 s of narration. Write its brief to deck/project/briefs/<slide-id>.md: the story in a few lines, how it ties to the through line, the keyframes (one line each, with the phrase that cues it), the narration lines, and the style (the series\' style frame if there is one; otherwise storybook limited animation: ink and teal shadows, amber light, one oxblood accent, no photoreal, no text in the art). Historical people are stylised, never look-alikes. The slide itself is the vignette\'s title card: a small CARTOON · TITLE label and one evocative line on a dark, painterly background. Read the playbook, Part 1 §5, and templates/hyperframes/examples/cartoon/BRIEF.md.',
+    now: 'the title card, the brief and the beats in modules.json (the app makes the cartoon from them in its Scenes step, each step priced and approved by the user)',
+    crew: 'A narrated slide becomes a short painted documentary with the presenter\'s bubble hidden: 4–6 painted keyframes, each cued to a verbatim narration phrase, slow pushes, ink-wipes between beats, one beat animated, 40–70 s of narration. Write its brief to deck/project/briefs/<slide-id>.md (the story in a few lines, how it ties to the through line, the narration lines) and its beats in modules.json (see "cartoon"): each keyframe\'s picture and the words that cue it, one marked as the hero. The style is the series\' style frame if there is one; otherwise storybook limited animation: ink and teal shadows, amber light, one oxblood accent, no photoreal, no text in the art. People by role, never by name: no real or famous people and no look-alikes. The slide itself is the vignette\'s title card: a small CARTOON · TITLE label and one evocative line on a dark, painterly background. Read the playbook, Part 1 §5, and templates/hyperframes/examples/cartoon/BRIEF.md.',
   },
   {
     id: 'inset', name: 'Video insets',
@@ -53,8 +53,8 @@ const MODULES = [
     id: 'cutscene', name: 'Cut scenes',
     short: 'A cinematic beat between slides.',
     ask: 'After slide 6, cut to the negotiation room at 2 a.m.',
-    now: 'its brief and its place in the episode (it\'s generated later, after you approve its cost)',
-    crew: 'A 5–15 s cinematic payoff between two slides, with no slide of its own. Write its brief to deck/project/briefs/cutscene-<n>.md: the line it pays off, 2–4 shots (one line each), the look, and the sound. Record where it plays (after which slide) in modules.json. Read references/cutscenes.md.',
+    now: 'its brief and its plan in modules.json (the app makes it from them in its Scenes step, each step priced and approved by the user)',
+    crew: 'An 8–20 s cinematic payoff between two slides, with no slide of its own. Write its brief to deck/project/briefs/cutscene-<n>.md (the line it pays off, the look, the sound) and plan it in modules.json (see "cutscenes"): after which slide it plays, the place, and 2–4 shots of 4–8 s, each with its first frame and what happens in it. Anyone in it is an anonymous stranger; no text, signs or logos. Read references/cutscenes.md.',
   },
 ];
 // What a call says when it starts from a file (the user can edit it before adding the call).

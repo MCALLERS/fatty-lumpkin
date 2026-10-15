@@ -12,7 +12,7 @@ const path = require('path');
 const KEYS = {
   ANTHROPIC_API_KEY: { label: 'Anthropic (Claude)', required: true, help: 'console.anthropic.com → API keys' },
   HEYGEN_API_KEY: { label: 'HeyGen', required: true, help: 'app.heygen.com → Settings → API' },
-  ELEVENLABS_API_KEY: { label: 'ElevenLabs (optional voice and music)', required: false, help: 'elevenlabs.io → Developers → API keys' },
+  ELEVENLABS_API_KEY: { label: 'ElevenLabs (optional voice, music and cutting laughs)', required: false, help: 'elevenlabs.io → Developers → API keys' },
   KIE_API_KEY: { label: 'Kie.ai (generated B-roll, cartoons and cut scenes)', required: false, help: 'kie.ai → API keys' },
   HIGGSFIELD_CREDENTIALS: { label: 'Higgsfield (generated B-roll, cartoons and cut scenes)', required: false, help: 'console.higgsfield.ai → API keys ("key id:secret")' },
   OPENART_API_KEY: { label: 'OpenArt (optional "film quality")', required: false, help: 'openart.ai → API' },

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tighten.py — shorten over-long pauses and cut laughs in a FINISHED talk video, keeping picture and sound in sync.
 
-    python3 tighten.py <talk dir> [--laughs t1-t2,...] [--apply]
+    python3 tighten.py <talk dir> [--laughs t1-t2,...] [--hold t=secs,...] [--apply]
 
 Input: <talk>/presentation/video/output/presentation.mp4 + presentation.timeline.json, and tighten/scribe.json
 (ElevenLabs Scribe word timings of the narration, made from that mp4's audio). Needs numpy.
@@ -10,6 +10,8 @@ Rules (2026-10-08, the user's ask: "dead space that's silent for just a bit too 
   - Pauses between words inside one slide longer than GAP_MIN (1.1 s) shrink to KEEP_SENT (0.75 s) after a sentence
     end / "Hmm.", or KEEP_MID (0.6 s) otherwise. Pauses spanning two slides shrink to KEEP_X (1.0 s), cut inside the
     first slide's tail only.
+  - Holds: --hold t=secs keeps the pause that contains master time t at secs instead (a scripted [long pause] beat,
+    e.g. after a question Scribe transcribed without its "?").
   - Laughs: the given ranges (found from Scribe audio events + the loudness envelope) are removed with the silence
     around them trimmed so the sentence gap left is about 0.5–0.65 s.
   - Never cut in cut scenes, in a slide's first 0.4 s (the crossfade) or its last frame. Cuts snap to whole frames
@@ -53,6 +55,10 @@ def main():
     if "--laughs" in sys.argv:
         for part in sys.argv[sys.argv.index("--laughs") + 1].split(","):
             a, b = part.split("-"); laughs.append((float(a), float(b)))
+    holds = []
+    if "--hold" in sys.argv:
+        for part in sys.argv[sys.argv.index("--hold") + 1].split(","):
+            t, k = part.split("="); holds.append((float(t), float(k)))
     out = talk / "presentation/video/output"
     mp4 = out / ("presentation_uncut.mp4" if (out / "presentation_uncut.mp4").exists() else "presentation.mp4")
     tlp = out / ("presentation_uncut.timeline.json" if (out / "presentation_uncut.timeline.json").exists() else "presentation.timeline.json")
@@ -113,10 +119,13 @@ def main():
         if any(not (w1["start"] <= a or w0["end"] >= b) for a, b in laughs):
             continue
         sent = bool(re.search(r"[.?!]\W*$", w0["text"])) or w1["text"].lower().startswith("hmm")
+        hold = next((k for t, k in holds if w0["end"] <= t <= w1["start"]), None)
         if s0 is s1:
             keep = KEEP_SENT if sent else KEEP_MID
+            if hold is not None:
+                keep = hold
             lo = max(w0["end"] + PRE_KEEP, s0[2] + XFADE_GUARD); hi = min(w1["start"] - POST_KEEP, s0[3] - EDGE_GUARD)
-            why = f"pause {g:.2f}s → {keep:.2f}s, slide {s0[1]} ('{w0['text']}' … '{w1['text']}')"
+            why = f"pause {g:.2f}s → {keep:.2f}s, slide {s0[1]} ('{w0['text']}' … '{w1['text']}')" + (" [hold]" if hold is not None else "")
         else:
             keep = KEEP_X
             lo = w0["end"] + PRE_KEEP; hi = s0[3] - EDGE_GUARD

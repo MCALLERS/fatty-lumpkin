@@ -5,7 +5,7 @@
 //   status    where the episode is, step by step
 //   modules   the seven deck modules, for the user's calls
 //   call      record a call for the deck (with files, links or Library items), or remove one
-//   prompt    a step's instructions: the app's prompt for it, filled the way the app fills it
+//   prompt    a step's instructions: the app's prompt for it, filled the way the app fills it (Animate: one per slide)
 //   approve   the user approved a step
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +20,7 @@ Usage: flpt-episode <command> …
   call [<episode>] --module <id> --ask "<what the user wants>" [--slide <n>] [--attach <file>]… [--link <url>]… [--item <id>]…
   call [<episode>] --remove <call id>
   prompt [<episode>] bullets|factcheck|deck|script [--notes "<the user's notes on the last version>"]
+  prompt [<episode>] animate --slide <n> [--notes "…"]
   approve [<episode>] <step>
 <episode> is the episode's folder (default: the one you're in, else the newest).`;
 
@@ -55,17 +56,32 @@ function next(dir, st) {
     return s.status === 'review' ? `${label(id)} is ready: show it to the user. Approved: ${tool('flpt-episode')} approve ${q} ${id}`
       : `${label(id)}: ${tool('flpt-episode')} prompt ${q} ${id}`;
   }
+  if (id === 'animate') {
+    const marked = app('animators').marked(dir).map((x) => x.n);
+    return s.status === 'review' ? `Animate is ready: show the user each slide's preview (hyperframes/slide_NN/renders/preview.mp4). Approved: ${tool('flpt-episode')} approve ${q} animate`
+      : `Animate: slide${marked.length === 1 ? '' : 's'} ${marked.join(', ')} ${marked.length === 1 ? 'is' : 'are'} marked for an animation of its own. For each: ${tool('flpt-episode')} prompt ${q} animate --slide <n>. To skip them: approve ${q} animate.`;
+  }
+  if (id === 'scenes') {
+    // Cosmos cartoons and cut scenes are made in the Mac app's Scenes step (Kie.ai or Higgsfield, each step approved there).
+    const p = app('scenes').plan(dir);
+    const n = p.cartoons.length + p.cutscenes.length;
+    return `Scenes: ${n} cartoon${n === 1 ? ' or cut scene' : 's and cut scenes'} planned, made in the Mac app. To go on with their placeholders: ${tool('flpt-episode')} approve ${q} scenes`;
+  }
   if (id === 'spend') return `Spend: the free draft (${tool('flpt-film')} ${q} --draft), then the estimate (--check), then ask the user.`;
   if (id === 'film') return s.status === 'review' ? `Film is ready: show the video. Approved: ${tool('flpt-episode')} approve ${q} film`
     : `Film: only after the user said yes to the estimate: ${tool('flpt-film')} ${q} --final --approved <amount>`;
   if (id === 'refine') {
     // Add-ons on the finished film are the Mac app's Refine step; with none, delivering approves it on the way.
     const n = (st.addons || []).length;
-    if (!n) return `Deliver: ${tool('flpt-film')} ${q} --deliver (Refine, the Mac app's optional add-ons step, has nothing to add).`;
+    const tight = Boolean(st.tighten && st.tighten.on);
+    if (!n && tight && s.status !== 'review') return `Refine: tightening is on: ${tool('flpt-film')} ${q} --tighten on applies it (free), then show the video.`;
+    if (!n && !tight) return `Deliver: ${tool('flpt-film')} ${q} --deliver (Refine, the Mac app's optional add-ons step, has nothing to add).`;
+    if (!n) return `Refine: tightened: show the video. Approved: ${tool('flpt-episode')} approve ${q} refine`;
     return s.status === 'review' ? `Refine: ${n} add-on${n === 1 ? '' : 's'} applied in the Mac app: show the refined video. Approved: ${tool('flpt-episode')} approve ${q} refine`
       : `Refine: ${n} add-on${n === 1 ? '' : 's'} to apply in the Mac app (or remove there), then deliver.`;
   }
-  return s.status === 'approved' ? 'Delivered.' : `Deliver: ${tool('flpt-film')} ${q} --deliver`;
+  return s.status === 'approved' ? `Delivered. After the user's own edit, the Slack pack: ${tool('flpt-film')} ${q} --slack <their export>`
+    : `Deliver: ${tool('flpt-film')} ${q} --deliver`;
 }
 
 function showCalls(st) {
@@ -148,9 +164,40 @@ async function cmdCall(arg, values) {
   showCalls({ calls: episode.read(dir).calls.filter((c) => c.id === id) });
 }
 
+/** An animator's instructions for one marked slide: the app's prompt, with its tools as flpt-animate commands. */
+function animatePrompt(dir, st, values, notes) {
+  const animators = app('animators');
+  const slide = animators.marked(dir).find((s) => s.n === Number(values.slide));
+  if (!slide) throw Object.assign(new Error(`--slide is one of the slides marked for an animation: ${animators.marked(dir).map((s) => s.n).join(', ') || 'none'}.`), { usage: true });
+  episode.setStage(dir, 'animate', { status: 'running', feedback: notes || null });
+  episode.setStage(dir, 'animate', { status: 'review' });
+  const { prompt, house } = app('agents').stagePrompt({ stageId: 'animate', engineRoot: ROOT, vars: animators.promptVars(dir, slide, st.title), feedback: notes });
+  const a = (c) => `\`node "${path.join(__dirname, 'flpt-animate.js')}" ${c} "${dir}" --slide ${slide.n}\``;
+  const adapter = [
+    '## In Claude Code',
+    `You're the animator, in chat with the user. You work in \`${path.join(dir, 'presentation')}\`, and the paths in your stage are relative to it. Read only this episode and the method, and write only inside \`hyperframes/slide_${String(slide.n).padStart(2, '0')}/\`.`,
+    '- **Your `flpt` tools are commands here:**',
+    `  - \`start_slide\`: ${a('start')} (add \`--from whiteboard-sketch\` and the like, \`--fresh\` to start again)`,
+    `  - \`use_picture\`: ${a('picture')} followed by the picture's path`,
+    `  - \`narration_timing\`: ${a('timing')}`,
+    `  - \`align_beats\`: ${a('align')}`,
+    `  - \`snapshot\`: ${a('snapshot')} --at 2.5,9`,
+    `  - \`render_preview\`: ${a('render')} (add \`--at 2.5,9\` for frames of your own)`,
+    `  - \`compare_with_slide\`: ${a('compare')}`,
+    `- **When the slide is done:** ${a('done')}, then give your report and stop: the user approves Animate or asks for changes.`,
+    '- **The shell** is for these commands, nothing else. No web: everything the slide needs is local.',
+  ].join('\n');
+  say(`${house.trim()}\n\n${adapter}\n\n${prompt.trim()}`);
+}
+
 function cmdPrompt(rest, values) {
+  if (rest.includes('animate')) {
+    const { dir, st } = open(rest.find((r) => r !== 'animate'));
+    if (!episode.canRun(st, 'animate')) throw new Error(`Approve ${label(STEPS.slice(1).find((id) => st.stages[id].status !== 'approved'))} first.`);
+    return animatePrompt(dir, st, values, values['notes-file'] ? fs.readFileSync(path.resolve(values['notes-file']), 'utf8') : values.notes || '');
+  }
   const step = rest.find((r) => AGENT.includes(r));
-  if (!step) throw Object.assign(new Error(`prompt needs a step: ${AGENT.join(', ')}.`), { usage: true });
+  if (!step) throw Object.assign(new Error(`prompt needs a step: ${[...AGENT, 'animate'].join(', ')}.`), { usage: true });
   const { dir, st } = open(rest.find((r) => r !== step));
   if (!episode.canRun(st, step)) throw new Error(`Approve ${label(STEPS.slice(1).find((id) => st.stages[id].status !== 'approved'))} first.`);
   const notes = values['notes-file'] ? fs.readFileSync(path.resolve(values['notes-file']), 'utf8') : values.notes || '';

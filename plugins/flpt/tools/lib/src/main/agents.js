@@ -108,20 +108,33 @@ async function runStage({ stage, projectDir, engineRoot, vars, feedback = '', re
 
   const abort = new AbortController();
   if (signal) signal.addEventListener('abort', () => abort.abort(), { once: true });
-  const options = {
+  const options = sessionOptions({
+    presDir, engineRoot, model: stage.model, canUseTool: policy({ presDir, engineRoot, web: Boolean(stage.web) }), mcpServers: { flpt },
+    house, maxTurns: stage.id === 'deck' ? 80 : 50, budgetUsd: stage.budgetUsd, abort, resume,
+  }, deps);
+  return runSession({ sdk, prompt, options, abort, onEvent });
+}
+
+/**
+ * The options every crew session shares: the bundled method and only its two skills, none of the user's own Claude
+ * settings, no shell, an environment with only the Anthropic key, no telemetry. `tools` and `disallowed` narrow it
+ * further for a crew that needs less (the animators: no web).
+ */
+function sessionOptions({ presDir, engineRoot, model, tools = TOOLS, disallowed = [], canUseTool, mcpServers, house, maxTurns, budgetUsd, abort, resume }, deps) {
+  return {
     cwd: presDir,
-    model: stage.model,
+    model,
     plugins: [{ type: 'local', path: engineRoot }],
     settingSources: [],
     skills: SKILLS,
-    tools: TOOLS,
-    disallowedTools: NEVER,
+    tools,
+    disallowedTools: [...NEVER, ...disallowed],
     permissionMode: 'default',
-    canUseTool: policy({ presDir, engineRoot, web: Boolean(stage.web) }),
-    mcpServers: { flpt },
+    canUseTool,
+    mcpServers,
     systemPrompt: { type: 'preset', preset: 'claude_code', append: house },
-    maxTurns: stage.id === 'deck' ? 80 : 50,
-    maxBudgetUsd: stage.budgetUsd,
+    maxTurns,
+    maxBudgetUsd: budgetUsd,
     abortController: abort,
     env: {
       PATH: deps.toolEnvPath,
@@ -138,7 +151,10 @@ async function runStage({ stage, projectDir, engineRoot, vars, feedback = '', re
     ...(deps.executable ? { pathToClaudeCodeExecutable: deps.executable } : {}),
     ...(resume ? { resume } : {}),
   };
+}
 
+/** Run one session to its result, streaming its events (see runStage for what comes back). */
+async function runSession({ sdk, prompt, options, abort, onEvent = () => {} }) {
   let sessionId = null;
   try {
     const q = sdk.query({ prompt, options });
@@ -165,4 +181,4 @@ async function runStage({ stage, projectDir, engineRoot, vars, feedback = '', re
   }
 }
 
-module.exports = { runStage, policy, fill, stagePrompt, TOOLS, NEVER, SKILLS };
+module.exports = { runStage, runSession, sessionOptions, policy, within, fill, stagePrompt, summarizeInput, TOOLS, NEVER, SKILLS, READS, WRITES, WEB };

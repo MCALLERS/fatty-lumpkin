@@ -7,6 +7,8 @@ const episode = require('./episode');
 const slop = require('./slop');
 const modules = require('./modules');
 const motion = require('./motion');
+const animators = require('./animators');
+const scenes = require('./scenes');
 
 async function checkDeck(projectDir, { pipeline, chrome }) {
   const deckDir = path.join(projectDir, 'presentation', 'deck', 'project');
@@ -21,12 +23,16 @@ async function checkDeck(projectDir, { pipeline, chrome }) {
   const unused = unusedModules(projectDir);
   const builds = motion.checkBuilds(projectDir);
   const insets = motion.checkInsets(projectDir);
+  const marks = animators.checkMarks(projectDir);
+  const plans = scenes.checkPlan(projectDir);
   return [
     problems.length ? `${problems.length} layout problem(s):\n- ${problems.join('\n- ')}` : 'Layout check: no problems found.',
     calls.length ? `Calls not yet recorded in deck/project/modules.json: ${calls.join(', ')}. Handle each one.` : null,
     unused.length ? `Modules not used yet: ${unused.join(', ')}. The default is all seven at least once, unless the brief or the user's notes say otherwise or the talk is too short to fit them.` : null,
     builds.length ? `${builds.length} build problem(s) (the app animates the builds as written):\n- ${builds.join('\n- ')}` : null,
     insets.length ? `${insets.length} video inset problem(s) (the app plays the clip as recorded):\n- ${insets.join('\n- ')}` : null,
+    marks.length ? `Animations of their own ("animate"):\n- ${marks.join('\n- ')}` : null,
+    plans.length ? `${plans.length} cartoon or cut-scene plan problem(s) (the app makes them from these plans):\n- ${plans.join('\n- ')}` : null,
     r.code === 0 ? `Rendered ${pngs.length} slide(s) (open a few with Read to judge them by eye):\n${pngs.join('\n')}` : `The render failed:\n${r.lines.slice(-6).join('\n')}`,
   ].filter(Boolean).join('\n\n');
 }
@@ -75,7 +81,7 @@ function scriptStats(projectDir, { minutes }) {
     `Fillers: ${ums} um/uh (about 1 per 140 words is right: ~${Math.round(totalWords / 140)} here). Laugh tags: ${laughs}${laughs ? ' (remove them: laughs are off)' : ''}.`,
   ];
   const cues = motion.checkCues(projectDir);
-  if (cues.length) out.push(`Moving slides and insets: ${cues.length} cue(s) the narration doesn't say yet (say each one, word for word, in order):\n- ${cues.join('\n- ')}`);
+  if (cues.length) out.push(`Moving slides, insets and cartoons: ${cues.length} cue(s) the narration doesn't say yet (say each one, word for word, in order):\n- ${cues.join('\n- ')}`);
   return out.join('\n');
 }
 

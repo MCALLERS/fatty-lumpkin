@@ -10,15 +10,24 @@
 //
 // No crew run and no spend: HyperFrames, Chrome and ffmpeg, all on this Mac. A slide without structured builds stays
 // a still, exactly as before.
+//
+// The Cosmos cartoons and cut scenes made in the Scenes step (scenes.js) come through here too: a cartoon is put
+// together again for each run, timed to that run's voice (assemble.js, ffmpeg only), and media.json gets its entry;
+// a cut scene with a finished clip gets its entry between its slides. One without a clip has none, so a run never
+// stops for a missing file: the cartoon's title card and the film without the cut scene stand in until it's made.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const scenes = require('./scenes');
+const assemble = require('./assemble');
 
 const FPS = 30;
 const RATE = 15; // characters a second, the measured pace of both voices (the HeyGen voice and the draft's `say`)
 const LEAD = 0.2; // a build starts this far ahead of its word
 const HOLD = 0.5; // the clip ends on this much stillness, so freeze-padding is invisible
 const MOTION_NOTE = 'flpt-motion'; // marks the media.json entries FLPT manages
+const CARTOON_NOTE = 'flpt-cartoon'; // a cartoon FLPT put together (a slide entry, managed like the moving slides)
+const CUT_NOTE = 'flpt-cutscene'; // a cut scene FLPT put together (an entry in "cutscenes")
 
 const DOS = new Set(['in', 'out', 'focus', 'unfocus', 'dim', 'pulse', 'count', 'to']);
 const ANIMS = new Set(['rise', 'fade', 'pop', 'draw', 'wipe', 'grow', 'words']);
@@ -131,7 +140,7 @@ function plan(dir) {
     freeText += e.builds.filter((b) => typeof b === 'string').length ? 1 : 0;
     if (beats.length) slides.push({ n: i + 1, id, module: e.module || null, beats });
   });
-  return { slides, freeText, insets: insetSlides(dir).map(({ n, id }) => ({ n, id })) };
+  return { slides, freeText, insets: insetSlides(dir).map(({ n, id }) => ({ n, id })), cartoons: scenes.readyCartoons(dir).map(({ piece }) => ({ n: piece.n, id: piece.id })) };
 }
 
 /**
@@ -228,6 +237,16 @@ function checkCues(dir) {
   for (const s of insetSlides(dir)) {
     const cue = typeof s.inset.cue === 'string' ? s.inset.cue.trim() : '';
     if (cue && !norm(said[s.n] || '').includes(norm(cue))) out.push(`slide ${s.n} (${s.id}): the narration doesn't say "${cue}". The video inset starts on those words.`);
+  }
+  for (const c of scenes.plan(dir).cartoons) {
+    const text = norm(said[c.n] || '');
+    let from = 0;
+    for (const b of c.beats) {
+      if (!b.cue) continue;
+      const at = text.indexOf(norm(b.cue), from);
+      if (at < 0) out.push(`slide ${c.n} (${c.id}): the narration doesn't say "${b.cue}"${text.includes(norm(b.cue)) ? ' after the cue before it' : ''}. A cartoon keyframe is cued on those words.`);
+      else from = at + 1;
+    }
   }
   return out;
 }
@@ -353,10 +372,13 @@ function localBlobs(section, { assetMap, pres, project }, outDir, problems, sid)
   });
 }
 
-function page(section, fontsCss, duration) {
+const MADE = `Made by the Fatty Lumpkin Presentation Tool from the approved deck slide: the slide as it is, plus its builds
+     (beats.json). Re-made from the deck whenever the episode is filmed; edit the deck, not this file.`;
+
+/** The composition's page. `hand`: load hand.js (the whiteboard's wobble and arrowheads) before the engine builds. */
+function page(section, fontsCss, duration, { comment = MADE, hand = false } = {}) {
   return `<!doctype html>
-<!-- Made by the Fatty Lumpkin Presentation Tool from the approved deck slide: the slide as it is, plus its builds
-     (beats.json). Re-made from the deck whenever the episode is filmed; edit the deck, not this file. -->
+<!-- ${comment} -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -373,8 +395,8 @@ ${section.trim()}
 </div>
 <script src="assets/gsap.min.js"></script>
 <script src="beats.js"></script>
-<script src="assets/live-slide.js"></script>
-<script>window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);</script>
+${hand ? '<script src="assets/hand.js"></script>\n' : ''}<script src="assets/live-slide.js"></script>
+<script>${hand ? 'Hand.apply(document.getElementById("slide")); ' : ''}window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);</script>
 </body>
 </html>
 `;
@@ -429,12 +451,12 @@ function sweep(dir, keep) {
   }
 }
 
-async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [] } = {}) {
+async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [], skip = [] } = {}) {
   const deck = readDeck(dir);
   const problems = [];
   const userVideo = userVideoSlides(dir);
   const bespoke = new Set(bespokeSlides(dir));
-  const slides = plan(dir).slides.filter((s) => !userVideo.has(s.n) && !bespoke.has(s.n));
+  const slides = plan(dir).slides.filter((s) => !userVideo.has(s.n) && !bespoke.has(s.n) && !skip.includes(s.n));
   sweep(dir, new Set([...slides.map((s) => s.n), ...keep]));
   if (!slides.length) return { slides, bespoke: [...bespoke].filter((n) => !userVideo.has(n)), problems };
   const T = templateDir(engineRoot);
@@ -474,7 +496,7 @@ async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [] } =
 
 const clipPath = (dir, n) => path.join(dir, 'presentation', 'media', `slide_${pad2(n)}.mp4`);
 const mediaFile = (dir) => path.join(dir, 'presentation', 'media.json');
-const isOurs = (v) => Boolean(v && typeof v === 'object' && v.note === MOTION_NOTE);
+const isOurs = (v) => Boolean(v && typeof v === 'object' && (v.note === MOTION_NOTE || v.note === CARTOON_NOTE));
 // What the pipeline reads as "bubble": false (load_media in generate_presentation_video.py).
 const bubbleOff = (v) => Boolean(v && typeof v === 'object' && 'bubble' in v
   && (typeof v.bubble === 'string' ? ['false', 'no', '0', 'off', 'hide', 'hidden'].includes(v.bubble.trim().toLowerCase()) : !v.bubble));
@@ -498,12 +520,14 @@ function noBubbleSlides(dir) {
 }
 
 /**
- * Write FLPT's own entries in media.json, keeping every entry FLPT didn't make (cut scenes, the user's own video
+ * Write FLPT's own entries in media.json, keeping every entry FLPT didn't make (the user's own cut scenes and video
  * slides) exactly as it is: the moving slides' clips (slide numbers → media/slide_NN.mp4; `mix` maps a slide to the
- * volume of a clip that carries sound), and "bubble": false for every Cosmos cartoon slide (with or without a clip).
- * FLPT's entries are marked with a note; with no clips and no cartoons, there are none.
+ * volume of a clip that carries sound), the cartoons put together for this run (`cartoons`: slide number →
+ * media/cartoon_<id>.mp4), "bubble": false for every Cosmos cartoon slide (with or without a clip), and every cut
+ * scene whose clip is made, between its slides. FLPT's entries are marked with a note; with nothing of FLPT's, there
+ * are none.
  */
-function writeMedia(dir, numbers, { mix = {} } = {}) {
+function writeMedia(dir, numbers, { mix = {}, cartoons = {} } = {}) {
   const file = mediaFile(dir);
   // A media.json someone broke by hand stays as it is (the pipeline names the problem): FLPT never rewrites the user's file.
   if (exists(file) && readJson(file, null) === null) return;
@@ -512,27 +536,42 @@ function writeMedia(dir, numbers, { mix = {} } = {}) {
   for (const [k, v] of Object.entries(media.slides || {})) if (!isOurs(v)) slides[k] = v;
   const clips = new Set(numbers);
   const cosmos = new Set(cosmosSlides(dir));
+  // A cartoon's clip goes only on its own slide (the deck may have moved it), and only while the file is there.
+  const { order } = readDeck(dir);
+  const cartoon = Object.fromEntries(Object.entries(cartoons).filter(([n, rel]) => cosmos.has(Number(n)) && order[Number(n) - 1]
+    && rel === path.join('media', `cartoon_${order[Number(n) - 1]}.mp4`) && exists(path.join(dir, 'presentation', rel))));
   for (const n of [...new Set([...clips, ...cosmos])].sort((a, b) => a - b)) {
     if (slides[String(n)]) continue; // the user's own entry for that slide wins
     const e = {};
-    if (clips.has(n)) {
+    if (cartoon[n]) Object.assign(e, { video: cartoon[n], fit: 'cover', pad: 'freeze', audio: 'mute' });
+    else if (clips.has(n)) {
       Object.assign(e, { video: `media/slide_${pad2(n)}.mp4`, fit: 'cover', pad: 'freeze' },
         mix[n] != null ? { audio: 'mix', volume: mix[n] } : { audio: 'mute' });
     }
     if (cosmos.has(n)) e.bubble = false;
-    slides[String(n)] = { ...e, note: MOTION_NOTE };
+    slides[String(n)] = { ...e, note: cartoon[n] ? CARTOON_NOTE : MOTION_NOTE };
   }
   const next = { ...media, slides };
   if (!Object.keys(slides).length) delete next.slides;
+  // Cut scenes: the user's own as they are, then FLPT's, each with its clip (never one whose file isn't made yet).
+  if (media.cutscenes == null || Array.isArray(media.cutscenes)) {
+    const theirs = (media.cutscenes || []).filter((c) => !(c && typeof c === 'object' && c.note === CUT_NOTE));
+    const taken = new Set(theirs.map((c) => String((c && c.id) || '').toLowerCase()));
+    const ours = scenes.cutsceneClips(dir).filter((c) => !taken.has(c.id.toLowerCase()))
+      .map((c) => ({ id: c.id, after_slide: c.afterN, video: c.rel, title: c.title, audio: 'keep', fade: 0.6, note: CUT_NOTE }));
+    if (theirs.length + ours.length) next.cutscenes = [...theirs, ...ours];
+    else delete next.cutscenes;
+  }
   if (!Object.keys(next).length) { fs.rmSync(file, { force: true }); return; }
   writeAtomic(file, `${JSON.stringify(next, null, 2)}\n`);
 }
 
-/** FLPT's entries brought up to date with the deck (which slides are cartoons), keeping its clips as they are. */
+/** FLPT's entries brought up to date with the deck (which slides are cartoons, which cut scenes are made), keeping its clips as they are. */
 function refreshMedia(dir) {
   const ours = Object.entries((readJson(mediaFile(dir), {}) || {}).slides || {}).filter(([, v]) => isOurs(v) && v.video);
   const mix = Object.fromEntries(ours.filter(([, v]) => v.audio === 'mix').map(([k, v]) => [Number(k), v.volume]));
-  writeMedia(dir, ours.map(([k]) => Number(k)), { mix });
+  const cartoons = Object.fromEntries(ours.filter(([, v]) => v.note === CARTOON_NOTE).map(([k, v]) => [Number(k), v.video]));
+  writeMedia(dir, ours.filter(([, v]) => v.note !== CARTOON_NOTE).map(([k]) => Number(k)), { mix, cartoons });
 }
 
 /** Is this a clip the pipeline can use as-is? (What render.mjs promises: 1920x1080, 30 fps, no sound.) */
@@ -618,14 +657,17 @@ function narrationWav(dir, n, which) {
   return best && exists(best.wav) ? best.wav : null;
 }
 
-/** When the cue's first word starts, in seconds into the narration ([{ text, start }], from real-words.py), or null. */
-function cueStart(words, cue) {
+/**
+ * When the cue's first word starts, in seconds into the narration ([{ text, start }], from real-words.py), or null.
+ * `after`: only a match that starts later than this (cues said in order).
+ */
+function cueStart(words, cue, after = -Infinity) {
   const toks = [];
   const owner = [];
   (Array.isArray(words) ? words : []).forEach((w, i) => norm(w.text || w.word || '').split(' ').filter(Boolean).forEach((t) => { toks.push(t); owner.push(i); }));
   const want = norm(cue).split(' ').filter(Boolean);
   for (let i = 0; want.length && i <= toks.length - want.length; i++) {
-    if (want.every((t, k) => toks[i + k] === t)) return Number(words[owner[i]].start);
+    if (want.every((t, k) => toks[i + k] === t) && Number(words[owner[i]].start) > after) return Number(words[owner[i]].start);
   }
   return null;
 }
@@ -697,7 +739,13 @@ async function renderInset(dir, which, s, { moving, engineRoot, retime, probe, f
     return fail('the inset didn\'t render (see the log)');
   }
   fs.renameSync(tmp, clipPath(dir, s.n));
-  return { ok: true, volume: sound ? INSET_VOLUME : null, problems };
+  return { ok: true, volume: sound ? INSET_VOLUME : null, at: Math.round(t0 * 1000) / 1000, seconds: Math.round(play * 1000) / 1000, problems };
+}
+
+/** When slide n's inset played in the last render ({ which: 'draft' | 'final', at, seconds }, seconds into the slide), or null. */
+function insetPlayed(dir, n) {
+  const p = (readJson(path.join(hfDir(dir, n), MARKER), {}) || {}).played;
+  return p && Number.isFinite(Number(p.at)) && Number(p.seconds) > 0 ? { which: p.which, at: Number(p.at), seconds: Number(p.seconds) } : null;
 }
 
 /** A folder of FLPT's for a slide whose only motion is its inset: the ownership marker, and the inset's word timings. */
@@ -709,20 +757,129 @@ function insetFolder(dir, s) {
   writeAtomic(path.join(out, MARKER), `${JSON.stringify({ made: 'Fatty Lumpkin Presentation Tool', slide: s.id, inset: true, clip: old.clip || null }, null, 2)}\n`);
 }
 
+// ── cartoons: the Scenes step's keyframes and hero shot, timed to the voice ──────────────────────────────────
+
+/**
+ * Where a cartoon's beats fall in a run's voice: the slide's time on screen (as retime.py takes it) and each beat's
+ * time, from its cue's words in that voice (real-words.py), else where the words fall at the voice's pace. Null when
+ * the slide isn't in that run's timeline.
+ */
+async function cartoonTiming(dir, which, piece, { retime, engineRoot, signal } = {}) {
+  const said = narrations(dir)[piece.n] || '';
+  const text = norm(said);
+  let duration;
+  let offset;
+  let words = null;
+  if (which === 'preview') { // no voice yet: the pace alone
+    const cut = scenes.plan(dir).cutscenes.some((c) => c.afterN === piece.n - 1 && c.afterN != null);
+    offset = piece.n === 1 || cut ? 0.5 : 0;
+    duration = Math.max(6, Math.round((text.length / RATE + offset + 1) * FPS) / FPS);
+  } else {
+    const tl = timelineOf(dir, which);
+    const slot = tl && (tl.slides || []).find((x) => x.n === piece.n);
+    if (!slot) return null;
+    duration = Math.round((slot.duration - 1 / FPS) * 1000) / 1000; // as retime.py: the slide's time on screen, less a frame
+    const first = Math.min(...tl.slides.map((x) => x.n));
+    offset = piece.n === first || (tl.cutscenes || []).some((c) => c.after_slide === piece.n - 1) ? 0.5 : 0;
+    const wav = narrationWav(dir, piece.n, which);
+    if (wav && retime) {
+      const folder = path.join(dir, 'presentation', 'cartoons', piece.id);
+      fs.mkdirSync(folder, { recursive: true });
+      const out = path.join(folder, `words-${which}.json`);
+      fs.rmSync(out, { force: true });
+      fs.writeFileSync(path.join(folder, 'narration.txt'), said);
+      await retime([path.join(templateDir(engineRoot), 'real-words.py'), wav, path.join(folder, 'narration.txt'), out], { signal });
+      words = readJson(out, null);
+    }
+  }
+  const problems = [];
+  let last = -Infinity;
+  const times = piece.beats.map((b) => {
+    const at = words && b.cue ? cueStart(words, b.cue, last) : null;
+    if (at != null) { last = at; return Math.max(0, at + offset - LEAD); }
+    const guess = b.cue ? text.indexOf(norm(b.cue)) : -1;
+    if (guess >= 0) return Math.max(0, offset + guess / RATE - LEAD);
+    if (b.cue) problems.push(`Slide ${piece.n}: the narration doesn't say "${b.cue}", so that keyframe goes between its neighbours.`);
+    return null;
+  });
+  return { duration, times, problems };
+}
+
+/** Put one cartoon together for a run ('preview', 'draft' or 'final'). Returns { ok, problems }. */
+async function renderCartoon(dir, which, { piece, inputs }, { retime, probe, ffmpeg, engineRoot, onLine = () => {}, signal }) {
+  const fail = (why) => ({ ok: false, problems: [`Slide ${piece.n} shows its title card: ${why}.`] });
+  const timing = await cartoonTiming(dir, which, piece, { retime, engineRoot, signal });
+  if (!timing) return fail('it isn\'t in this run\'s timeline');
+  const pres = path.join(dir, 'presentation');
+  const card = exists(path.join(pres, inputs.card)) ? path.join(pres, inputs.card) : null;
+  onLine(`Slide ${piece.n}: putting the cartoon together${which === 'preview' ? '' : ` to the ${which === 'draft' ? 'draft voice' : 'real voice'}`}…`);
+  let hero = null;
+  if (inputs.hero) {
+    // Its length, and a picture of its last frame: a beat longer than the shot holds that frame with a slow push.
+    const file = path.join(pres, inputs.hero.file);
+    let seconds = 0;
+    try { const i = await probe(file); seconds = Number((i.format && i.format.duration) || 0) || 0; } catch { /* it plays as it is */ }
+    const last = path.join(path.dirname(file), 'hero-last.png');
+    fs.rmSync(last, { force: true });
+    if (seconds > 0) await ffmpeg(['-y', '-v', 'error', '-sseof', '-0.5', '-i', file, '-update', '1', last], { signal }); // every frame over the last: it ends on the last
+    hero = { beat: inputs.hero.beat, file, seconds, last: exists(last) ? last : null };
+  }
+  try {
+    await assemble.cartoon({
+      out: path.join(pres, inputs.out), card, duration: timing.duration, run: ffmpeg, signal, hero,
+      beats: inputs.beats.map((b, k) => ({ file: path.join(pres, b.file), t: timing.times[k] })),
+    });
+  } catch (e) {
+    return fail(String(e.message || e).replace(/\.$/, ''));
+  }
+  if (!(await clipOk(path.join(pres, inputs.out), probe))) return fail('its clip didn\'t come out right (see the log)');
+  scenes.markClip(dir, piece.key, { inputs: inputs.key, for: which, seconds: timing.duration });
+  return { ok: true, problems: timing.problems };
+}
+
+/**
+ * The Scenes step's "put it together", free: a cartoon timed to the narration's pace (each run times it to its own
+ * voice later), or a cut scene joined, levelled and conformed. Updates media.json. Throws a plain message.
+ */
+async function assembleScene(dir, key, { probe, ffmpeg, onLine = () => {}, signal } = {}) {
+  if (!ffmpeg || !probe) throw new Error('Putting it together needs ffmpeg (Setup → Tools).');
+  const piece = scenes.pieceOf(dir, key);
+  const inputs = scenes.inputsOf(dir, piece);
+  if (!inputs) throw new Error('Approve its stills and shots first.');
+  const pres = path.join(dir, 'presentation');
+  let out;
+  if (piece.kind === 'cartoon') {
+    const r = await renderCartoon(dir, 'preview', { piece, inputs }, { probe, ffmpeg, onLine, signal });
+    if (!r.ok) throw new Error(r.problems[0]);
+    out = { file: path.join(pres, inputs.out), problems: r.problems };
+  } else {
+    onLine(`${piece.title}: joining ${inputs.shots.length} shots…`);
+    const r = await assemble.cutscene({ out: path.join(pres, inputs.out), shots: inputs.shots.map((s) => ({ file: path.join(pres, s.file), seconds: s.seconds })), run: ffmpeg, probe, signal });
+    scenes.markClip(dir, key, { inputs: inputs.key, seconds: r.seconds, lufs: r.lufs });
+    out = { file: path.join(pres, inputs.out), seconds: r.seconds, problems: [] };
+  }
+  refreshMedia(dir);
+  return out;
+}
+
 /**
  * Compose, time and render the moving slides for a run that has just made narration: 'draft' (the Mac's voice) or
- * 'final' (the real voice), then play the video insets. `retime` runs a method script (retime.py, real-words.py) with
- * the project's Python; `probe` is ffprobe; `ffmpeg` runs the toolchain's ffmpeg. Without HyperFrames
- * (`hyperframes: false`) the slides stay still, and only the insets play. Returns { rendered: [n], failed: [n],
- * problems: [text] } and updates media.json to the clips that are good.
+ * 'final' (the real voice), then play the video insets, then put the Scenes step's cartoons together to the same voice.
+ * `retime` runs a method script (retime.py, real-words.py) with the project's Python; `probe` is ffprobe; `ffmpeg`
+ * runs the toolchain's ffmpeg. Without HyperFrames (`hyperframes: false`) the slides stay still, and only the insets
+ * and cartoons play. Returns { rendered: [n], failed: [n], problems: [text] } and updates media.json to the clips
+ * that are good.
  */
 async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime, probe, ffmpeg, hyperframes = true, onLine = () => {}, signal }) {
   const userVideo = userVideoSlides(dir);
   const bespokeAll = new Set(bespokeSlides(dir));
-  const insets = insetSlides(dir).filter((s) => !userVideo.has(s.n) && !bespokeAll.has(s.n)); // the user's own slides stay theirs
+  // A cartoon replaces its title card's animation and any inset; the user's own slides stay theirs.
+  const cartoons = scenes.readyCartoons(dir).filter(({ piece }) => !userVideo.has(piece.n) && !bespokeAll.has(piece.n));
+  const toons = cartoons.map(({ piece }) => piece.n);
+  const insets = insetSlides(dir).filter((s) => !userVideo.has(s.n) && !bespokeAll.has(s.n) && !toons.includes(s.n));
   const keep = insets.map((s) => s.n);
   let composed = { slides: [], bespoke: [], problems: [] };
-  if (hyperframes) composed = await compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep });
+  if (hyperframes) composed = await compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep, skip: toons });
   else sweep(dir, new Set(keep));
   const { slides, bespoke } = composed;
   const problems = [...composed.problems];
@@ -741,6 +898,7 @@ async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime,
   }
   if (failed.length) problems.push(`Slide${failed.length > 1 ? 's' : ''} ${failed.join(', ')} stay${failed.length > 1 ? '' : 's'} still: the animation didn't render${r && r.code === 0 ? '' : ' (see the log)'}.`);
   const mix = {};
+  const played = {}; // when each inset plays in its slide, for the clip guide
   for (const s of insets) {
     if (signal && signal.aborted) break;
     const moving = rendered.includes(s.n);
@@ -754,22 +912,34 @@ async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime,
     if (!res.ok) continue;
     if (!moving) rendered.push(s.n);
     if (res.volume) mix[s.n] = res.volume;
+    played[s.n] = { which, at: res.at, seconds: res.seconds };
   }
   rendered.sort((a, b) => a - b);
   for (const n of rendered) {
     const markFile = path.join(hfDir(dir, n), MARKER);
-    if (exists(markFile)) writeAtomic(markFile, `${JSON.stringify({ ...readJson(markFile, {}), clip: sha(clipPath(dir, n)) }, null, 2)}\n`);
+    if (exists(markFile)) writeAtomic(markFile, `${JSON.stringify({ ...readJson(markFile, {}), clip: sha(clipPath(dir, n)), ...(played[n] ? { played: played[n] } : {}) }, null, 2)}\n`);
   }
-  writeMedia(dir, rendered, { mix });
-  return { rendered, failed, problems: [...new Set(problems)] };
+  const made = {};
+  for (const c of cartoons) {
+    if (signal && signal.aborted) break;
+    if (!ffmpeg) { problems.push(`Slide ${c.piece.n} shows its title card: cartoons need ffmpeg.`); continue; }
+    const res = await renderCartoon(dir, which, c, { retime, probe, ffmpeg, engineRoot, onLine, signal });
+    problems.push(...res.problems);
+    if (res.ok) made[c.piece.n] = c.inputs.out;
+  }
+  writeMedia(dir, rendered, { mix, cartoons: made });
+  return { rendered: [...rendered, ...Object.keys(made).map(Number)].sort((a, b) => a - b), failed, problems: [...new Set(problems)] };
 }
 
 /**
- * Forget the clips in media.json (before a run whose timing they'd get wrong), keeping everything else, and the
- * cartoons' hidden bubbles (the paid run must never make an avatar clip for them).
+ * Forget the clips in media.json (before a run whose timing they'd get wrong), keeping everything else, the
+ * cartoons' hidden bubbles (the paid run must never make an avatar clip for them) and the finished cut scenes.
  */
 function clearMedia(dir) { writeMedia(dir, []); }
 
 module.exports = { plan, compose, render, writeMedia, clearMedia, refreshMedia, cosmosSlides, noBubbleSlides, narrations, provisional,
   beatFrom, localFonts, vendoredFonts, sanitizeFonts, extractSection, clipPath, checkBuilds, checkCues, checkInsets, insetSlides, readInset,
-  cueStart, MOTION_NOTE, BASE_CSS, INSET_VOLUME };
+  insetPlayed, cueStart, cartoonTiming, assembleScene, MOTION_NOTE, CARTOON_NOTE, CUT_NOTE, BASE_CSS, INSET_VOLUME,
+  // for the animator crew (animators.js)
+  readDeck, hfDir, MARKER, bespokeSlides, userVideoSlides, timelineOf, narrationWav, localBlobs, page, templateDir, clipOk, sha, norm,
+  FPS, RATE, LEAD };

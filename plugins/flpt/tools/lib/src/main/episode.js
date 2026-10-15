@@ -11,6 +11,12 @@ const STAGES = [
   { id: 'factcheck', label: 'Fact-check', kind: 'agent', model: 'sonnet', web: true, budgetUsd: 4 },
   { id: 'deck', label: 'Deck', kind: 'agent', model: 'opus', web: false, budgetUsd: 8 },
   { id: 'script', label: 'Script', kind: 'agent', model: 'opus', web: false, budgetUsd: 4 },
+  // The animator crew (animators.js): one session per slide the deck marks for an animation of its own, each capped at
+  // budgetUsd. With nothing marked there's nothing to do, and it counts as approved once the script is.
+  { id: 'animate', label: 'Animate', kind: 'crew', model: 'opus', budgetUsd: 4 },
+  // The Cosmos cartoons and cut scenes, made in small paid steps (scenes.js). Optional: with none planned, or none
+  // wanted, it's approved and their placeholders stay.
+  { id: 'scenes', label: 'Scenes', kind: 'gate' },
   { id: 'spend', label: 'Spend', kind: 'gate' },
   { id: 'film', label: 'Film', kind: 'pipeline' },
   // Add-ons on the finished film (clips, transitions, music, b-roll), with ffmpeg only. Optional: with none, approve it.
@@ -27,20 +33,62 @@ function stateFile(dir) { return path.join(dir, 'flpt-project.json'); }
 
 /**
  * A record from before a stage existed gets it: Refine (added after 0.5.1) counts as approved for an episode already
- * delivered, and is still to do for any other. The next write keeps it.
+ * delivered, and is still to do for any other; Scenes (added after it) counts as approved for an episode whose script
+ * was already approved (it was planned without it; its cartoons and cut scenes can still be made there), and is
+ * still to do for any other. The next write keeps it.
  */
 function migrate(st) {
   if (!st || typeof st !== 'object' || !st.stages || typeof st.stages !== 'object') return st;
   for (const id of STAGE_IDS) {
     if (st.stages[id] && typeof st.stages[id] === 'object') continue;
     const delivered = st.stages.deliver && st.stages.deliver.status === 'approved';
-    st.stages[id] = { status: id === 'intake' || (id === 'refine' && delivered) ? 'approved' : 'todo' };
+    const scripted = st.stages.script && st.stages.script.status === 'approved';
+    st.stages[id] = { status: id === 'intake' || (id === 'refine' && delivered) || (id === 'scenes' && scripted) ? 'approved' : 'todo' };
+    if (id === 'scenes' && scripted) st.stages[id].skipped = true;
+  }
+  return st;
+}
+
+/** Does the deck mark any of its slides for an animation of its own ("animate" in modules.json)? */
+function animationsMarked(dir) {
+  try {
+    const project = path.join(dir, 'presentation', 'deck', 'project');
+    const order = JSON.parse(fs.readFileSync(path.join(project, 'deck.json'), 'utf8')).order || [];
+    const slides = JSON.parse(fs.readFileSync(path.join(project, 'modules.json'), 'utf8')).slides || {};
+    return order.some((x) => { const e = slides[typeof x === 'string' ? x : x && x.id]; return Boolean(e && typeof e.animate === 'string' && e.animate.trim()); });
+  } catch {
+    return false;
+  }
+}
+
+/** Animate with nothing marked has nothing to do: approved as soon as the script is (the next write keeps it). */
+function settleAnimate(st, dir) {
+  const a = st && st.stages && st.stages.animate;
+  if (a && a.status !== 'approved' && a.status !== 'running' && st.stages.script && st.stages.script.status === 'approved' && !animationsMarked(dir)) {
+    st.stages.animate = { ...a, status: 'approved', skipped: true, error: null };
+  }
+  return st;
+}
+
+/** Does the deck plan any Cosmos cartoon or cut scene (scenes.js)? A deck that can't be read plans none. */
+function scenesPlanned(dir) {
+  try { return require('./scenes').hasAny(dir); } catch { return false; }
+}
+
+/**
+ * Scenes with no cartoons or cut scenes planned has nothing to do either: approved once the steps before it are (the
+ * next write keeps it). So an episode with neither goes from Script (and Animate) straight to Spend.
+ */
+function settleScenes(st, dir) {
+  const s = st && st.stages && st.stages.scenes;
+  if (s && s.status !== 'approved' && s.status !== 'running' && canRun(st, 'scenes') && !scenesPlanned(dir)) {
+    st.stages.scenes = { ...s, status: 'approved', skipped: true, error: null };
   }
   return st;
 }
 
 function read(dir) {
-  try { return migrate(JSON.parse(fs.readFileSync(stateFile(dir), 'utf8'))); } catch { return null; }
+  try { return settleScenes(settleAnimate(migrate(JSON.parse(fs.readFileSync(stateFile(dir), 'utf8'))), dir), dir); } catch { return null; }
 }
 
 function write(dir, state) {
@@ -90,7 +138,9 @@ function create(dir, intake) {
   const i = clean(intake);
   fs.writeFileSync(path.join(dir, 'presentation', 'brief.md'), briefMarkdown(i));
   const stages = Object.fromEntries(STAGES.map((s) => [s.id, { status: s.id === 'intake' ? 'approved' : 'todo' }]));
-  return write(dir, { v: 1, title: i.title, intake: i, createdAt: new Date().toISOString(), stages, costs: [] });
+  // New episodes tighten the film's pauses at Refine (Michael, 2026-10-14: the method's default); episodes made before
+  // keep what they had, which is off unless chosen.
+  return write(dir, { v: 1, title: i.title, intake: i, createdAt: new Date().toISOString(), stages, costs: [], tighten: { on: true, laughs: false } });
 }
 
 /** The first stage that isn't approved: where the user should be. */
@@ -153,4 +203,4 @@ function slideSeconds(slides) {
 }
 
 module.exports = { STAGES, STAGE_IDS, slugify, read, write, create, current, canRun, setStage, addCost, parseScript, estimateSeconds,
-  slideSeconds, slideTarget, clean, migrate };
+  slideSeconds, slideTarget, clean, migrate, animationsMarked };

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { scriptsDir } = require('./paths');
+const sandbox = require('./sandbox');
 
 // What each command may see. Anything not listed gets no keys at all.
 const KEYS_FOR = {
@@ -96,9 +97,10 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
 
   /**
    * Run one pipeline command. `kind` decides which keys it may see (KEYS_FOR). Lines are redacted before onLine.
-   * Returns { code, lines } (the last 400 redacted lines). Pass an AbortSignal to stop it.
+   * Returns { code, lines } (the last 400 redacted lines). Pass an AbortSignal to stop it. `sandbox` ({ writable }):
+   * run it inside macOS's sandbox (sandbox.js), with no network and writes only there; refused when it isn't available.
    */
-  function run({ kind, python, script, args = [], cwd, onLine = () => {}, signal, budgetToken, env: extraEnv = {} }) {
+  function run({ kind, python, script, args = [], cwd, onLine = () => {}, signal, budgetToken, env: extraEnv = {}, sandbox: box = null }) {
     if (!Object.prototype.hasOwnProperty.call(KEYS_FOR, kind)) throw new Error(`unknown pipeline command: ${kind}`);
     if (PAID[kind] && !(broker && budgetToken && broker.isLive(budgetToken, PAID[kind]))) {
       return Promise.resolve({ code: 2, lines: ['Refused: this step costs money and has no approved budget.'], refused: true });
@@ -114,8 +116,16 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
       ...extraEnv,
       ...vault.env(KEYS_FOR[kind]),
     };
+    let cmd = python;
+    let argv = [script, ...args];
+    if (box) {
+      // only the local runs: anything that needs a key needs the network too
+      if (KEYS_FOR[kind].length) return Promise.resolve({ code: 2, lines: [`Refused: a ${kind} run can't be sandboxed.`], refused: true });
+      try { [cmd, argv] = sandbox.wrap(python, argv, box); } catch (e) { return Promise.resolve({ code: 126, lines: [`Refused: ${e.message}.`], refused: true }); }
+      env.TMPDIR = sandbox.tmpdir(); // the temp folder the sandbox leaves open (/tmp isn't)
+    }
     return new Promise((resolve) => {
-      const child = spawn(python, [script, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(cmd, argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       const tail = [];
       const take = (buf) => {
         for (const raw of String(buf).split(/\r?\n/)) {

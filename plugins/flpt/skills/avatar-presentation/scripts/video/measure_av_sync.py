@@ -10,6 +10,9 @@ Measured 2026-10-07 on all five *Shadow of the Future* talks (elevenlabs_v3 voic
 −23 ms (the 20 ms EDIT_NUDGE_MS is right). If the .mov is within ±10 ms and lips still look off in an editor, the
 cause is the editor (preview lag, project frame rate), not the file.
 """
+import json, pathlib, subprocess, sys
+import numpy as np
+
 SR = 16000
 def pcm(path, ss, t):
     r = subprocess.run(["ffmpeg","-v","error","-ss",f"{ss:.3f}","-t",f"{t:.3f}","-i",str(path),"-vn","-ac","1","-ar",str(SR),"-f","s16le","-"], capture_output=True)
@@ -28,15 +31,23 @@ def lag_ms(ref, sig, maxlag_ms=300):
 talk = pathlib.Path(sys.argv[1]); P = talk / "presentation/video"
 tl = json.loads((P/"output/presentation.timeline.json").read_text()); start = {s["n"]: s["start"] for s in tl["slides"]}
 jobs = json.loads((P/"cache/avatar/jobs.json").read_text())
+# Pick each slide's clip by matching sound, not by the slide number stored in jobs.json: that number is the slide's
+# number when the clip was made, and goes stale when slides are inserted and renumbered (2026-10-13).
+clips = sorted({P/"cache/avatar/clips"/f"{k}.mp4" for k, v in jobs.items()
+                if v.get("status") == "downloaded" and (P/"cache/avatar/clips"/f"{k}.mp4").exists()})
+clip_pcm = {f: pcm(f, 0, 15) for f in clips}
 best = {}
-for k, v in jobs.items():
-    n = v.get("slide"); f = P/"cache/avatar/clips"/f"{k}.mp4"
-    if v.get("status") == "downloaded" and f.exists() and n in start and (n not in best or v.get("t",0) > best[n][1]):
-        best[n] = (f, v.get("t",0))
+for n in sorted(start):
+    m = pcm(P/"output"/"presentation_for_editing.mov", start[n] - 0.5, 16)
+    scored = [(lag_ms(c, m)[1], f) for f, c in clip_pcm.items() if len(c) > SR]
+    if scored:
+        pk, f = max(scored, key=lambda x: x[0])
+        if pk > 0.15:
+            best[n] = (f, 0)
 res = []
 for n in sorted(best):
     f = best[n][0]; off = json.loads(f.with_suffix(".sync.json").read_text()).get("offset", 0) if f.with_suffix(".sync.json").exists() else 0
-    clip = pcm(f, 0, 15)
+    clip = clip_pcm[f]
     for name in ["presentation_for_editing.mov", "presentation.mp4"]:
         m = pcm(P/"output"/name, start[n] - 0.5, 16)
         d, pk = lag_ms(clip, m)
@@ -44,5 +55,5 @@ for n in sorted(best):
 for n in sorted(best):
     row = [r for r in res if r[0] == n]
     print(f"slide {n:2d}  clip_offset {row[0][4]:+.3f}  editing .mov: voice {row[0][2]:+6.1f} ms vs lips (corr {row[0][3]:.2f})   web .mp4: {row[1][2]:+6.1f} ms")
-mov = np.array([r[2] for r in res if r[1].endswith(".mov") and r[3] > 0.5]); mp4 = np.array([r[2] for r in res if r[1].endswith(".mp4") and r[3] > 0.5])
+mov = np.array([r[2] for r in res if r[1].endswith(".mov") and r[3] > 0.2]); mp4 = np.array([r[2] for r in res if r[1].endswith(".mp4") and r[3] > 0.2])
 print(f"MEDIAN  editing .mov: {np.median(mov):+.1f} ms (range {mov.min():+.1f}…{mov.max():+.1f})   web .mp4: {np.median(mp4):+.1f} ms   (+ = voice late, − = voice early)")

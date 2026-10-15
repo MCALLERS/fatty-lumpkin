@@ -39,12 +39,21 @@ The deck's power comes from seven repeatable modules. Every slide is built as on
 ```json
 { "slides": {
     "<slide-id>": { "module": "chart", "call": "c1", "builds": [ … see Builds … ], "brief": "briefs/<slide-id>.md",
-                    "inset": { "clip": "assets/calls/c2-clip.mp4", "rect": { "x": 980, "y": 260, "w": 760, "h": 428 }, "in": 0, "out": 6.5, "sound": "muted", "cue": "watch what happens" } } },
-  "cutscenes": [ { "after": "<slide-id>", "call": null, "brief": "briefs/cutscene-1.md" } ] }
+                    "inset": { "clip": "assets/calls/c2-clip.mp4", "rect": { "x": 980, "y": 260, "w": 760, "h": 428 }, "in": 0, "out": 6.5, "sound": "muted", "cue": "watch what happens" } },
+    "<cartoon-id>": { "module": "cosmos", "brief": "briefs/<cartoon-id>.md",
+                      "cartoon": { "beats": [ { "cue": "two hundred and twenty meters", "picture": "a fragile box-kite aircraft lifting off a misty field at dawn, a small crowd below", "hero": true, "move": "the aircraft rises a little; its shadow slides over the grass" } ] } } },
+  "cutscenes": [ { "after": "<slide-id>", "call": null, "brief": "briefs/cutscene-1.md", "title": "The vault door", "place": "a bank's basement vault at 2 a.m.",
+                   "look": "cold fluorescent light, slow camera", "sound": "a ventilation hum, a distant alarm",
+                   "shots": [ { "seconds": 5, "picture": "the vault door, shut, from low down", "action": "the wheel begins to turn" },
+                              { "seconds": 5, "picture": "the door swinging open", "action": "light spills into the dark corridor", "continues": true } ] } ] }
 ```
 - Every slide gets an entry. `module` is one of `chart`, `sketch`, `motion`, `cosmos`, `inset`, `infographic`, or `statement` for a plain statement slide.
-- `call`, `builds`, `brief` and `inset` are optional: use them when they apply.
+- `call`, `builds`, `brief`, `inset`, `cartoon` and `animate` are optional: use them when they apply.
+- **`animate`** (an animation of its own; the whiteboard sketch, and at most one or two more): a short brief for the animator crew, who builds the slide as its own HyperFrames animation once the script is approved. Say what draws or moves, in order, and on which words. Use it for what builds can't do: the whiteboard sketch with the method's doodles drawing themselves under the marker, a diagram that grows (a hub and ring, a flow with a token moving through it), a cartoon-like scene made from shapes. Design the slide's finished frame as usual: the animation ends on it. Write its builds too: they're what plays if it isn't animated. Not on a slide with a video inset (its clip wouldn't play).
 - **`inset`** (a video inset; the app plays it): `clip` is the clip's path in your folder (`assets/calls/…`, or `assets/library/…` for a Library item); `rect` is the frame's exact rectangle on the 1920×1080 slide; `in` and `out` are seconds into the clip; `sound` is `"muted"`, or `"on"` when the user wants the clip's sound (then the script leaves room for it); `cue` (optional) is the narration's exact words when the clip starts, else it starts half a second into the slide.
+- **`cartoon`** (every Cosmos slide; the app makes the cartoon from it): `beats`, 4–6 in story order, each with `cue` (the narration's exact words when its keyframe appears: the script will say them, in this order) and `picture` (the painted keyframe: one clear moment). Mark the one beat worth animating `"hero": true` and say in `move` what moves in it, subtly. `style` (optional): the series' style block, if it has one.
+- **`cutscenes`** (the app makes each one from this): `after` (the slide it follows; `null` before slide 1), `title` (a few words), `place` (one real, specific place and the time of day), `look` and `sound` (one line each; sound from the scene only, no music), and `shots`: 2–4, each `seconds` (4–8), `picture` (its first frame) and `action` (what happens). `"continues": true` on a shot that picks up exactly where the shot before it ends.
+- **In every picture:** people by role ("a young economist", "two clerks"), never by name: no real or famous people and no look-alikes. No text, signs, captions or logos in the art.
 
 **Builds.** The app animates them exactly as written: each slide builds as it's narrated, toward the frame you designed.
 ```json
@@ -82,7 +91,7 @@ The deck's power comes from seven repeatable modules. Every slide is built as on
   - a source line in mono, pinned clear of the bubble
   - build them from HTML `<div>`s or inline SVG shapes, with labels as HTML `<p>` placed over the SVG (SVG `<text>` doesn't get the fonts)
 - **Infographics:** one structure (process, ladder, 2×2, timeline, before/after), at most about six objects, labels touching what they name.
-- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels. It draws itself: `draw` builds with `"pen": true`, one per stroke or doodle.
+- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels. It draws itself: `draw` builds with `"pen": true`, one per stroke or doodle. Mark it `animate`, so the animator crew draws it with the method's doodle kit and marker.
 - **Images.**
   - **Allowed:** only the user's own attachments (their photos, their clips' poster frames), through the asset map.
   - **Everything else:** draw with HTML/CSS/SVG.
@@ -94,7 +103,7 @@ When every slide is written, call the `flpt` tool **`check_deck`**.
 - **What it does:** it renders the slides and reports overflow, overlapping text, text in the bubble corner, text under 24 px and wordy slides. It also returns the rendered PNG paths.
 - **Fix every reported problem, and call it again** until it's clean.
 - **It also lists any call not yet recorded in `modules.json`.** Handle each one.
-- **It checks the builds too:** every target exists, nothing it touches sets its own opacity, transform or clip-path, and every build is in the form above.
+- **It checks the builds too:** every target exists, nothing it touches sets its own opacity, transform or clip-path, and every build is in the form above. And the cartoons' beats and the cut scenes' shots, in theirs.
 - **Look at the slides too:** open two or three of the PNGs with Read to judge the design by eye.
 
 Then finish with your report:

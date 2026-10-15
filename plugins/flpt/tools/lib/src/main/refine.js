@@ -50,13 +50,15 @@ const r3 = (x) => Math.round(x * 1000) / 1000;
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
-/** Where Refine writes, next to the film. */
+/** Where Refine writes, next to the film. With tightening on, the add-ons go on the tightened film (tighten.js). */
 function outputs(dir) {
   const out = path.join(dir, 'presentation', 'video', 'output');
   return {
     film: path.join(out, 'presentation.mp4'), filmTimeline: path.join(out, 'presentation.timeline.json'),
     video: path.join(out, 'presentation_refined.mp4'), master: path.join(out, 'presentation_refined_for_editing.mov'),
     timeline: path.join(out, 'presentation_refined.timeline.json'),
+    tight: path.join(out, 'presentation_tight.mp4'), tightMaster: path.join(out, 'presentation_tight_for_editing.mov'),
+    tightTimeline: path.join(out, 'presentation_tight.timeline.json'),
   };
 }
 
@@ -249,6 +251,14 @@ function filmChapters(timeline) {
   });
 }
 
+/** The pipeline's own leads, as n → seconds: 0.5 s before slide 1's narration and after a cut scene, none elsewhere. */
+function narrationLead(chapters) {
+  const slides = chapters.filter((c) => c.kind === 'slide');
+  const first = slides.length ? Math.min(...slides.map((s) => Number(s.n))) : 1;
+  const afterCut = new Set(chapters.filter((c) => c.kind === 'cutscene').map((c) => Number(c.after_slide)));
+  return (n) => (Number(n) === first || afterCut.has(Number(n) - 1) ? 0.5 : 0);
+}
+
 /**
  * Plan the refined video: where every add-on lands on the film's frame grid, the pieces in play order, the music
  * beds, and the refined timeline's chapters. Pure: the inputs are the film's timeline, the add-ons (each with an
@@ -264,10 +274,7 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
   const slides = chapters.filter((c) => c.kind === 'slide');
   const total = chapters.length ? chapters[chapters.length - 1].f1 : 0;
   const slideOf = (n) => slides.find((s) => Number(s.n) === Number(n)) || null;
-  const firstN = slides.length ? Math.min(...slides.map((s) => Number(s.n))) : 1;
-  const afterCut = new Set(chapters.filter((c) => c.kind === 'cutscene').map((c) => Number(c.after_slide)));
-  // The pipeline's own leads: 0.5 s before slide 1's narration and after a cut scene, none elsewhere.
-  const lead = (n) => (Number(n) === firstN || afterCut.has(Number(n) - 1) ? 0.5 : 0);
+  const lead = narrationLead(chapters);
   const framesOf = (a) => { const m = media[a.path] || {}; return Math.max(1, Math.round((Number(m.duration) || Number(a.duration) || 0) * FPS)); };
   const phraseAt = (a, s) => {
     const hit = a.phrase ? findPhrase(words[s.n], a.phrase) : null;
@@ -422,13 +429,30 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
     }
   }
   const chaptersOut = rows.map(({ o0, frames: f, row }) => ({ ...row, start: r3(o0 / FPS), duration: r3(f / FPS), frames: f }));
+  // 6. Where each add-on landed on the output, and where the film's own frames went ([film frame, output frame,
+  // frames]): the clip guide's timecodes come from these.
+  const landed = {};
+  const span = (id, o0, o1) => { const x = landed[id]; landed[id] = x ? [Math.min(x[0], o0), Math.max(x[1], o1)] : [o0, o1]; };
+  for (const s of segs) {
+    if (s.type === 'insert') span(s.a.id, s.o0, s.o1);
+    if (s.type === 'film' && s.broll) span(s.broll.a.id, s.o0, s.o1);
+  }
+  for (const x of overlays) span(x.a.id, x.o0, x.o1);
+  for (const b of beds) span(b.a.id, b.o0, b.o1);
+  const map = [];
+  for (const s of segs.filter((x) => x.type === 'film')) {
+    const last = map[map.length - 1];
+    if (last && last[0] + last[2] === s.f0 && last[1] + last[2] === s.o0) last[2] += s.frames;
+    else map.push([s.f0, s.o0, s.frames]);
+  }
   const refined = {
     video: 'presentation_refined.mp4', draft: Boolean(timeline.draft), created: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), fps: FPS,
     total_duration: r3(frames / FPS),
     slides: chaptersOut.filter((c) => c.kind === 'slide'),
     cutscenes: chaptersOut.filter((c) => c.kind === 'cutscene'),
     chapters: chaptersOut,
-    refined: { from: timeline.video || 'presentation.mp4', title, addons: addons.map((a) => ({ id: a.id, kind: a.kind, title: a.title, where: where(a, addons) })) },
+    refined: { from: timeline.video || 'presentation.mp4', title, map,
+      addons: addons.map((a) => ({ id: a.id, kind: a.kind, title: a.title, where: where(a, addons), ...(landed[a.id] ? { at: landed[a.id].map((f) => r3(f / FPS)) } : {}) })) },
   };
   return { fps: FPS, filmFrames: total, frames, pieces, beds, overlays, inserts: inserts.map((x) => ({ id: x.a.id, at: x.at, frames: x.frames })),
     brolls: brolls.map((b) => ({ id: b.a.id, f0: b.f0, f1: b.f1 })), timeline: refined, notes };
@@ -550,15 +574,23 @@ function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
     if (typeof i === 'object') args.push('-stream_loop', '-1', '-i', i.file);
     else args.push('-i', i);
   }
-  const d = f6(N / FPS); // (exact: the graph already makes every stream N frames long)
-  args.push('-filter_complex', g.join(';\n'),
-    '-map', '[vout1]', '-map', '[aout1]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '300',
+  args.push('-filter_complex', g.join(';\n'), ...outputArgs(N, out));
+  return { args, graph: g, inputs: inputs.map((i) => (typeof i === 'object' ? i.file : i)) };
+}
+
+/**
+ * The two outputs of a graph ending in [vout1][aout1] (the MP4, in the film's own encoding) and [vout2][aout2] (the
+ * CapCut-safe master: no B-frames, PCM, no edit lists). `frames`: the length (exact: the graph already makes every
+ * stream that long).
+ */
+function outputArgs(frames, out) {
+  const d = f6(frames / FPS);
+  return ['-map', '[vout1]', '-map', '[aout1]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '300',
     '-r', String(FPS), '-fps_mode', 'cfr', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
     '-video_track_timescale', '15360', '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', String(SR), '-movflags', '+faststart', '-t', d, '-f', 'mp4', out.video,
     '-map', '[vout2]', '-map', '[aout2]', '-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-bf', '0', '-g', '30', '-pix_fmt', 'yuv420p',
     '-r', String(FPS), '-fps_mode', 'cfr', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
-    '-c:a', 'pcm_s16le', '-ar', String(SR), '-use_editlist', '0', '-t', d, '-f', 'mov', out.master);
-  return { args, graph: g, inputs: inputs.map((i) => (typeof i === 'object' ? i.file : i)) };
+    '-c:a', 'pcm_s16le', '-ar', String(SR), '-use_editlist', '0', '-t', d, '-f', 'mov', out.master];
 }
 
 // ── running it ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -677,12 +709,13 @@ async function apply(d) {
     if (a.kind === 'music' ? !m.audio : !m.video) throw new Error(`${a.title}: ${a.kind === 'music' ? 'no sound in it' : 'no picture in it'}.`);
   }
 
-  // Word timings, for the add-ons placed on a phrase.
+  // Word timings, for the add-ons placed on a phrase (moved along by d.mapWords when the film was tightened).
   const words = {};
   for (const n of [...new Set(addons.filter((a) => a.phrase && a.slide).map((a) => Number(a.slide)))]) {
     const s = timeline.slides.find((x) => Number(x.n) === n);
     say(`  timing slide ${n}'s narration…`);
     words[n] = await slideWords({ pres: d.pres, n, draft: Boolean(timeline.draft), seconds: s && s.narration_seconds, python: d.python, realWords: d.realWords, env, signal });
+    if (words[n] && d.mapWords) words[n] = d.mapWords(n, words[n]);
   }
   const p = plan({ timeline, addons, media, words, title: d.title || '' });
   for (const n of p.notes) say(`  ! ${n}`);
@@ -763,4 +796,4 @@ function musicCredits(addons, title) {
 }
 
 module.exports = { outputs, cleanAddon, where, addonsKey, filmKey, findPhrase, slideNarration, wavSeconds, narrationWav, slideWords, filmChapters,
-  plan, ffmpegArgs, apply, loudness, gainFor, probeMedia, hasEditList, musicCredits, runTool, KINDS, T, FPS, SR };
+  narrationLead, plan, ffmpegArgs, outputArgs, apply, loudness, gainFor, probeMedia, hasEditList, musicCredits, runTool, KINDS, T, FPS, SR };

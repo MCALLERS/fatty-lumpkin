@@ -29,6 +29,7 @@ function places() {
   const projects = abs(process.env.FLPT_PROJECTS) || s.projectsDir;
   return {
     projects,
+    userData,
     library: abs(process.env.FLPT_LIBRARY) || (process.env.FLPT_PROJECTS ? path.join(projects, 'Library') : settings.libraryDirOf(s)),
     deliverables: abs(process.env.FLPT_DELIVERABLES) || s.deliverablesDir,
     config: abs(process.env.AVATAR_PRESENTATION_CONFIG_DIR) || path.join(os.homedir(), '.config', 'avatar-presentation'),
@@ -135,7 +136,7 @@ function pipeline(episode, { broker = null } = {}) {
 /** The app's episode flow (flow.js) for episodes in one folder. */
 function flowFor(projectsDir, deps = {}) {
   return app('flow').createFlow({
-    settings: { read: () => ({ projectsDir, deliverablesDir: places().deliverables }) },
+    settings: { read: () => ({ projectsDir, deliverablesDir: places().deliverables }) }, engineRoot: ROOT,
     toolEnv, basePython: async () => tools().python, redact: (s) => s, send: () => {}, chrome: () => tools().chrome, ...deps,
   });
 }
@@ -174,6 +175,8 @@ function motionFor(pl) {
     clear: (d) => motion.clearMedia(d),
     render: (d, which, o = {}) => motion.render(d, which, { engineRoot: ROOT, fontCacheDir: path.join(places().config, 'deck-fonts'),
       retime: (args, ro) => pl.retime(d, args, ro), probe, ffmpeg, ...o }),
+    // a cartoon or cut scene the Mac app's Scenes step made, put together again (ffmpeg only, nothing paid)
+    assemble: (d, key, o = {}) => motion.assembleScene(d, key, { probe, ffmpeg, ...o }),
   };
 }
 

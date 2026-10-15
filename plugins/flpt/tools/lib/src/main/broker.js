@@ -4,7 +4,8 @@
 // A human approves an itemised estimate; that mints a budget token with a cap. Every paid call must present a live
 // token for the right provider and fit under what's left of the cap, and every call is written to an append-only
 // ledger. Spending past the cap needs a new approval. Paid work so far: the optional setup sample, filming, the crew's
-// planning budget, and generated media (generate.js: B-roll on Kie.ai or Higgsfield, one approval per job).
+// planning budget, generated media (generate.js: B-roll on Kie.ai or Higgsfield, one approval per job), and Scribe's
+// transcription for cutting laughs (Refine's tightening, flow.js).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -27,6 +28,8 @@ const RATES = {
   higgsfield_seedance_720p_s: { provider: 'higgsfield', unit: 'second of video (720p)', usd: 0.47 },
   higgsfield_seedance_1080p_s: { provider: 'higgsfield', unit: 'second of video (1080p)', usd: 1.16 },
   higgsfield_still: { provider: 'higgsfield', unit: 'still (2K)', usd: 0.05 },
+  // ElevenLabs Speech to Text: 0.22 US dollars an hour (elevenlabs.io/pricing/api, 2026-10-14), from the plan's hours first
+  elevenlabs_scribe_s: { provider: 'elevenlabs', unit: 'second of sound transcribed (Scribe v2)', usd: 0.22 / 3600 },
   anthropic_usd: { provider: 'anthropic', unit: 'US dollar of Claude usage (cap)', usd: 1 },
 };
 

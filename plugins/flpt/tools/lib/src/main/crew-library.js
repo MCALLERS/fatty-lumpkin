@@ -49,8 +49,8 @@ function crewLibrary(lib, projectDir) {
 
 /**
  * Save what an approved stage made to the Library: the deck's module slides (charts, sketches, infographics…) when the
- * deck is approved, and the finished video when it's delivered. Identical files are recognised, so re-approving adds
- * nothing new. Returns how many items were added.
+ * deck is approved, the animators' slides (their previews) when Animate is, and the finished video when it's
+ * delivered. Identical files are recognised, so re-approving adds nothing new. Returns how many items were added.
  */
 async function keep(lib, projectDir, stageId, { finalVideo } = {}) {
   const st = episode.read(projectDir);
@@ -74,7 +74,24 @@ async function keep(lib, projectDir, stageId, { finalVideo } = {}) {
       await add(png, { title: `${MODULE_NAMES[mod]}: ${st.title}, slide ${i + 1}`, tags: [MODULE_NAMES[mod], st.title], notes: `From "${st.title}" (${id}).` });
     }
   }
+  if (stageId === 'animate') {
+    for (const a of require('./animators').view(projectDir).filter((x) => x.made && x.preview)) {
+      await add(a.preview, { title: `Animation: ${st.title}, slide ${a.n}`, tags: ['Animation', st.title], notes: `From "${st.title}" (${a.id}): ${a.brief}`.slice(0, 600) });
+    }
+  }
   if (stageId === 'deliver' && finalVideo) await add(finalVideo, { title: st.title, tags: ['Episode', st.title], notes: 'The delivered episode.' });
+  if (stageId === 'scenes') {
+    // Each cut scene that was made, as a clip: Refine can use it as B-roll in a later episode.
+    const scenes = require('./scenes');
+    const state = scenes.readState(projectDir);
+    for (const p of scenes.view(projectDir).pieces.filter((x) => x.kind === 'cutscene' && x.clip)) {
+      const shot = scenes.approvedTake(((state.pieces[p.key] || {}).slots || {}).shot1 || { takes: [] });
+      const where = shot && shot.provider === 'higgsfield' ? 'Higgsfield' : 'Kie.ai';
+      const it = await lib.addFile(p.clip, { kind: 'clip', addedBy: 'episode', title: p.title, tags: ['Cut scene', 'generated', st.title], notes: `A cut scene from "${st.title}".`,
+        source: { site: where, rights: `AI-generated: Seedance 2.5 on ${where}.` } });
+      if (it && !it.duplicate) added += 1;
+    }
+  }
   return added;
 }
 

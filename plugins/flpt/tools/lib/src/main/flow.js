@@ -1,8 +1,12 @@
 'use strict';
-// The episode flow: create → bullets → fact-check → deck → script → spend → film → refine → deliver.
+// The episode flow: create → bullets → fact-check → deck → script → animate → scenes → spend → film → refine → deliver.
 // Agent stages run through agents.runStage; pipeline stages run the engine's scripts directly. Every paid step goes
-// through the broker: Claude planning against an approved planning budget, filming against an approved HeyGen budget.
-// Refine (refine.js) puts add-ons on the finished film with ffmpeg alone, so it never spends anything.
+// through the broker: Claude planning (the crew and the animators) against an approved planning budget, filming
+// against an approved HeyGen budget, and the Scenes step's stills and shots (scenes.js; generate.js makes them) each
+// against their own small approval. Animate (animators.js) runs one session per slide the deck marks for an animation
+// of its own. Refine tightens the finished film's pauses (tighten.js) and puts add-ons on it (refine.js), with ffmpeg
+// alone. The one thing there that costs anything is Scribe, for cutting laughs: cents, through the broker, once per
+// film. Deliver hands over the extras too (extras.js): levelled, with a clip guide, and later the Slack pack.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -12,7 +16,11 @@ const stagetools = require('./stagetools');
 const layoutqa = require('./layoutqa');
 const modules = require('./modules');
 const motionLib = require('./motion'); // media.json: which slides are narrated without the bubble
+const animators = require('./animators');
 const refineMod = require('./refine');
+const tightenMod = require('./tighten');
+const extras = require('./extras');
+const scenesMod = require('./scenes'); // the Scenes step: cartoons and cut scenes (the paid side is d.scenes)
 const { estimate } = require('./broker');
 const { spawn } = require('child_process');
 
@@ -23,6 +31,10 @@ const MAX_ATTACH = 500 * 1024 * 1024;
 const EDITABLE = new Set(['bullets', 'script']);
 const exists = (p) => { try { fs.accessSync(p); return true; } catch { return false; } };
 const mtime = (p) => { try { return Math.round(fs.statSync(p).mtimeMs); } catch { return null; } };
+const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
+/** The episode's tightening choice: 'off', 'on' (pauses, free) or 'on+laughs' (and laughs, with Scribe). */
+const tightenKey = (st) => (st && st.tighten && st.tighten.on ? (st.tighten.laughs ? 'on+laughs' : 'on') : 'off');
+const SCRIBE_MIN_S = 180; // Scribe is priced (and approved) at a cent or more, never at zero
 
 /** The {{placeholders}} an episode's stage prompts get (agents.stagePrompt adds the skill paths and the user's notes). */
 function stageVars(st) {
@@ -49,6 +61,11 @@ function playerConfig(st, { cutscenes = 0, cartoons = 0 } = {}) {
     : cutscenes ? 'The cinematic cut scenes are AI-generated.' : cartoons ? 'The cartoons are AI-generated.' : '';
   return { page_title: title, title, eyebrow: i.series || 'Fatty Lumpkin Presentation Tool', subtitle: i.point || '', deck_url: '', media_note: note };
 }
+
+/** Why the Spend step can't open yet, in the user's words. */
+// Why Spend can't open yet: the step before it that's waiting (Scenes, then Animate), else the script.
+const spendBlocked = (st) => (episode.canRun(st, 'scenes') ? 'Approve Scenes first: make the cartoons and cut scenes there, or go on without them.'
+  : episode.canRun(st, 'animate') ? 'Approve the animations first (or skip them).' : 'Approve the script first.');
 
 /** What's in the filmed video: its cut scenes (the final timeline), and the Cosmos slides that play a cartoon. */
 function filmedMedia(dir, finalOutput) {
@@ -84,7 +101,11 @@ function writePlayerConfig(dir, finalOutput) {
 
 function createFlow(d) {
   // d: { settings, vault, pipeline, broker, toolEnv, chrome(), engineRoot, configDir, executable, confirm(opts), send,
-  //      basePython(), loadSdk(), redact, motion: { available(), clear(dir), render(dir, which, opts) } (optional) }
+  //      basePython(), loadSdk(), redact, motion: { available(), clear(dir), render(dir, which, opts), assemble(dir, key, opts) }
+  //      (optional), scribe(): an ElevenLabs Scribe client (providers/elevenlabs.js; optional: without it, no laughs are
+  //      cut), animators: { available(), tools(dir, slide, signal), probe } (optional: the animator crew's in-process
+  //      tools), scenes: { make({ dir, key, step, title, project }), pending(dir), routes(), keys() } (optional: the paid
+  //      side of the Scenes step, in the app; without it the stills and shots can't be made) }
   const running = new Map(); // dir → AbortController, for agent stages
   const busy = new Set(); // dirs with a pipeline step (draft, film, deliver) under way
   const exclusive = async (dir, fn) => {
@@ -177,10 +198,12 @@ function createFlow(d) {
       freeFilm: st.stages.spend.status === 'approved' && st.stages.spend.free === true,
       estimateSeconds: files.script ? episode.estimateSeconds(episode.parseScript(files.script)) : null,
       calls: st.calls || [],
+      scenes: scenesView(dir),
       modules: readModulesMap(dir),
       deckOrder: readDeckOrder(dir),
       slideTitles: bulletSlides(files.bullets),
       catalog: modules.MODULES.map(({ id, name, short, ask, now, withFile }) => ({ id, name, short, ask, now, withFile })),
+      animate: animateView(dir, st),
       refine: refineView(dir, st),
     };
   }
@@ -195,26 +218,38 @@ function createFlow(d) {
     return readDeckOrder(dir).map((id, i) => ({ n: i + 1, title: String(id) }));
   }
 
-  /** The refined video and master, while they're current: made from these add-ons and this film. Else null. */
+  /** Anything for Refine to apply: add-ons, or tightening. */
+  const refineWork = (st) => Boolean((st.addons || []).length || tightenKey(st) !== 'off');
+
+  /**
+   * What Refine made, while it's current (these add-ons and this tightening, on this film): { video, master,
+   * timeline }, the refined ones with add-ons, else the tightened ones. Else null.
+   */
   function refinedOutputs(dir, st) {
     const rec = st.stages.refine || {};
     const addons = st.addons || [];
-    if (!addons.length || !rec.applied) return null;
+    if (!refineWork(st) || !rec.applied) return null;
     const o = refineMod.outputs(dir);
-    if (rec.applied.addons !== refineMod.addonsKey(addons) || rec.applied.film !== refineMod.filmKey(o.film)) return null;
-    return exists(o.video) && exists(o.master) ? o : null;
+    if (rec.applied.addons !== refineMod.addonsKey(addons) || rec.applied.film !== refineMod.filmKey(o.film) || (rec.applied.tighten || 'off') !== tightenKey(st)) return null;
+    const made = addons.length ? { video: o.video, master: o.master, timeline: o.timeline } : { video: o.tight, master: o.tightMaster, timeline: o.tightTimeline };
+    return exists(made.video) && exists(made.master) ? made : null;
   }
+
+  const hasScribeKey = () => Boolean(d.scribe && d.vault && typeof d.vault.status === 'function' && (d.vault.status().ELEVENLABS_API_KEY || {}).set);
 
   function refineView(dir, st) {
     const addons = st.addons || [];
     const current = refinedOutputs(dir, st);
     const rec = st.stages.refine || {};
+    const tk = tightenKey(st);
     return {
       addons: addons.map((a) => ({ id: a.id, kind: a.kind, title: a.title, where: refineMod.where(a, addons), slide: a.slide || null, under: a.under || null,
         phrase: a.phrase || '', sound: a.sound || null, style: a.style || null, duration: a.duration || null })),
       slides: filmSlides(dir),
+      // Laughs are offered with an ElevenLabs key (Scribe finds them); once chosen, they stay on screen to turn off.
+      tighten: { on: tk !== 'off', laughs: tk === 'on+laughs', offered: hasScribeKey() || tk === 'on+laughs' },
       video: current ? current.video : null, videoAt: current ? mtime(current.video) : null,
-      outdated: Boolean(!current && addons.length && rec.applied),
+      outdated: Boolean(!current && refineWork(st) && rec.applied),
       notes: current && rec.applied && Array.isArray(rec.applied.notes) ? rec.applied.notes : [],
     };
   }
@@ -263,38 +298,280 @@ function createFlow(d) {
     return open(dir);
   }
 
+  /** Tightening on or off for this episode (laughs too, with an ElevenLabs key). A change re-opens Refine. */
+  function setTighten(dir, t = {}) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
+    if (refineBusy(st)) throw new Error('Refine is applying. Change it when it\'s done.');
+    const next = { on: Boolean(t && t.on), laughs: Boolean(t && t.on && t.laughs) };
+    if (next.laughs && tightenKey(st) !== 'on+laughs' && !hasScribeKey()) throw new Error('Cutting laughs needs an ElevenLabs key (Setup → Keys).');
+    if (tightenKey({ tighten: next }) === tightenKey(st)) return open(dir);
+    st.tighten = next;
+    refineChanged(st);
+    episode.write(dir, st);
+    return open(dir);
+  }
+
+  // ── laughs: Scribe's word timings and audio events, paid (cents), once per film ──
+  const scribeFile = (dir) => path.join(tightenMod.workDir(path.join(dir, 'presentation')), 'scribe.elevenlabs.json');
+  const toolsFor = () => ({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', ...(d.refineTools || {}) });
+  const toolEnvFor = () => ({ PATH: d.toolEnv().PATH, HOME: process.env.HOME || '', LANG: 'en_US.UTF-8' });
+
+  /** Scribe's transcription of this film from an earlier (paid) run, or null when the film has changed since. */
+  function keptScribe(dir, film) {
+    const k = readJson(scribeFile(dir));
+    return k && k.film === refineMod.filmKey(film) && k.response && Array.isArray(k.response.words) ? k.response : null;
+  }
+
+  /** The price of Scribe for a film this long, and the user's yes in the native dialog: { token, usd }, or null. */
+  async function approveScribe(st, seconds) {
+    const est = estimate([{ rate: 'elevenlabs_scribe_s', qty: Math.max(SCRIBE_MIN_S, Math.ceil(seconds)), label: 'Scribe: the film\'s sound, for its laughs' }]);
+    const usd = est.byProvider.elevenlabs.usd;
+    const ok = await d.confirm({
+      title: 'Spend money on ElevenLabs?',
+      message: 'Find the laughs to cut?',
+      detail: `ElevenLabs Scribe listens to the film once (${(seconds / 60).toFixed(1)} min of sound): about ${usd.toFixed(2)} US dollars, plus up to 15 % margin. Nothing else will be charged.`,
+      button: `Approve ${usd.toFixed(2)} US dollars`,
+    });
+    if (!ok) return null;
+    return { token: d.broker.approve(est, { project: st.title, stage: 'laughs' }).elevenlabs, usd };
+  }
+
   /**
-   * Apply: the add-ons on the approved film, with ffmpeg only (refine.apply): presentation_refined.mp4 and its
-   * CapCut-safe master. Nothing is filmed again and nothing is paid for. Ends in review (the preview) or error.
+   * Scribe on the film's sound, against an approved budget: one request, then recorded, settled and closed. A
+   * refusal costs nothing; a reply that never came keeps its reservation (it may have been billed). Kept for the film.
+   */
+  async function transcribeFilm(dir, st, film, q, onLine, signal) {
+    const what = `${st.title}: laughs (Scribe)`;
+    try { d.broker.authorize(q.token, 'elevenlabs', { usd: q.usd, what }); } catch (e) { d.broker.close(q.token); throw e; }
+    const sound = path.join(tightenMod.workDir(path.join(dir, 'presentation')), 'scribe-sound.flac');
+    let res;
+    try {
+      fs.mkdirSync(path.dirname(sound), { recursive: true });
+      // The film's sound, lossless (no encoder delay to shift the timings) and small: FLAC, 16 kHz mono.
+      const x = await refineMod.runTool(toolsFor().ffmpeg, ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-i', film, '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-c:a', 'flac', sound],
+        { env: toolEnvFor(), signal });
+      if (x.code !== 0) throw new Error('ffmpeg couldn\'t read the film\'s sound.');
+      onLine('Laughs: ElevenLabs Scribe is listening to the film…');
+      res = await d.scribe().transcribe(sound, { signal });
+    } catch (e) {
+      const error = d.redact(String(e && e.message ? e.message : e)).slice(0, 300);
+      if (e && e.ambiguous) d.broker.record(q.token, { what, provider: 'elevenlabs', outcome: 'unknown', error });
+      else {
+        d.broker.settle(q.token, { authorizedUsd: q.usd, actualUsd: 0, what });
+        d.broker.record(q.token, { what, provider: 'elevenlabs', outcome: 'not done', error });
+      }
+      d.broker.close(q.token);
+      throw new Error(error);
+    } finally {
+      fs.rmSync(sound, { force: true });
+    }
+    d.broker.record(q.token, { what, provider: 'elevenlabs', model: 'scribe_v2', outcome: 'done', costUsd: q.usd, words: res.words.length });
+    d.broker.close(q.token);
+    episode.addCost(dir, { provider: 'elevenlabs', stage: 'refine', usd: q.usd, estimate: true });
+    fs.writeFileSync(scribeFile(dir), JSON.stringify({ film: refineMod.filmKey(film), model: 'scribe_v2', usd: q.usd, at: new Date().toISOString(), response: res }));
+    onLine(`  Scribe: ${res.words.filter((w) => w.type === 'word').length} words, ${res.words.filter((w) => w.type === 'audio_event').length} sounds.`);
+    return res;
+  }
+
+  /**
+   * Apply: the tightening (tighten.apply), then the add-ons (refine.apply) on the tightened film or the approved one,
+   * with ffmpeg only: the refined (or tightened) video and its CapCut-safe master. Nothing is filmed again. Cutting
+   * laughs needs Scribe first: asked for here, in the native dialog, unless this film was already transcribed. Ends
+   * in review (the preview) or error; a No in the dialog changes nothing.
    */
   async function refine(dir, onLine = () => {}, signal) {
     dir = guard(dir);
     const st = episode.read(dir);
     if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
     const addons = st.addons || [];
-    if (!addons.length) throw new Error('Add something first.');
+    const tk = tightenKey(st);
+    if (!refineWork(st)) throw new Error('Add something first.');
     const o = refineMod.outputs(dir);
     if (!exists(o.film) || !exists(o.filmTimeline)) throw new Error('The film isn\'t there. Film it first.');
-    return exclusive(dir, async () => {
+    const python = tk !== 'off' && d.basePython ? await d.basePython() : null;
+    if (tk !== 'off' && !python) throw new Error('Python isn\'t set up yet (Setup → Tools).');
+    let scribe = tk === 'on+laughs' ? keptScribe(dir, o.film) : null;
+    let paid = null;
+    if (tk === 'on+laughs' && !scribe) {
+      if (!hasScribeKey()) throw new Error('Cutting laughs needs an ElevenLabs key (Setup → Keys).');
+      if (running.has(dir) || busy.has(dir)) throw new Error('Something is already running for this episode.');
+      paid = await approveScribe(st, Number((readJson(o.filmTimeline) || {}).total_duration) || 0);
+      if (!paid) return { ok: false, cancelled: true };
+    }
+    const pres = path.join(dir, 'presentation');
+    const projectPython = d.pipeline.projectPython ? d.pipeline.projectPython(dir) : null;
+    const wordsPython = projectPython && exists(projectPython) ? projectPython : python;
+    const realWords = path.join(d.engineRoot || '', 'skills', 'avatar-presentation', 'templates', 'hyperframes', 'real-words.py');
+    const applyRefine = async () => {
       episode.setStage(dir, 'refine', { status: 'running', error: null });
       try {
-        const r = await refineMod.apply({
-          pres: path.join(dir, 'presentation'), film: o.film, filmTimeline: o.filmTimeline, out: o, title: st.title,
-          addons: addons.map((a) => ({ ...a, path: path.join(dir, 'presentation', a.file) })),
-          python: d.pipeline.projectPython ? d.pipeline.projectPython(dir) : null,
-          realWords: path.join(d.engineRoot || '', 'skills', 'avatar-presentation', 'templates', 'hyperframes', 'real-words.py'),
-          env: { PATH: d.toolEnv().PATH, HOME: process.env.HOME || '', LANG: 'en_US.UTF-8' }, onLine, signal,
-          ...(d.refineTools || {}),
-        });
-        episode.setStage(dir, 'refine', { status: 'review', error: null, applied: { addons: refineMod.addonsKey(addons), film: refineMod.filmKey(o.film),
-          seconds: r.seconds, frames: r.frames, lufs: r.lufs, tp: r.tp, notes: r.notes.slice(0, 20), at: new Date().toISOString() } });
-        return { ok: true, video: r.video, notes: r.notes };
+        if (paid) scribe = await transcribeFilm(dir, st, o.film, paid, onLine, signal);
+        let tight = null;
+        if (tk !== 'off') {
+          tight = await tightenMod.apply({ pres, film: o.film, filmTimeline: o.filmTimeline, out: o, engineRoot: d.engineRoot, scribe, python, wordsPython,
+            env: toolEnvFor(), onLine, signal, ...toolsFor() });
+        }
+        let r = null;
+        if (addons.length) {
+          // On the tightened film, the add-ons' phrases move along with the words.
+          const filmTl = tight ? readJson(o.filmTimeline) : null;
+          r = await refineMod.apply({
+            pres, film: tight ? o.tight : o.film, filmTimeline: tight ? o.tightTimeline : o.filmTimeline, out: o, title: st.title,
+            addons: addons.map((a) => ({ ...a, path: path.join(pres, a.file) })), python: projectPython || wordsPython, realWords,
+            mapWords: tight ? (n, words) => tightenMod.shiftWords(words, n, filmTl, tight.cuts) : null,
+            env: toolEnvFor(), onLine, signal, ...toolsFor(),
+          });
+        }
+        const made = r || tight;
+        const notes = [...(tight ? tight.notes : []), ...(r ? r.notes : [])];
+        episode.setStage(dir, 'refine', { status: 'review', error: null, applied: { addons: refineMod.addonsKey(addons), film: refineMod.filmKey(o.film), tighten: tk,
+          seconds: made.seconds, frames: made.frames, lufs: r ? r.lufs : null, tp: r ? r.tp : null, notes: notes.slice(0, 20), at: new Date().toISOString() } });
+        return { ok: true, video: made.video, notes };
       } catch (e) {
         const error = signal && signal.aborted ? 'Stopped.' : d.redact(String(e && e.message ? e.message : e)).slice(0, 400);
         episode.setStage(dir, 'refine', { status: 'error', error });
         return { ok: false, error };
       }
+    };
+    try {
+      return await exclusive(dir, applyRefine);
+    } finally {
+      if (paid && d.broker.isLive(paid.token, 'elevenlabs')) d.broker.close(paid.token); // approved, but never sent
+    }
+  }
+
+  // ── Scenes: the cartoons and cut scenes ──
+
+  const assembling = new Map(); // dir → the piece key being put together
+
+  /** Jobs on their way at a provider, or a piece being put together, for this episode. */
+  function scenesBusy(dir) {
+    return assembling.has(dir) || (d.scenes ? d.scenes.pending(dir) > 0 : scenesMod.working(dir) > 0);
+  }
+
+  /** The Scenes step as the page shows it (prices from the providers the settings pick; whether there's a key). */
+  function scenesView(dir) {
+    // A take marked on its way whose job the app no longer has can't land: it's shown as stopped, to be made again.
+    if (d.scenes && !d.scenes.pending(dir) && scenesMod.working(dir)) scenesMod.reconcile(dir);
+    const v = scenesMod.view(dir, { routes: d.scenes && d.scenes.routes ? d.scenes.routes() : {}, keys: d.scenes && d.scenes.keys ? d.scenes.keys() : null });
+    return { ...v, assembling: assembling.get(dir) || null, canMake: Boolean(d.scenes) };
+  }
+
+  /** Something in Scenes changed: it's up for review again, and what was built on it is out of date. */
+  function scenesChanged(dir) {
+    const st = episode.read(dir);
+    if (st.stages.scenes.status === 'review') return;
+    episode.setStage(dir, 'scenes', { status: 'running' });
+    episode.setStage(dir, 'scenes', { status: 'review' });
+  }
+
+  const say = (ev) => { try { d.send('scenes:changed', { dir: ev.dir, key: ev.key || null, error: ev.error || null }); } catch { /* no window */ } };
+
+  /**
+   * Put a ready piece together (free: ffmpeg), now or in the background. A cartoon is timed to the narration's pace
+   * here; every run times it to its own voice. Returns the view; with `wait`, once it's done.
+   */
+  async function assembleScene(dir, key, { wait = true } = {}) {
+    dir = guard(dir);
+    if (!d.motion || !d.motion.assemble) throw new Error('Putting it together needs ffmpeg (Setup → Tools).');
+    scenesMod.pieceOf(dir, key);
+    if (assembling.has(dir)) throw new Error('Already putting one together.');
+    if (running.has(dir) || busy.has(dir)) throw new Error('Something is already running for this episode.');
+    assembling.set(dir, key);
+    let ok = false;
+    const go = exclusive(dir, async () => {
+      try {
+        await d.motion.assemble(dir, key, {});
+        scenesMod.update(dir, (s) => { if (s.pieces[key]) s.pieces[key].error = null; });
+        scenesChanged(dir);
+        say({ dir, key });
+        ok = true;
+      } catch (e) {
+        const error = d.redact(String(e && e.message ? e.message : e)).slice(0, 300);
+        scenesMod.update(dir, (s) => { (s.pieces[key] ||= { slots: {} }).error = error; });
+        say({ dir, key, error });
+        throw new Error(error);
+      }
+    }).finally(() => {
+      assembling.delete(dir);
+      // Another piece that became ready meanwhile is put together next.
+      if (ok) { const other = scenesMod.view(dir).pieces.find((p) => p.key !== key && p.ready && p.outdated && !p.error); if (other) assembleIfReady(dir, other.key); }
     });
+    if (wait) await go;
+    else go.catch(() => {});
+    return scenesView(dir);
+  }
+
+  /** A piece that's ready and not put together (or put together from older takes) is put together now, in the background. */
+  function assembleIfReady(dir, key) {
+    if (assembling.has(dir) || running.has(dir) || busy.has(dir) || !d.motion || !d.motion.assemble) return false;
+    const v = scenesMod.view(dir).pieces.find((p) => p.key === key);
+    if (!v || !v.ready || !v.outdated) return false;
+    assembleScene(dir, key, { wait: false }).catch(() => {});
+    return true;
+  }
+
+  /** A still or shot landed (generate.js): the page hears about it, and a piece that's now ready is put together. */
+  function sceneLanded(dir, key) {
+    if (!inProjects(dir)) return;
+    say({ dir: path.resolve(dir), key });
+    try { assembleIfReady(path.resolve(dir), key); } catch { /* the deck changed under it: the page shows why */ }
+  }
+
+  /**
+   * What the Scenes step's buttons do: { key, action, slot }.
+   *   make      the piece's next paid step (scenes.nextStep decides; the page never names one)
+   *   reroll    one more take of one still or shot (priced on its own)
+   *   animate   the hero shot of a cartoon whose hero was left still
+   *   approve   the newest take of a slot (free)
+   *   skip      leave the cartoon's hero beat still (free)
+   *   assemble  put a ready piece together again (free)
+   * Paid actions go through d.scenes.make (generate.js): the price, the dialog, the broker. Returns the view, or
+   * { cancelled: true } when the dialog got a no.
+   */
+  async function sceneAction(dir, { key, action, slot } = {}) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (!episode.canRun(st, 'scenes')) throw new Error('Approve the script first.');
+    if (running.has(dir) || busy.has(dir)) throw new Error('Something is already running for this episode.');
+    const piece = scenesMod.pieceOf(dir, String(key || ''));
+    const names = scenesMod.slotsOf(piece).map((x) => x.name);
+    if ((slot != null || ['reroll', 'approve'].includes(action)) && !names.includes(slot)) throw new Error('That part isn\'t in its plan.');
+    const stateKey = slot === 'frame' ? scenesMod.STYLE_KEY : piece.key;
+    const state = scenesMod.readState(dir);
+    const slotState = (name) => ((state.pieces[piece.key] || {}).slots || {})[name] || { takes: [], approved: null, final: null };
+    if (action === 'approve') {
+      scenesMod.approve(dir, stateKey, slot);
+      scenesChanged(dir);
+      if (!assembleIfReady(dir, piece.key)) say({ dir, key: piece.key });
+      return scenesView(dir);
+    }
+    if (action === 'skip') {
+      if (piece.kind !== 'cartoon' || piece.hero == null) throw new Error('Only a cartoon\'s hero can be left still.');
+      if (scenesMod.slotStatus(slotState('hero')) === 'working') throw new Error('That one is still on its way.');
+      scenesMod.skipHero(dir, piece.key, true);
+      scenesChanged(dir);
+      assembleIfReady(dir, piece.key);
+      return scenesView(dir);
+    }
+    if (action === 'assemble') return assembleScene(dir, piece.key);
+    let step;
+    if (action === 'make') step = scenesMod.nextStep(piece, state);
+    else if (action === 'reroll') step = scenesMod.rerollStep(piece, state, slot);
+    else if (action === 'animate') {
+      if (piece.kind !== 'cartoon' || piece.hero == null) throw new Error('Only a cartoon has a hero shot.');
+      if (!scenesMod.approvedTake(slotState(`beat${piece.hero + 1}`))) throw new Error('Approve its keyframe first.');
+      if (scenesMod.slotStatus(slotState('hero')) === 'working') throw new Error('That one is still on its way.');
+      step = { step: 'video', key: piece.key, slots: ['hero'], kind: 'video' };
+    } else throw new Error('FLPT doesn\'t know that.');
+    if (!step) throw new Error('There\'s nothing to make there now.');
+    if (!d.scenes) throw new Error('Cartoons and cut scenes are made in the FLPT app.');
+    const r = await d.scenes.make({ dir, key: piece.key, step, title: piece.title, project: st.title });
+    if (r && r.cancelled) return { cancelled: true };
+    scenesChanged(dir);
+    return { ...scenesView(dir), failed: (r && r.failed) || [] };
   }
 
   // ── Claude planning budget ──
@@ -309,7 +586,7 @@ function createFlow(d) {
     const ok = await d.confirm({
       title: 'Spend on Claude?',
       message: `Planning "${st.title}" uses your Anthropic key.`,
-      detail: `Up to ${cap} US dollars for bullets, fact-check, deck and script. Each run is capped, and only its real cost counts against this budget, so revisions draw on it too. You'll see the cost after each run, and you'll be asked again if it runs low.`,
+      detail: `Up to ${cap} US dollars for bullets, fact-check, deck, script and the slides' own animations. Each run is capped, and only its real cost counts against this budget, so revisions draw on it too. You'll see the cost after each run, and you'll be asked again if it runs low.`,
       button: `Approve up to ${cap} US dollars`,
     });
     if (!ok) return null;
@@ -370,6 +647,109 @@ function createFlow(d) {
 
   function cancel(dir) { const c = running.get(path.resolve(dir)); if (c) c.abort(); return Boolean(c); }
 
+  // ── Animate: the animator crew (animators.js) ──
+
+  /** The Animate step: the marked slides, their animations, and the last run's records. */
+  function animateView(dir, st) {
+    return { slides: animators.view(dir, st.animations || {}), perSlideUsd: animators.PER_SLIDE_USD, available: Boolean(d.animators && d.animators.available()) };
+  }
+
+  /** One slide's record of its last animator run (by slide id), written as the run moves on. */
+  function noteAnimation(dir, id, patch) {
+    const st = episode.read(dir);
+    const all = st.animations || {};
+    st.animations = { ...all, [id]: { ...(all[id] || {}), ...patch, at: new Date().toISOString() } };
+    episode.write(dir, st);
+  }
+
+  /**
+   * Run the animator crew: one session per marked slide (or only slide `slide`), a few at a time. Each session's cap is
+   * reserved from the episode's Claude planning budget before any of them starts, so any question about money comes
+   * first; then only its real cost counts. Ends in review when an animation was made, else error.
+   */
+  async function animate(dir, { slide = null, feedback = '' } = {}) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    if (!episode.canRun(st, 'animate')) throw new Error('Approve the script first.');
+    if (running.has(dir) || busy.has(dir)) throw new Error('Something is already running for this episode.');
+    if (!d.animators || !d.animators.available()) throw new Error('Animations need HyperFrames (Setup → Tools).');
+    const apiKey = d.vault.get('ANTHROPIC_API_KEY');
+    if (!apiKey) throw new Error('Add your Anthropic key in Setup → Keys first.');
+    const marked = animators.marked(dir).filter((s) => slide == null || s.n === Number(slide));
+    if (!marked.length) throw new Error(slide == null ? 'No slide is marked for an animation of its own.' : 'That slide isn\'t marked for an animation.');
+    const slides = marked.filter((s) => animators.owner(dir, s.n) !== 'user');
+    if (!slides.length) throw new Error('Those slides have animations of your own, so they stay as they are.');
+    const stage = episode.STAGES.find((s) => s.id === 'animate');
+    const jobs = [];
+    for (const s of slides) {
+      const token = await planningToken(dir, stage);
+      if (!token) break;
+      jobs.push({ s, token });
+    }
+    if (!jobs.length) return { ok: false, cancelled: true };
+
+    const ctrl = new AbortController();
+    running.set(dir, ctrl);
+    const what = (s) => `${st.title}: animate slide ${s.n}`;
+    const results = [];
+    try {
+      const moved = animators.sync(dir);
+      episode.setStage(dir, 'animate', { status: 'running', feedback: feedback || null, error: null });
+      for (const { s } of jobs) noteAnimation(dir, s.id, { n: s.n, status: 'running', error: null, note: null, costUsd: null });
+      for (const text of moved) d.send('agent:event', { dir, stage: 'animate', kind: 'note', text });
+      const sdk = await d.loadSdk();
+      const z = d.loadZod ? await d.loadZod() : null;
+      const queue = [...jobs];
+      const worker = async () => {
+        for (let job = queue.shift(); job; job = queue.shift()) {
+          const { s, token } = job;
+          if (ctrl.signal.aborted) {
+            d.broker.settle(token, { authorizedUsd: stage.budgetUsd, actualUsd: 0, what: what(s) });
+            noteAnimation(dir, s.id, { status: 'error', error: 'Stopped.' });
+            results.push({ n: s.n, ok: false, costUsd: 0, error: 'Stopped.' });
+            continue;
+          }
+          const emit = (ev) => d.send('agent:event', { dir, stage: 'animate', slide: s.n, ...ev, text: ev.text ? d.redact(ev.text) : ev.text, detail: ev.detail ? d.redact(ev.detail) : ev.detail });
+          const tools = d.animators.tools(dir, s, ctrl.signal);
+          let res;
+          try {
+            res = await animators.runAnimator({ slide: s, projectDir: dir, engineRoot: d.engineRoot, title: st.title, feedback, onEvent: emit, signal: ctrl.signal,
+              model: stage.model, budgetUsd: stage.budgetUsd }, { sdk, z, apiKey, toolEnvPath: d.toolEnv().PATH, configDir: d.configDir, executable: d.executable, tools });
+          } catch (e) {
+            res = { ok: false, costUsd: 0, costKnown: false, error: String(e && e.message ? e.message : e) };
+          }
+          d.broker.record(token, { what: what(s), costUsd: res.costUsd, turns: res.turns, ok: res.ok });
+          // Each session reserved its whole cap; once its real cost is known, the rest goes back to the planning budget.
+          if (res.costKnown) d.broker.settle(token, { authorizedUsd: stage.budgetUsd, actualUsd: res.costUsd, what: what(s) });
+          episode.addCost(dir, { provider: 'anthropic', stage: 'animate', slide: s.n, usd: res.costUsd, estimate: true });
+          const done = await animators.finish(dir, s, res, tools, d.animators.probe).catch((e) => ({ ok: false, error: String(e && e.message ? e.message : e) }));
+          const error = done.error ? d.redact(String(done.error)).slice(0, 400) : null;
+          noteAnimation(dir, s.id, { status: done.ok ? 'review' : 'error', error, note: done.note ? d.redact(done.note).slice(0, 400) : null,
+            costUsd: res.costUsd, sessionId: res.sessionId || null, report: res.report ? d.redact(res.report).slice(0, 8000) : null });
+          d.send('agent:event', { dir, stage: 'animate', slide: s.n, kind: 'done', ok: done.ok }); // its card can show it now
+          results.push({ n: s.n, ok: done.ok, costUsd: res.costUsd, error });
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(animators.PARALLEL, jobs.length) }, worker));
+      const costUsd = Math.round(results.reduce((a, r) => a + (r.costUsd || 0), 0) * 100) / 100;
+      const made = results.some((r) => r.ok);
+      const error = made ? null : ctrl.signal.aborted ? 'Stopped.' : 'No animation was made.';
+      episode.setStage(dir, 'animate', { status: made ? 'review' : 'error', error, costUsd });
+      return { ok: made, error, costUsd, slides: results.sort((a, b) => a.n - b.n) };
+    } catch (e) {
+      const error = d.redact(String(e && e.message ? e.message : e)).slice(0, 400);
+      for (const { s, token } of jobs) {
+        if (results.some((r) => r.n === s.n)) continue;
+        d.broker.settle(token, { authorizedUsd: stage.budgetUsd, actualUsd: 0, what: what(s) });
+        noteAnimation(dir, s.id, { status: 'error', error });
+      }
+      episode.setStage(dir, 'animate', { status: 'error', error });
+      return { ok: false, error, costUsd: 0 };
+    } finally {
+      running.delete(dir);
+    }
+  }
+
   /** Approve a stage's result. A stale agent stage (an earlier stage changed) can be kept as it is. */
   function approve(dir, stageId) {
     dir = guard(dir);
@@ -378,17 +758,39 @@ function createFlow(d) {
     if (!s || !st.stages[stageId]) throw new Error('Unknown stage.');
     const status = st.stages[stageId].status;
     if (stageId === 'refine') {
-      // Optional: with no add-ons it's simply approved; with some, once they're applied to this film.
+      // Optional: with nothing to apply it's simply approved; else once the add-ons or the tightening are applied.
       if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
       if (status === 'running') throw new Error('Refine is still applying.');
       if (status === 'approved') throw new Error('There\'s nothing to approve yet.');
-      if ((st.addons || []).length && !refinedOutputs(dir, st)) throw new Error('Apply the add-ons first.');
-      return episode.setStage(dir, 'refine', { status: 'approved', skipped: !(st.addons || []).length });
+      if (refineWork(st) && !refinedOutputs(dir, st)) throw new Error((st.addons || []).length ? 'Apply the add-ons first.' : 'Apply the tightening first.');
+      return episode.setStage(dir, 'refine', { status: 'approved', skipped: !refineWork(st) });
+    }
+    if (stageId === 'animate') {
+      // Whatever the animators made is kept (a slide without an animation keeps its builds); with nothing run, skipped.
+      if (!episode.canRun(st, 'animate')) throw new Error('Approve the script first.');
+      if (status === 'running' && running.has(dir)) throw new Error('The animators are still working.'); // else interrupted: keep what's there
+      if (status === 'approved') throw new Error('There\'s nothing to approve yet.');
+      const made = animators.view(dir).some((a) => a.made);
+      const next = episode.setStage(dir, 'animate', { status: 'approved', skipped: !made });
+      if (made && d.keep) Promise.resolve().then(() => d.keep(dir, 'animate')).catch(() => {});
+      return next;
+    }
+    if (stageId === 'scenes') {
+      // Optional: approve any time after the script, with what's made; the rest keep their placeholders.
+      if (!episode.canRun(st, 'scenes')) throw new Error(episode.canRun(st, 'animate') ? 'Approve the animations first (or skip them).' : 'Approve the script first.');
+      if (status === 'approved') throw new Error('There\'s nothing to approve yet.');
+      if (scenesBusy(dir)) throw new Error('Wait for the stills and shots on their way.');
+      const made = scenesMod.view(dir).pieces.filter((p) => p.clip).length;
+      const done = episode.setStage(dir, 'scenes', { status: 'approved', made, skipped: !made });
+      if (made && d.keep) Promise.resolve().then(() => d.keep(dir, 'scenes')).catch(() => {}); // the cut scenes, to the Library
+      return done;
     }
     const ok = status === 'review' || (status === 'stale' && s.kind === 'agent');
     if (!ok) throw new Error('There\'s nothing to approve yet.');
     if (!episode.canRun(st, stageId)) throw new Error('Approve the earlier stages first.');
-    const next = episode.setStage(dir, stageId, { status: 'approved' });
+    let next = episode.setStage(dir, stageId, { status: 'approved' });
+    // With no cartoon or cut scene in the deck, there's nothing for Scenes: it's approved on the way.
+    if (stageId === 'script' && next.stages.scenes.status !== 'approved' && !scenesMod.hasAny(dir)) next = episode.setStage(dir, 'scenes', { status: 'approved', skipped: true });
     // What the stage made goes to the Library too, for later episodes (in the background; never blocks approval).
     if (d.keep) Promise.resolve().then(() => d.keep(dir, stageId)).catch(() => {});
     return next;
@@ -593,8 +995,8 @@ function createFlow(d) {
 
   async function approveSpend(dir) {
     dir = guard(dir);
-    const st = episode.read(dir);
-    if (!episode.canRun(st, 'spend')) throw new Error('Approve the script first.');
+    const st = scenesOnTheWay(dir, episode.read(dir));
+    if (!episode.canRun(st, 'spend')) throw new Error(spendBlocked(st));
     const old = st.budgets && st.budgets.heygen;
     if (old && d.broker.isLive(old, 'heygen')) {
       if (st.stages.spend.status === 'approved') return { ok: true, usd: st.stages.spend.usd, already: true };
@@ -628,13 +1030,15 @@ function createFlow(d) {
   async function moveSlides(dir, which, onLine, signal) {
     if (!d.motion) return [];
     try {
+      for (const note of animators.sync(dir)) onLine(note); // the animators' slides follow the deck's order
       const hyperframes = d.motion.available();
       if (!hyperframes) {
         const p = d.motion.plan(dir);
-        if (p.slides.length) onLine('Moving slides need HyperFrames (Setup → Tools), so the slides stay still for now.');
-        if (!(p.insets || []).length) return []; // video insets need only ffmpeg: they still play
+        if (p.slides.length || motionLib.bespokeSlides(dir).length) onLine('Moving slides need HyperFrames (Setup → Tools), so the slides stay still for now.');
+        if (!(p.insets || []).length && !(p.cartoons || []).length) return []; // video insets and cartoons need only ffmpeg: they still play
       }
       const r = await d.motion.render(dir, which, { onLine, signal, hyperframes });
+      animators.noteClips(dir, r.rendered);
       for (const p of r.problems) onLine(`! ${p}`);
       return r.rendered;
     } catch (e) {
@@ -644,11 +1048,21 @@ function createFlow(d) {
     }
   }
 
+  /**
+   * Scenes is optional: with nothing planned for it, a step that needs it approved approves it on the way (FLPT for
+   * Claude Code relies on this). With cartoons or cut scenes planned, the user decides there. Returns the record.
+   */
+  function scenesOnTheWay(dir, st) {
+    if (episode.canRun(st, 'spend') || !episode.canRun(st, 'scenes') || st.stages.scenes.status === 'approved') return st;
+    if (scenesMod.hasAny(dir)) throw new Error('Approve Scenes first: make the cartoons and cut scenes there, or go on without them.');
+    return episode.setStage(dir, 'scenes', { status: 'approved', skipped: true });
+  }
+
   /** Free: render the slides and narrate them with the Mac's own voice, to check timing before paying for filming. */
   async function draft(dir, onLine, signal) {
     dir = guard(dir);
-    const st = episode.read(dir);
-    if (!episode.canRun(st, 'spend')) throw new Error('Approve the script first.');
+    const st = scenesOnTheWay(dir, episode.read(dir));
+    if (!episode.canRun(st, 'spend')) throw new Error(spendBlocked(st));
     return exclusive(dir, async () => {
       const r1 = await d.pipeline.render(dir, { onLine, signal });
       if (r1.code !== 0) return { ok: false, error: 'The slides didn\'t render.', lines: r1.lines.slice(-10) };
@@ -746,29 +1160,58 @@ function createFlow(d) {
     });
   }
 
-  async function deliver(dir, onLine, signal) {
+  // ── what Deliver hands an editor besides the video ──
+  const methodScript = (name) => path.join(d.engineRoot || '', 'skills', 'avatar-presentation', 'scripts', 'video', name);
+  /** A Python for the method's standard-library scripts (loudmatch.py, slack_pack.py): the episode's, else the app's. */
+  async function stdPython(dir) {
+    const p = d.pipeline.projectPython ? d.pipeline.projectPython(dir) : null;
+    if (p && exists(p)) return p;
+    return d.basePython ? d.basePython() : null;
+  }
+
+  /** The deck's video insets, with when each played in the film (the motion engine's record; null if not this film's). */
+  function insetsOf(dir, film) {
+    const which = film && film.draft ? 'draft' : 'final';
+    return motionLib.insetSlides(dir).map((s) => ({ n: s.n, ...motionLib.readInset(dir, s.inset), played: motionLib.insetPlayed(dir, s.n) })).filter((i) => !i.problem)
+      .map(({ played, ...i }) => ({ ...i, at: played && played.which === which ? played.at : null, seconds: played && played.which === which ? played.seconds : null }));
+  }
+
+  /** The film's cut scenes: { id, title, file, sound, placeholder }, their videos found the pipeline's way (media.json). */
+  function cutscenesOf(dir, film) {
+    const pres = path.join(dir, 'presentation');
+    const entries = (readJson(path.join(pres, 'media.json')) || {}).cutscenes;
+    return ((film && film.cutscenes) || []).map((c) => {
+      const e = (Array.isArray(entries) ? entries : []).find((x) => x && String(x.id) === String(c.id)) || {};
+      const file = path.resolve(pres, typeof e.video === 'string' ? e.video : `media/cutscene_${c.id}.mp4`);
+      return { id: c.id, title: c.title || c.label || '', file: !c.placeholder && file.startsWith(pres + path.sep) && exists(file) ? file : null,
+        sound: e.audio === 'mute' ? 'muted' : 'its own', placeholder: Boolean(c.placeholder) };
+    });
+  }
+
+  async function deliver(dir, onLine = () => {}, signal) {
     dir = guard(dir);
     let st = episode.read(dir);
     if (!episode.canRun(st, 'deliver')) {
-      // Refine is optional: with no add-ons, delivering approves it on the way (FLPT for Claude Code relies on this).
+      // Refine is optional: with nothing to apply, delivering approves it on the way (FLPT for Claude Code relies on this).
       if (!episode.canRun(st, 'refine')) throw new Error('Approve the film first.');
-      if ((st.addons || []).length || refineBusy(st)) throw new Error('Apply and approve the add-ons first (Refine).');
+      if (refineWork(st) || refineBusy(st)) throw new Error((st.addons || []).length ? 'Apply and approve the add-ons first (Refine).' : 'Apply and approve the tightening first (Refine).');
       st = episode.setStage(dir, 'refine', { status: 'approved', skipped: true });
     }
-    // The refined video and master when there are add-ons (they must be current), else the film's own.
+    // What Refine made when there's anything to apply (it must be current), else the film's own.
     const refined = refinedOutputs(dir, st);
-    if ((st.addons || []).length && !refined) throw new Error('The refined video is out of date: apply the add-ons again (Refine).');
+    if (refineWork(st) && !refined) throw new Error(`The ${(st.addons || []).length ? 'refined' : 'tightened'} video is out of date: apply ${(st.addons || []).length ? 'the add-ons' : 'it'} again (Refine).`);
     const video = refined ? refined.video : d.pipeline.finalOutput(dir);
     const master = refined ? refined.master : d.pipeline.editMasterOutput(dir);
+    const slug = episode.slugify(st.title);
     return exclusive(dir, async () => {
       episode.setStage(dir, 'deliver', { status: 'running', error: null });
       try {
         const w = await d.pipeline.web(dir, { onLine, signal, source: refined ? refined.video : null });
         if (w.code === 0 && !writePlayerConfig(dir, d.pipeline.finalOutput(dir))) onLine('The player page keeps your own titles (player_config.json).');
         const p = w.code === 0 ? await d.pipeline.player(dir, { onLine, signal }) : w;
-        const out = path.join(d.settings.read().deliverablesDir, episode.slugify(st.title));
+        const out = path.join(d.settings.read().deliverablesDir, slug);
         fs.mkdirSync(out, { recursive: true });
-        const copies = [[video, 'presentation.mp4'], [master, `${episode.slugify(st.title)} (for CapCut).mov`],
+        const copies = [[video, 'presentation.mp4'], [master, `${slug} (for CapCut).mov`],
           [path.join(dir, 'presentation', 'script.md'), 'script.md']];
         for (const [src, name] of copies) if (exists(src)) fs.copyFileSync(src, path.join(out, name));
         // CC BY music is credited, with what was done to it.
@@ -777,9 +1220,40 @@ function createFlow(d) {
         else fs.rmSync(path.join(out, 'music-credits.txt'), { force: true });
         const playerDir = path.join(dir, 'presentation', 'player');
         if (p.code === 0 && exists(playerDir)) fs.cpSync(playerDir, path.join(out, 'player'), { recursive: true });
-        episode.setStage(dir, 'deliver', { status: 'approved', folder: out, playerOk: p.code === 0, refined: Boolean(refined) });
+
+        // The extras, levelled (extras/), and the clip guide: every slot's timecodes in what was just delivered.
+        const pres = path.join(dir, 'presentation');
+        const o = refineMod.outputs(dir);
+        const film = readJson(o.filmTimeline);
+        const insets = insetsOf(dir, film);
+        const cutscenes = cutscenesOf(dir, film);
+        const items = extras.collect({ pres, addons: st.addons || [], insets, cutscenes });
+        let lev = { files: [], bySrc: {}, notes: [] };
+        const python = items.length ? await stdPython(dir) : null;
+        if (items.length && !python) onLine('! The extras weren\'t levelled: Python isn\'t set up (Setup → Tools).');
+        else {
+          try {
+            lev = await extras.levelExtras({ items, out: path.join(out, 'extras'), stage: path.join(pres, 'refine', 'extras'), python, script: methodScript('loudmatch.py'),
+              env: toolEnvFor(), signal, onLine });
+            for (const n of lev.notes) onLine(`! ${n}`);
+          } catch (e) {
+            if (signal && signal.aborted) throw e;
+            onLine(`! The extras weren't levelled: ${d.redact(String(e.message || e)).slice(0, 300)}`);
+          }
+        }
+        const tk = tightenKey(st);
+        const slots = film ? extras.clipSlots({ film, tight: refined && tk !== 'off' ? readJson(o.tightTimeline) : null, refined: refined && (st.addons || []).length ? readJson(o.timeline) : null,
+          insets, cutscenes, addons: st.addons || [], files: lev.bySrc, pres }) : [];
+        const length = (readJson(refined ? refined.timeline : o.filmTimeline) || {}).total_duration || 0;
+        const guide = extras.clipGuide({ title: st.title, master: `${slug} (for CapCut).mov`, seconds: length, slots, levelled: lev.files.length > 0 });
+        if (guide) fs.writeFileSync(path.join(out, 'CAPCUT_CLIP_GUIDE.md'), guide);
+        else fs.rmSync(path.join(out, 'CAPCUT_CLIP_GUIDE.md'), { force: true });
+
+        const slack = st.stages.deliver.slack && (st.stages.deliver.slack.files || []).every((f) => exists(path.join(out, f))) ? st.stages.deliver.slack : null;
+        episode.setStage(dir, 'deliver', { status: 'approved', folder: out, playerOk: p.code === 0, refined: Boolean(refined), tightened: Boolean(refined) && tk !== 'off',
+          extras: lev.files.length, guide: Boolean(guide), slack });
         if (d.keep) Promise.resolve().then(() => d.keep(dir, 'deliver', { finalVideo: video })).catch(() => {});
-        return { ok: true, folder: out, playerOk: p.code === 0, refined: Boolean(refined), lines: p.lines ? p.lines.slice(-8) : [] };
+        return { ok: true, folder: out, playerOk: p.code === 0, refined: Boolean(refined), extras: lev.files, guide: Boolean(guide), lines: p.lines ? p.lines.slice(-8) : [] };
       } catch (e) {
         episode.setStage(dir, 'deliver', { status: 'error', error: d.redact(String(e.message || e)).slice(0, 400) });
         throw e;
@@ -787,8 +1261,42 @@ function createFlow(d) {
     });
   }
 
-  return { list, create, open, runStage, cancel, approve, saveFile, spendEstimate, approveSpend, draft, film, deliver, inProjects,
-    addCall, removeCall, attachFiles, addCallLink, addAddon, removeAddon, refine };
+  /**
+   * The Slack pack (the method's slack_pack.py), from the user's own final export after their edit: the (vF), the
+   * 1.25× cut, the MP3 and the cover, beside the deliverables. Free. The export is only read.
+   */
+  async function slackPack(dir, file, onLine = () => {}, signal) {
+    dir = guard(dir);
+    const st = episode.read(dir);
+    const folder = st.stages.deliver.folder;
+    if (!folder || !fs.existsSync(folder)) throw new Error('Deliver first.');
+    const f = typeof file === 'string' && path.isAbsolute(file) ? file : '';
+    if (!f || !exists(f) || !/\.(mp4|mov|m4v)$/i.test(f)) throw new Error('That needs your export: an MP4 or a MOV.');
+    const python = await stdPython(dir);
+    if (!python) throw new Error('Python isn\'t set up yet (Setup → Tools).');
+    return exclusive(dir, async () => {
+      try {
+        const r = await extras.slackPack({ python, script: methodScript('slack_pack.py'), file: f, out: folder, title: episode.slugify(st.title),
+          ffprobe: toolsFor().ffprobe, env: toolEnvFor(), signal, onLine });
+        if (!r.lengthOk) onLine(`! The 1.25× cut runs ${r.fast} s against ${r.vf} s: not 1/1.25 of it.`);
+        for (const l of r.overs) onLine(`! ${l}`);
+        episode.setStage(dir, 'deliver', { slack: { files: r.files, from: path.basename(f), lengthOk: r.lengthOk, overs: r.overs.length, at: new Date().toISOString() } });
+        return { ok: true, folder, files: r.files, lengthOk: r.lengthOk, overs: r.overs };
+      } catch (e) {
+        return { ok: false, error: signal && signal.aborted ? 'Stopped.' : d.redact(String(e && e.message ? e.message : e)).slice(0, 400) };
+      }
+    });
+  }
+
+  /** Scenes approved on the way when nothing is planned for it (see scenesOnTheWay); the record. */
+  function passScenes(dir) {
+    dir = guard(dir);
+    return scenesOnTheWay(dir, episode.read(dir));
+  }
+
+  return { list, create, open, runStage, cancel, approve, saveFile, spendEstimate, approveSpend, draft, film, deliver, slackPack, inProjects,
+    addCall, removeCall, attachFiles, addCallLink, addAddon, removeAddon, setTighten, refine, animate, sceneAction, sceneLanded, assembleScene,
+    passScenes };
 }
 
-module.exports = { createFlow, stageVars, playerConfig, writePlayerConfig };
+module.exports = { createFlow, stageVars, playerConfig, writePlayerConfig, tightenKey, spendBlocked };
