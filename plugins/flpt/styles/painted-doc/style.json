@@ -1,0 +1,473 @@
+{
+  "schema": "flpt.style/1",
+  "id": "painted-doc",
+  "version": "1.0.0",
+  "name": "Painted Documentary",
+  "line": "Painted plates, a slow push, ink-wipes between beats.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "wonder",
+      "grave"
+    ],
+    "look": [
+      "painted",
+      "documentary",
+      "chiaroscuro"
+    ],
+    "pace": "measured"
+  },
+  "tokens": {
+    "paper": "#1B2122",
+    "inks": [
+      "#191411",
+      "#2E5D61",
+      "#DE9C48",
+      "#EEE0BF",
+      "#7B292B"
+    ],
+    "accent": "#DE9C48",
+    "type": {
+      "display": "Painted Doc Serif",
+      "text": "Painted Doc Italic",
+      "mono": "Painted Doc Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Painted Doc Serif",
+      "file": "fonts/fraunces-display-semibold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Painted Doc Italic",
+      "file": "fonts/fraunces-italic.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Painted Doc Mono",
+      "file": "fonts/IBMPlexMono-SemiBold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "push",
+      "parallax",
+      "crane",
+      "ink-wipe",
+      "puppet",
+      "land",
+      "breathe"
+    ],
+    "pace": "measured",
+    "easing": "io"
+  },
+  "sound": {
+    "score": "drift-90",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 60
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "FLPT original (Bombadillo AI)",
+  "licence": "MIT",
+  "authors": [
+    "Bombadillo AI"
+  ],
+  "licenceFile": "LICENSE",
+  "api": [
+    {
+      "fn": "ctx.kit.DEPTH",
+      "kind": "value",
+      "params": [],
+      "doc": "parallax depths: sky .22, far .45, mid .7, hill 1, near 1.3"
+    },
+    {
+      "fn": "ctx.kit.FONT",
+      "kind": "value",
+      "params": [],
+      "doc": "the three faces: serif (titles), italic (sublines), mono (labels)"
+    },
+    {
+      "fn": "ctx.kit.PAL",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette as RGB arrays: ink, cream, amber, teal, deep, night, oxblood..."
+    },
+    {
+      "fn": "ctx.kit.TIMES",
+      "kind": "value",
+      "params": [],
+      "doc": "the four times of day a world can take: night, dawn, dusk, day"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "ctx"
+      ],
+      "doc": "called by the runtime each frame (binds ctx; resets the camera)"
+    },
+    {
+      "fn": "ctx.kit.blinking",
+      "kind": "function",
+      "params": [
+        "T",
+        "key",
+        "every"
+      ],
+      "doc": "true for 0.13 s about every few seconds, from T alone"
+    },
+    {
+      "fn": "ctx.kit.breathe",
+      "kind": "function",
+      "params": [
+        "cam",
+        "T",
+        "t0",
+        "o"
+      ],
+      "doc": "add a slow creep and sway to a camera, from the shot's start"
+    },
+    {
+      "fn": "ctx.kit.col",
+      "kind": "function",
+      "params": [
+        "v"
+      ],
+      "doc": "a palette name or hex as an RGB array"
+    },
+    {
+      "fn": "ctx.kit.draw",
+      "kind": "function",
+      "params": [
+        "wd",
+        "o"
+      ],
+      "doc": "draw a world at this frame's camera; between: { depth: fn } draws in it"
+    },
+    {
+      "fn": "ctx.kit.embers",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "sparks rising from a point, from T alone"
+    },
+    {
+      "fn": "ctx.kit.figure",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a painted puppet: tapered parts, three values to the light, soft rim"
+    },
+    {
+      "fn": "ctx.kit.finish",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "last: grade, film grain, gate and vignette; a Duet corner kept calm"
+    },
+    {
+      "fn": "ctx.kit.fire",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a campfire: stone ring, charred logs, brushed flames on twos, embers"
+    },
+    {
+      "fn": "ctx.kit.firelight",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "the warm pool a fire throws on the ground (draw before its people)"
+    },
+    {
+      "fn": "ctx.kit.flicker",
+      "kind": "function",
+      "params": [
+        "T",
+        "key"
+      ],
+      "doc": "a flame's brightness 0..1 at T"
+    },
+    {
+      "fn": "ctx.kit.flood",
+      "kind": "function",
+      "params": [
+        "pts0",
+        "o"
+      ],
+      "doc": "a river: fades in from afar, mirrors the sky, ripples, the light's streak"
+    },
+    {
+      "fn": "ctx.kit.glow",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c",
+        "a",
+        "op"
+      ],
+      "doc": "a soft radial light (screen by default)"
+    },
+    {
+      "fn": "ctx.kit.ground",
+      "kind": "function",
+      "params": [
+        "wd",
+        "which",
+        "x"
+      ],
+      "doc": "ground height of a world layer at world x (where to stand a figure)"
+    },
+    {
+      "fn": "ctx.kit.label",
+      "kind": "function",
+      "params": [
+        "id",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a tracked mono label with a painted rule, brushed on and off"
+    },
+    {
+      "fn": "ctx.kit.layer",
+      "kind": "function",
+      "params": [
+        "k",
+        "fn"
+      ],
+      "doc": "draw fn in the world at parallax depth k (1 = the subject's plane)"
+    },
+    {
+      "fn": "ctx.kit.line",
+      "kind": "function",
+      "params": [
+        "id",
+        "words",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "words that land on their cues (rise, tracking, spring), with an underline"
+    },
+    {
+      "fn": "ctx.kit.mix",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "u"
+      ],
+      "doc": "mix two RGB colours"
+    },
+    {
+      "fn": "ctx.kit.motes",
+      "kind": "function",
+      "params": [
+        "box",
+        "o"
+      ],
+      "doc": "dust drifting in a box; o.in(x, y) says how lit each point is"
+    },
+    {
+      "fn": "ctx.kit.noise1",
+      "kind": "function",
+      "params": [
+        "x",
+        "s"
+      ],
+      "doc": "smooth 1D value noise, 0..1, seeded"
+    },
+    {
+      "fn": "ctx.kit.path",
+      "kind": "function",
+      "params": [
+        "T",
+        "keys"
+      ],
+      "doc": "a camera along keys [[t, {z, p}, ease?]]: each move eases in and holds"
+    },
+    {
+      "fn": "ctx.kit.rgba",
+      "kind": "function",
+      "params": [
+        "c",
+        "a"
+      ],
+      "doc": "an RGB array as a CSS colour with alpha"
+    },
+    {
+      "fn": "ctx.kit.ridgePlate",
+      "kind": "function",
+      "params": [
+        "key",
+        "o"
+      ],
+      "doc": "paint one ridge plate: profile, strokes, rim, grass, trees, rocks, props"
+    },
+    {
+      "fn": "ctx.kit.safe",
+      "kind": "function",
+      "params": [],
+      "doc": "where type may go (right of the presenter's corner in a Duet)"
+    },
+    {
+      "fn": "ctx.kit.shaft",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "a shaft of light from a source, soft-edged, slow streaks"
+    },
+    {
+      "fn": "ctx.kit.skyPlate",
+      "kind": "function",
+      "params": [
+        "key",
+        "o"
+      ],
+      "doc": "paint one sky plate: gradient, glow, brushwork, stars, lit clouds"
+    },
+    {
+      "fn": "ctx.kit.star",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "a bright star: core, halo and four soft rays; o.a brightness"
+    },
+    {
+      "fn": "ctx.kit.title",
+      "kind": "function",
+      "params": [
+        "id",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a painted serif title, brushed on from the left"
+    },
+    {
+      "fn": "ctx.kit.toScreen",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "k"
+      ],
+      "doc": "a world point at depth k to screen coordinates"
+    },
+    {
+      "fn": "ctx.kit.twinkle",
+      "kind": "function",
+      "params": [
+        "box",
+        "o"
+      ],
+      "doc": "a few bright stars that breathe in a box"
+    },
+    {
+      "fn": "ctx.kit.view",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "this frame's camera: { z, p: [x, y] } puts world point p at the centre"
+    },
+    {
+      "fn": "ctx.kit.wipe",
+      "kind": "function",
+      "params": [
+        "T",
+        "t0",
+        "dur",
+        "a",
+        "b",
+        "o"
+      ],
+      "doc": "an ink-wipe between two shots: wet core, dry-brush drag, spatter"
+    },
+    {
+      "fn": "ctx.kit.wipeShape",
+      "kind": "function",
+      "params": [
+        "u",
+        "o"
+      ],
+      "doc": "the wipe front at u: the covered polygon and its edge"
+    },
+    {
+      "fn": "ctx.kit.world",
+      "kind": "function",
+      "params": [
+        "key",
+        "spec"
+      ],
+      "doc": "paint a world once (setup): sky, clouds, stars, ridges, hill, near ground"
+    }
+  ],
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:dbcdaf80499a8988116e284b0aa76c94eee82e6519221efde08a0f46cb93b891",
+    "STYLE.md": "sha256:6f18806594f9dd9a883ed1bac1d426cb7353c48f22aea35994b89da9722a55d5",
+    "starter/scene.js": "sha256:47e608fdcfe3eaf4ae8ac326a49b8b5155712c6e7a3e820bfd25e5aae090dbec"
+  }
+}

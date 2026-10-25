@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<title>Scroll</title>
+<defs><filter id="ink" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="17" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+<style>.i{fill:none;stroke:#1C1A15;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.t{stroke-width:1.5}.w{fill:#1C1A15;opacity:.1}.g{fill:none;stroke:#A97A1E;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}@media (prefers-color-scheme:dark){.i{stroke:#EEE8DA}.w{fill:#EEE8DA}.g{stroke:#D9AE5A}}</style>
+<g filter="url(#ink)">
+<path class="w" d="M58 52h90v104H58z"/>
+<g class="i">
+<path d="M52 40h96c8 0 12 5 12 12s-4 12-12 12H64"/>
+<path d="M52 40c-8 0-12 5-12 12s4 12 12 12 12-5 12-12-4-12-12-12zM52 47c-3 0-5 2-5 5s2 5 5 5"/>
+<path d="M58 64v86M148 64v86"/>
+<path d="M52 150h96c8 0 12 5 12 12s-4 12-12 12H52c-8 0-12-5-12-12s4-12 12-12zM148 157c3 0 5 2 5 5s-2 5-5 5"/>
+<path class="t" d="M72 84c10-3 20 3 30 0s20-3 32 0M72 100c12 3 22-3 34 0s16 2 26-1M72 116c10-3 22 3 32 0s18-2 28 1M72 132c14 2 24-2 40 0"/>
+</g>
+<path class="g" d="M100 150c-6 10-14 20-22 28M100 150c5 10 12 19 20 26M100 150c-10-6-18-6-22 0 6 6 14 6 22 0zM100 150c10-6 18-6 22 0-6 6-14 6-22 0z"/>
+</g>
+</svg>

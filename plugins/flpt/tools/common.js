@@ -7,10 +7,20 @@
 //   FLPT_DELIVERABLES   delivered episodes (default: the Mac app's, else ~/Desktop)
 //   FLPT_USER_DATA      the Mac app's data folder, read for its settings only
 //   AVATAR_PRESENTATION_CONFIG_DIR   presenter.env and keys.env (default: ~/.config/avatar-presentation)
+//   FLPT_PLUGIN_HOME    the plugin's own things: its Python for keyed runs, its pinned tools (toolchain/) and the pins
+//                       they come from (pins/), the deck's fonts (default: ~/Library/Application Support/FLPT Plugin)
 //   FLPT_CHROME, FLPT_PYTHON, FLPT_YTDLP   tools to use instead of the usual ones
+//   FLPT_MAC_APP        the Mac app itself (default: /Applications, else ~/Applications), for its Transitions & Music
+//
+// The tools (W4-03): FLPT's pinned toolchain, the same pins as the Mac app's (toolchain-manifest.json): the Mac app's
+// own folder when its stamps match those pins, else the plugin's (flpt-setup --install-tools fills it), else the
+// system's tools, and then whatever this makes is stamped `toolchain: system` (provenance).
+// The Transitions & Music tracks (the lead's ruling, 2026-10-24): the plugin ships no sound, so a Live Motion piece's
+// library bed plays from the Mac app's own tracks, found the same way (appTracks); without them, the nearest score (DV13).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { parseArgs } = require('util');
 const { execFile } = require('child_process');
 
@@ -20,6 +30,27 @@ const app = (name) => require(path.join(__dirname, 'lib', 'src', 'main', name));
 const abs = (p) => (p && path.isAbsolute(p) ? path.resolve(p) : null);
 const exists = (p) => { try { fs.accessSync(p); return true; } catch { return false; } };
 const runnable = (p) => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
+
+/**
+ * One of FLPT's pin files (toolchain-manifest.json, python/requirements.lock, hyperframes/npm-*.json): a checkout's
+ * app/src/main, else the copy an installed plugin carries (lib's toolchain-pins.js: only modules reach lib/), written
+ * out into the plugin's own folder (pins/) when it isn't there as it is. Null when there's neither.
+ */
+function appFile(...rel) {
+  const checkout = path.join(ROOT, '..', 'app', 'src', 'main', ...rel);
+  try { if (fs.statSync(checkout).isFile()) return checkout; } catch { /* an installed plugin */ }
+  let text;
+  try { text = app('toolchain-pins')[rel.join('/')]; } catch { return null; }
+  if (typeof text !== 'string') return null;
+  const file = path.join(pluginHome(), 'pins', ...rel);
+  try { if (fs.readFileSync(file, 'utf8') === text) return file; } catch { /* not written yet */ }
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(`${file}.${process.pid}.tmp`, text);
+    fs.renameSync(`${file}.${process.pid}.tmp`, file);
+    return file;
+  } catch { return null; }
+}
 
 /** Where episodes, the Library, deliveries and the presenter settings live: the Mac app's choices when it has any. */
 function places() {
@@ -31,6 +62,8 @@ function places() {
     projects,
     userData,
     library: abs(process.env.FLPT_LIBRARY) || (process.env.FLPT_PROJECTS ? path.join(projects, 'Library') : settings.libraryDirOf(s)),
+    // the Mac app's Transitions & Music (only read here: its tracks, appTracks), beside the Library
+    addons: process.env.FLPT_PROJECTS ? path.join(projects, app('addons').DIR_NAME) : settings.addonsDirOf(s),
     deliverables: abs(process.env.FLPT_DELIVERABLES) || s.deliverablesDir,
     config: abs(process.env.AVATAR_PRESENTATION_CONFIG_DIR) || path.join(os.homedir(), '.config', 'avatar-presentation'),
     ytDlp: abs(process.env.FLPT_YTDLP) || s.ytDlpPath || '',
@@ -49,16 +82,102 @@ function which(name) {
   return null;
 }
 
-/** The tools on this Mac (any may be null). */
+/** The plugin's own folder: its Python for keyed runs (venv/), its pinned tools (toolchain/) and their pins (pins/), the deck's fonts (deck-fonts/). */
+const pluginHome = () => abs(process.env.FLPT_PLUGIN_HOME) || path.join(os.homedir(), 'Library', 'Application Support', 'FLPT Plugin');
+
+/** The two folders that can hold FLPT's pinned tools: the Mac app's, then the plugin's own. */
+const toolchainDirs = () => ({ app: path.join(places().userData, 'toolchain'), own: path.join(pluginHome(), 'toolchain') });
+
+let pinnedNow = null;
+/**
+ * FLPT's pinned toolchain as this plugin finds it (toolchain.resolvePinned): each tool from the Mac app's folder when
+ * its stamp matches the plugin's manifest, else from the plugin's own, else none. → { mode: 'pinned'|'system',
+ * manifest, platform, tools: { ffmpeg, python, chrome, node, hyperframes }, manifestFile, lockDir, lockFile, dirs }.
+ * Worked out once per process (`fresh` again, after an install). Episodes made here are stamped with its mode, and the
+ * modules that look for FLPT_HYPERFRAMES (flpt-scene, the runtime's tools) find its HyperFrames unless the caller set one.
+ */
+function pinned({ fresh = false } = {}) {
+  if (pinnedNow && !fresh) return pinnedNow;
+  const dirs = toolchainDirs();
+  const manifestFile = appFile('toolchain-manifest.json');
+  const hf = [appFile('hyperframes', 'npm-package.json'), appFile('hyperframes', 'npm-lock.json')];
+  const lockDir = hf.every(Boolean) && path.dirname(hf[0]) === path.dirname(hf[1]) ? path.dirname(hf[1]) : null;
+  const lockFile = appFile('python', 'requirements.lock');
+  let r = { mode: 'system', manifest: null, platform: `${process.platform}-${process.arch}`, tools: {} };
+  try {
+    if (manifestFile) {
+      r = app('toolchain').resolvePinned({ manifestFile, dirs: [dirs.app, dirs.own], lockDir: lockDir || path.join(ROOT, 'no-hyperframes-lock'),
+        lockFile: lockFile || path.join(ROOT, 'no-lock') });
+    }
+  } catch { /* no pinned tools: the system's */ }
+  pinnedNow = { ...r, manifestFile, lockDir, lockFile, dirs };
+  try { app('provenance').configure({ toolchain: { manifest: r.manifest, platform: r.platform, mode: r.mode } }); } catch { /* stamps keep their default */ }
+  const own = r.tools.hyperframes;
+  if (own && !process.env.FLPT_HYPERFRAMES) Object.assign(process.env, { FLPT_HYPERFRAMES: own.cli, HYPERFRAMES_BROWSER_PATH: own.browser });
+  return pinnedNow;
+}
+
+/** 'pinned' or 'system': what this plugin's runs are on now. */
+const toolchainMode = () => pinned().mode;
+/** The toolchain as styles.js stamps rendered media: the manifest's date on the pinned tools, else "system". */
+const toolchainId = () => (pinned().mode === 'pinned' && pinned().manifest) || 'system';
+
+const MAC_APP = 'Fatty Lumpkin Presentation Tool.app';
+/** The Mac app: FLPT_MAC_APP (even when it isn't there: QA's "no app"), else /Applications, else ~/Applications; or null. */
+const macApp = () => abs(process.env.FLPT_MAC_APP) || [path.join('/Applications', MAC_APP), path.join(os.homedir(), 'Applications', MAC_APP)].find(exists) || null;
+
+let tracksNow = null;
+/**
+ * The Mac app's Transitions & Music tracks, which Live Motion's library beds play here (the lead's ruling, 2026-10-24):
+ * found where the Mac app keeps them, as its pinned toolchain is, and played where they are (never copied into the
+ * plugin): the ones it ships (<the app>/Contents/Resources/addons), else the ones it installed in its Transitions & Music
+ * folder (places().addons). A track counts only when its SHA-256 is the one the plugin's beat grid was measured on
+ * (score/grids/<id>.json), as a pinned tool counts only when its stamp matches. With none, a piece that names one plays
+ * the nearest flpt-score preset and its shot says so (DV13). Worked out once per process. → [shipped music items]
+ */
+function appTracks() {
+  if (tracksNow) return tracksNow;
+  const score = app('score');
+  const addons = app('addons');
+  const shaOf = (f) => { try { return crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } catch { return null; } };
+  const stamped = (it) => { const g = score.libraryGrid(it.id, { engineRoot: ROOT }); return Boolean(g && g.sha256) && shaOf(it.filePath) === g.sha256; };
+  const found = new Map();
+  const bundle = macApp();
+  const shipped = bundle ? addons.readShipped(path.join(bundle, 'Contents', 'Resources', 'addons')) : [];
+  for (const it of [...shipped, ...addons.installed(places().addons)]) {
+    if (it.kind === 'music' && !found.has(it.id) && stamped(it)) found.set(it.id, it);
+  }
+  tracksNow = [...found.values()];
+  return tracksNow;
+}
+
+/** The tools on this Mac (any may be null): FLPT's pinned ones where there are, else the system's. */
 function tools() {
   const pick = (env, found) => (abs(process.env[env]) && runnable(process.env[env]) ? path.resolve(process.env[env]) : found);
+  const p = pinned().tools;
   return {
-    chrome: pick('FLPT_CHROME', CHROMES.find(runnable) || null),
-    python: pick('FLPT_PYTHON', which('python3')),
-    ffmpeg: which('ffmpeg'),
-    ffprobe: which('ffprobe'),
-    node: process.execPath,
+    chrome: pick('FLPT_CHROME', (p.chrome && p.chrome.path) || CHROMES.find(runnable) || null),
+    python: pick('FLPT_PYTHON', (p.python && p.python.path) || which('python3')),
+    ffmpeg: (p.ffmpeg && p.ffmpeg.path) || which('ffmpeg'),
+    ffprobe: (p.ffmpeg && p.ffmpeg.ffprobe) || which('ffprobe'),
+    node: (p.node && p.node.path) || process.execPath,
   };
+}
+
+/**
+ * The Python the runs that get keys use (check, looks and filming; T18): FLPT's own, never an episode's .venv, never
+ * PATH's python3. A venv made from requirements.lock first (the Mac app's, then the plugin's pinned one), then any the
+ * Mac app has, then the plugin's own (flpt-setup --python or --install-tools makes it). Null when there's none: those
+ * runs are then refused.
+ */
+function keyedPython() {
+  const tc = (() => { try { return app('toolchain'); } catch { return null; } })();
+  const lock = appFile('python', 'requirements.lock');
+  const appDir = path.join(places().userData, 'toolchain');
+  const ownDir = path.join(pluginHome(), 'toolchain');
+  const locked = (d) => Boolean(tc && lock && tc.pythonLocked(d, lock));
+  const venv = (d) => path.join(d, 'venv', 'bin', 'python');
+  return [...[appDir, ownDir].filter(locked).map(venv), venv(appDir), venv(ownDir), venv(pluginHome())].find(runnable) || null;
 }
 
 const isEpisode = (d) => ['flpt-project.json', 'presentation/deck', 'presentation/script.md'].some((p) => exists(path.join(d, p)));
@@ -115,29 +234,86 @@ function redactor(episode) {
       if (v.length > 10) values.push(`${v.slice(0, 4)}…${v.slice(-4)}`);
     }
   }
+  const kept = readSignIn(); // the FLPT voices' sign-in a film may carry (houseVault)
+  if (kept && typeof kept.token === 'string' && kept.token.length >= 8) values.push(kept.token);
   return app('redact').createRedactor(() => values);
 }
 
-/** PATH for the pipeline's processes: ffmpeg's and Node's folders first. FLPT_CHROME for render_slides.py. */
+/**
+ * PATH for the pipeline's processes: ffmpeg's and Node's folders first. FLPT_CHROME for render_slides.py. On FLPT's
+ * pinned tools, exactly the Mac app's (toolchain.processEnv): ffmpeg, the venv, Node, then the system's folders.
+ */
 function toolEnv() {
   const t = tools();
-  const dirs = [t.ffmpeg && path.dirname(t.ffmpeg), path.dirname(t.node), ...String(process.env.PATH || '').split(path.delimiter), ...SYSTEM_DIRS];
-  return { PATH: [...new Set(dirs.filter((d) => d && path.isAbsolute(d)))].join(path.delimiter), FLPT_CHROME: t.chrome || '' };
+  const pin = pinned();
+  const venv = pin.mode === 'pinned' && pin.tools.python && pin.tools.python.venv;
+  const dirs = pin.mode === 'pinned' ? [path.dirname(t.ffmpeg), venv && path.dirname(venv), path.dirname(t.node), ...SYSTEM_DIRS]
+    : [t.ffmpeg && path.dirname(t.ffmpeg), path.dirname(t.node), ...String(process.env.PATH || '').split(path.delimiter), ...SYSTEM_DIRS];
+  const env = { PATH: [...new Set(dirs.filter((d) => d && path.isAbsolute(d)))].join(path.delimiter), FLPT_CHROME: t.chrome || '', PYTHONDONTWRITEBYTECODE: '1' };
+  // The moving slides and the animators' clips (the method's render.mjs, FLPT_HYPERFRAMES) render in the sandbox, where
+  // npx can't fetch HyperFrames: the caller's, else FLPT's pinned one (pinned()), else the copy flpt-scene finds (the
+  // Mac app's, else one fetched once), as the Mac app's toolchain.processEnv gives it (INT-2: without it every moving
+  // slide stayed still in the plugin's draft). Required here because flpt-scene requires this file.
+  let hf = null;
+  const own = pin.tools.hyperframes;
+  if (own && process.env.FLPT_HYPERFRAMES === own.cli) hf = { cli: own.cli, browser: own.browser, fontCache: path.join(own.root, 'font-cache') };
+  else { try { hf = require('./flpt-scene').hyperframes(); } catch { hf = null; } }
+  if (hf && hf.browser) {
+    Object.assign(env, { FLPT_HYPERFRAMES: hf.cli, HYPERFRAMES_BROWSER_PATH: hf.browser, HYPERFRAMES_NO_TELEMETRY: '1', DO_NOT_TRACK: '1', HYPERFRAMES_SKIP_SKILLS: '1',
+      ...(hf.fontCache ? { HYPERFRAMES_FONT_CACHE_DIR: hf.fontCache } : {}) });
+    if (t.ffmpeg) Object.assign(env, { HYPERFRAMES_FFMPEG_PATH: t.ffmpeg, HYPERFRAMES_FFPROBE_PATH: t.ffprobe || '' });
+  }
+  // the cue-word snap's whisper (W4-11), when it's in the pinned toolchain, as toolchain.processEnv gives it to the Mac app
+  if (pin.mode === 'pinned' && pin.tools.python && pin.tools.python.dir) Object.assign(env, app('cuesnap').env(pin.tools.python.dir));
+  return env;
+}
+
+/**
+ * The plugin's vault, as the app's pipeline runner and flow see it: it holds no key (the scripts read keys.env
+ * themselves), only the FLPT voices' sign-in, which flpt-signin keeps in pluginHome()/flpt-voices.json (never in
+ * keys.env). env() hands it over only while it's the sign-in of the Worker this plugin talks to now (keptSignIn), and
+ * pipeline.js asks for it only for a film whose script names an FLPT voice (T19 for FLPT voices). status() says whether
+ * it's there (never its value), and `account` is that file (guestvoice.houseReady reads its base from it).
+ */
+function houseVault() {
+  const TOKEN = app('guestvoice').HOUSE_TOKEN;
+  return {
+    account: path.join(pluginHome(), 'flpt-voices.json'),
+    status: () => ({ [TOKEN]: { name: TOKEN, set: Boolean(keptSignIn()) } }),
+    env: (names) => { const s = Array.isArray(names) && names.includes(TOKEN) ? keptSignIn() : null; return s ? { [TOKEN]: s.token } : {}; },
+  };
 }
 
 /**
  * The app's pipeline runner (pipeline.js), for this plugin: the scripts read keys.env themselves (no key is passed
  * in), they find presenter.env and keys.env through AVATAR_PRESENTATION_CONFIG_DIR, and every output line is redacted.
+ * Runs that get keys use keyedPython() on the episode's scripts only when they're the plugin's own copy (else refused,
+ * and restore() puts them back); a paid run reads only the keys of the provider it was approved for (FLPT_ALLOW_KEYS).
+ * A film whose script names an FLPT voice also gets the plugin's sign-in to them (houseVault).
  */
 function pipeline(episode, { broker = null } = {}) {
-  return app('pipeline').createPipeline({ engineRoot: ROOT, presenterDir: places().config, vault: { env: () => ({}) }, redact: redactor(episode), toolEnv, broker });
+  const pl = app('pipeline').createPipeline({ engineRoot: ROOT, presenterDir: places().config, vault: houseVault(), redact: redactor(episode), toolEnv, broker,
+    trustedPython: keyedPython, fontCacheDir: path.join(pluginHome(), 'deck-fonts') });
+  // T18: the slide pictures and the draft in macOS's sandbox (slidebox.js), the Mac app's vault and crew folder unreadable there too
+  const slidebox = app('slidebox');
+  return slidebox.sandboxSlides(pl, { box: (d) => slidebox.boxFor(d, { hidden: [path.join(places().userData, 'vault.json'), path.join(places().userData, 'claude')] }) });
 }
 
 /** The app's episode flow (flow.js) for episodes in one folder. */
 function flowFor(projectsDir, deps = {}) {
+  // Live Motion's renders in a draft or film (ext/livemotion's afterRender) get the pinned HyperFrames and its browser,
+  // as the scene crew's do (W2-12 handoff 1); required here because flpt-scene requires this file
+  const livemotion = { env: require('./flpt-scene').liveEnv() };
+  // the toolchain's mode, for each episode's madeWith (provenance): pinned only on FLPT's pinned tools (W4-03)
+  const toolchainMode = pinned().mode;
+  // an episode's own Python is made from FLPT's, as the Mac app makes it: on the pinned Python, its venv (FLPT_PYTHON still wins)
+  const pinPy = pinned().tools.python;
+  const basePython = async () => { const py = tools().python; return pinPy && py === pinPy.path ? pinPy.venv || py : py; };
   return app('flow').createFlow({
-    settings: { read: () => ({ projectsDir, deliverablesDir: places().deliverables }) }, engineRoot: ROOT,
-    toolEnv, basePython: async () => tools().python, redact: (s) => s, send: () => {}, chrome: () => tools().chrome, ...deps,
+    settings: { read: () => ({ projectsDir, deliverablesDir: places().deliverables, toolchainMode }) }, engineRoot: ROOT,
+    toolEnv, basePython, redact: (s) => s, send: () => {}, chrome: () => tools().chrome, livemotion,
+    // Spend and Jazz ask it whether the FLPT voices' sign-in is here (guestvoice.houseReady), as the Mac app's vault
+    vault: houseVault(), ...deps,
   });
 }
 
@@ -158,8 +334,9 @@ function brokerFor(dir) {
 }
 
 /**
- * Moving slides (the app's motion.js) for this plugin: HyperFrames runs through npx, as the method does on its own
- * (render.mjs; the first render downloads HyperFrames and its headless Chrome, with telemetry off).
+ * Moving slides (the app's motion.js) for this plugin: HyperFrames from toolEnv (FLPT's pinned copy, else what
+ * flpt-scene finds), else npx, as the method does on its own. The deck's fonts come from the episode's own copy
+ * (presentation/assets/fonts/), made once through the plugin's font cache.
  */
 function motionFor(pl) {
   const motion = app('motion');
@@ -173,7 +350,7 @@ function motionFor(pl) {
     available: () => Boolean(t.node && t.ffmpeg && t.ffprobe),
     plan: (d) => motion.plan(d),
     clear: (d) => motion.clearMedia(d),
-    render: (d, which, o = {}) => motion.render(d, which, { engineRoot: ROOT, fontCacheDir: path.join(places().config, 'deck-fonts'),
+    render: (d, which, o = {}) => motion.render(d, which, { engineRoot: ROOT, fontCacheDir: path.join(pluginHome(), 'deck-fonts'),
       retime: (args, ro) => pl.retime(d, args, ro), probe, ffmpeg, ...o }),
     // a cartoon or cut scene the Mac app's Scenes step made, put together again (ffmpeg only, nothing paid)
     assemble: (d, key, o = {}) => motion.assembleScene(d, key, { probe, ffmpeg, ...o }),
@@ -224,5 +401,38 @@ function main(fn) {
 
 const say = (s = '') => process.stdout.write(`${s}\n`);
 
-module.exports = { ROOT, app, places, tools, which, episodeDir, readEnvFile, isSecret, redactor, toolEnv, pipeline, flowFor, brokerFor,
-  episodeFlow, motionFor, library, cli, usageError, main, say, exists, abs };
+// Each flpt-* command works out its toolchain when it starts, so every episode it writes is stamped with the one it runs on.
+if (require.main && /[\\/]flpt-[\w-]+\.js$/.test(require.main.filename || '')) { try { pinned(); } catch { /* the system's tools */ } }
+// Live Motion's library beds play from the Mac app's own tracks wherever the app's modules look for them (shippedLibrary)
+try { app('livemotion').useTracks(appTracks); } catch { /* an installed plugin without its lib: nothing plays */ }
+
+/**
+ * The plugin's sign-in to FLPT's site (flpt-signin keeps it in pluginHome()/flpt-voices.json, W4-10), as Share's review
+ * queue sends with it (flpt-refs share --send, W4-09): { origin, headers() } while it's the sign-in of the Worker this
+ * plugin talks to now, else null (then Share exports). The token goes only to that Worker.
+ */
+function signIn() {
+  const s = keptSignIn();
+  if (!s) return null;
+  let origin = null;
+  try { origin = new URL(s.base).origin; } catch { return null; }
+  const token = s.token;
+  return { origin, headers: async () => ({ authorization: `Bearer ${token}` }) };
+}
+
+/** What flpt-signin keeps in pluginHome()/flpt-voices.json ({ token, base, email, … }), or null. */
+function readSignIn() {
+  try { const s = JSON.parse(fs.readFileSync(path.join(pluginHome(), 'flpt-voices.json'), 'utf8')); return s && typeof s === 'object' ? s : null; } catch { return null; }
+}
+
+/** The kept sign-in ({ token, base }) while it's the one of the Worker this plugin talks to now; else null. */
+function keptSignIn() {
+  const house = app('providers/fish-house');
+  const s = readSignIn();
+  if (!s || typeof s.token !== 'string' || !house.TOKEN_RE.test(s.token) || s.base !== house.baseUrl()) return null;
+  return { token: s.token, base: s.base };
+}
+
+module.exports = { ROOT, app, appFile, places, tools, which, episodeDir, readEnvFile, isSecret, redactor, toolEnv, pipeline, flowFor, brokerFor,
+  episodeFlow, motionFor, library, cli, usageError, main, say, exists, abs, pluginHome, keyedPython, pinned, toolchainDirs, toolchainMode, toolchainId, signIn,
+  houseVault, macApp, appTracks };

@@ -4,7 +4,7 @@
 // headless Chrome, then the method's render_slides.py, then any user call not yet recorded in modules.json.
 const fs = require('fs');
 const path = require('path');
-const { ROOT, app, tools, episodeDir, pipeline, cli, main, say } = require('./common');
+const { ROOT, app, places, tools, episodeDir, pipeline, cli, main, say } = require('./common');
 
 const USAGE = `
 Usage: flpt-check-deck [<episode>]
@@ -19,5 +19,5 @@ main(async () => {
   if (!fs.existsSync(pl.projectPython(dir))) {
     throw new Error(`This episode has no Python environment yet. Make it (it keeps every existing file) with:\n  python3 "${path.join(ROOT, 'skills', 'avatar-presentation', 'scripts', 'scaffold.py')}" "${dir}"`);
   }
-  say(await app('stagetools').checkDeck(dir, { pipeline: pl, chrome: tools().chrome }));
+  say(await app('stagetools').checkDeck(dir, { pipeline: pl, chrome: tools().chrome, engineRoot: ROOT, projectsDir: places().projects }));
 });

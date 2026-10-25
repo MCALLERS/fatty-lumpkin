@@ -1,0 +1,382 @@
+{
+  "schema": "flpt.style/1",
+  "id": "whiteboard",
+  "version": "1.0.0",
+  "name": "Whiteboard",
+  "line": "A marker on a whiteboard: each thing drawn as it's named.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": true,
+  "tags": {
+    "mood": [
+      "friendly",
+      "clear"
+    ],
+    "look": [
+      "hand-drawn",
+      "marker",
+      "whiteboard",
+      "doodle"
+    ],
+    "pace": "steady",
+    "use": [
+      "explainers",
+      "ideas",
+      "how it works"
+    ]
+  },
+  "tokens": {
+    "paper": "#FBFAF6",
+    "inks": [
+      "#17202B",
+      "#9B2F4C",
+      "#1F5A85",
+      "#A2600F",
+      "#2E6E4A",
+      "#5B6573"
+    ],
+    "accent": "#9B2F4C",
+    "type": {
+      "hand": "Caveat",
+      "caps": "stroke capitals (the kit)"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-bold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "draw",
+      "write",
+      "hop",
+      "glide",
+      "push",
+      "pan",
+      "reveal",
+      "loop",
+      "tick"
+    ],
+    "pace": "steady",
+    "easing": "io"
+  },
+  "sound": {
+    "score": "pulse-112",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 30
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "FLPT original",
+  "licence": "MIT",
+  "authors": [
+    "Bombadillo AI"
+  ],
+  "licenceFile": "LICENSE",
+  "api": [
+    {
+      "fn": "ctx.kit.CAPS_SET",
+      "kind": "value",
+      "params": [],
+      "doc": "the characters letters() can draw (it upper-cases first)"
+    },
+    {
+      "fn": "ctx.kit.HAND",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for hand lettering (Caveat)"
+    },
+    {
+      "fn": "ctx.kit.INK",
+      "kind": "value",
+      "params": [],
+      "doc": "marker inks: ink, ox, blue, amber, green, muted"
+    },
+    {
+      "fn": "ctx.kit.TINT",
+      "kind": "value",
+      "params": [],
+      "doc": "colouring-in tints by ink name, and white"
+    },
+    {
+      "fn": "ctx.kit.arrow",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "o"
+      ],
+      "doc": "a bent hand-drawn arrow from a to b {bend, head, ink, at}"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "binds the kit to the frame (the runtime calls it)"
+    },
+    {
+      "fn": "ctx.kit.board",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the whiteboard surface: tooth, mottle, ghosts, gloss, the room's warm light"
+    },
+    {
+      "fn": "ctx.kit.box",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a hand-drawn rectangle; fill or hatch it like a doodle"
+    },
+    {
+      "fn": "ctx.kit.check",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a tick mark at x, y {size, ink}"
+    },
+    {
+      "fn": "ctx.kit.cross",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "o"
+      ],
+      "doc": "a cross-out over a box (two bold strokes)"
+    },
+    {
+      "fn": "ctx.kit.doodle",
+      "kind": "function",
+      "params": [
+        "name",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a kit doodle drawn by the pen: name, x, y, {at, s, ink, fill, hatch, cue}"
+    },
+    {
+      "fn": "ctx.kit.doodles",
+      "kind": "function",
+      "params": [],
+      "doc": "the names of the doodles in the kit"
+    },
+    {
+      "fn": "ctx.kit.dots",
+      "kind": "function",
+      "params": [
+        "path",
+        "o"
+      ],
+      "doc": "a dotted line along points or path data, dabbed on {gap, head}"
+    },
+    {
+      "fn": "ctx.kit.ellipse",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "o"
+      ],
+      "doc": "an ellipse or loop as points {turns, a0, grow}"
+    },
+    {
+      "fn": "ctx.kit.jobs",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the pen schedule [{kind, key, cue, at, end}]; {boxes: true} adds extents"
+    },
+    {
+      "fn": "ctx.kit.letters",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "stroke capitals drawn by the pen: str, x, y {size, ink, at}"
+    },
+    {
+      "fn": "ctx.kit.lettersW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "o"
+      ],
+      "doc": "width of stroke capitals at a size {track, seed} as letters() draws them"
+    },
+    {
+      "fn": "ctx.kit.light",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the room light: a soft warm vignette (screen space; call last)"
+    },
+    {
+      "fn": "ctx.kit.line",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "one stroke through points (world), drawn by the pen"
+    },
+    {
+      "fn": "ctx.kit.loop",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "rx",
+        "ry",
+        "o"
+      ],
+      "doc": "the bold loop round a punchline, a little over one turn"
+    },
+    {
+      "fn": "ctx.kit.pen",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the marker where the schedule puts it at t (call last)"
+    },
+    {
+      "fn": "ctx.kit.rays",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r0",
+        "r1",
+        "n",
+        "o"
+      ],
+      "doc": "n short rays around a point (a glow, a ring, a shine)"
+    },
+    {
+      "fn": "ctx.kit.sketch",
+      "kind": "function",
+      "params": [
+        "strokes",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "your own doodle: path strings drawn stroke by stroke at x, y"
+    },
+    {
+      "fn": "ctx.kit.track",
+      "kind": "function",
+      "params": [
+        "stops"
+      ],
+      "doc": "camera stops [{at, dur, z, p}] -> the camera at t (io ease)"
+    },
+    {
+      "fn": "ctx.kit.underline",
+      "kind": "function",
+      "params": [
+        "x0",
+        "x1",
+        "y",
+        "o"
+      ],
+      "doc": "a bold underline from x0 to x1 at y"
+    },
+    {
+      "fn": "ctx.kit.view",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "apply a camera {z, p, to}; the world is 1920x1080 at z 1"
+    },
+    {
+      "fn": "ctx.kit.write",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "Caveat written on by the pen: str, x, y {size, ink, at, align}"
+    },
+    {
+      "fn": "ctx.kit.writeW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "weight"
+      ],
+      "doc": "width of a written label at a size and weight"
+    }
+  ],
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:07d0f3b98fbf3d97a9cad5eda8893dbaddb0672c16f9b35751f320f4733537c8",
+    "STYLE.md": "sha256:9700ef411a1c7e68a8f00c5bebd17e40a537e8f9a723ed5811a75b3b2d9b6915",
+    "starter/scene.js": "sha256:34ada8bcf58a4aeb6e55881544573f43840103887c6da03988dfeb7e955edaeb"
+  }
+}

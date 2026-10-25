@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: flpt:; media-src flpt:; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none';">
+<title>Transitions &amp; Music</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="addons.css">
+<script src="fx-boot.js"></script>
+</head>
+<body class="addons">
+<div class="titlebar" aria-hidden="true"></div>
+
+<header class="tm-head">
+  <div class="tm-brand">
+    <img class="brand-mark" src="assets/pony-mark.png" alt="" width="30" height="30">
+    <h1 class="brand-name">Transitions <em>&amp; Music</em></h1>
+  </div>
+  <div class="tm-tools">
+    <button type="button" class="ghost small" id="tm-folder">Show in Finder</button>
+    <button type="button" class="primary" id="tm-add">Add</button>
+  </div>
+</header>
+
+<main class="tm-main" id="tm-main" tabindex="-1">
+  <section class="tm-shelf" aria-labelledby="tm-t-head">
+    <h2 id="tm-t-head">Transitions</h2>
+    <div class="tm-grid" id="tm-transitions"></div>
+  </section>
+  <section class="tm-shelf" aria-labelledby="tm-m-head">
+    <h2 id="tm-m-head">Music</h2>
+    <ul class="tm-tracks" id="tm-music"></ul>
+  </section>
+</main>
+
+<p class="tm-status" id="tm-status" role="status" aria-live="polite"></p>
+<div class="tm-drop" id="tm-drop" hidden><p>Drop to add</p></div>
+<audio id="tm-audio" preload="none"></audio>
+
+<script src="addons.js"></script>
+</body>
+</html>

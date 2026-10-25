@@ -323,6 +323,19 @@ def config_layers(keys_path: Path, cfg_dir: Path | None = None) -> list[tuple[st
 
 def load_merged_config(keys_path: Path, cfg_dir: Path | None = None) -> tuple[dict, dict]:
     """(settings, {KEY: layer label}) from presenter.env → keys.env → project api_keys.txt."""
+    # FLPT_ALLOW_KEYS_V1: a paid run gets only the keys of the providers it holds an approval for
+    cfg, src = _load_merged_config_all(keys_path, cfg_dir)
+    allowed = os.environ.get("FLPT_ALLOW_KEYS")
+    if allowed is not None:
+        keep = {k.strip() for k in allowed.split(",") if k.strip()}
+        for k in [k for k in cfg if is_secret(k) and k not in keep]:
+            del cfg[k]
+            src.pop(k, None)
+    return cfg, src
+
+
+def _load_merged_config_all(keys_path: Path, cfg_dir: Path | None = None) -> tuple[dict, dict]:
+    """Every layer, before FLPT_ALLOW_KEYS_V1 drops the keys a paid run holds no approval for."""
     cfg: dict[str, str] = {}
     src: dict[str, str] = {}
     for label, path in config_layers(keys_path, cfg_dir):
@@ -626,6 +639,7 @@ def parse_script_full(path: Path) -> tuple[dict[int, dict], list[dict], list[str
             out[n]["text"] = (out[n]["text"] + "\n\n" + text).strip()
         else:
             out[n] = {"title": title, "text": text}
+            out[n]["voice"] = flpt_guest_tag(body)  # FLPT_GUEST_VOICE_V1
     nums = sorted(out)
     expected = list(range(1, (max(nums) if nums else 0) + 1))
     missing = [n for n in expected if n not in out]
@@ -680,6 +694,7 @@ class Slide:
     def probe_copy(self) -> "Slide":
         p = Slide(self.n, self.png, self.title, self.text, self.sid)
         p.cut_before, p.cut_after = self.cut_before, self.cut_after
+        p.cut_after_hard = getattr(self, "cut_after_hard", False)
         p.bubble = self.bubble
         return p
 
@@ -737,8 +752,9 @@ class CutScene:
 #                  "audio": "keep", "fade": 0.6}]
 # }
 
-SLIDE_MEDIA_KEYS = {"video", "fit", "pad", "audio", "volume", "start", "note", "bubble"}
-CUT_MEDIA_KEYS = {"id", "after_slide", "video", "title", "audio", "fade", "volume", "start", "duration",
+SLIDE_MEDIA_KEYS = {"video", "fit", "pad", "audio", "volume", "start", "note", "bubble",
+                    "stereo"}  # FLPT_STEREO_V1
+CUT_MEDIA_KEYS = {"id", "after_slide", "video", "title", "audio", "fade", "fade_in", "volume", "start", "duration",
                   "fit", "voiceover", "voiceover_bed", "note"}
 _clip_info_cache: dict[Path, dict] = {}
 
@@ -846,6 +862,9 @@ def load_media(media_path: Path, script_cuts: list[dict], slide_nums: list[int])
                      "audio": _choice(spec.get("audio"), f"slide {n} audio", ("mute", "mix"), "mute"),
                      "volume": _num(spec.get("volume", MIX_VOLUME), f"slide {n} volume", 0, 4),
                      "start": _num(spec.get("start", 0), f"slide {n} start", 0, 36000)}
+        # FLPT_STEREO_V1: "stereo": true keeps the video's own sound in stereo; only set when asked for
+        if spec.get("stereo") is True or str(spec.get("stereo", "")).strip().lower() in ("true", "yes", "1", "on"):
+            videos[n]["stereo"] = True
 
     # Cut scenes: media.json entries first (their order), then script-only ones; media.json wins per field.
     by_id: dict[str, dict] = {}
@@ -893,6 +912,9 @@ def load_media(media_path: Path, script_cuts: list[dict], slide_nums: list[int])
         c.exists = c.src.exists()
         c.audio = _choice(m.get("audio"), f"cut scene {cid} audio", ("keep", "mute"), "keep")
         c.fade = _num(m.get("fade", CUTSCENE_FADE_S), f"cut scene {cid} fade", 0, 5)
+        # "fade_in": 0 = hard cut in (no video fade in, and the slide before it doesn't fade out) — for a slide
+        # that ends on the cut scene's exact first frame. The cut scene's audio still fades in by "fade".
+        c.fade_in = _num(m.get("fade_in", c.fade), f"cut scene {cid} fade_in", 0, 5)
         c.volume = _num(m.get("volume", 1.0), f"cut scene {cid} volume", 0, 4)
         c.clip_start = _num(m.get("start", 0), f"cut scene {cid} start", 0, 36000)
         c.max_len = _num(m["duration"], f"cut scene {cid} duration", 0.5, 3600) if m.get("duration") else None
@@ -923,7 +945,9 @@ def load_project(paths, draft: bool) -> tuple[list[Slide], list[CutScene], list[
         if nxt is not None:
             next(s for s in slides if s.n == nxt).cut_before = True
         if c.after in nums:
-            next(s for s in slides if s.n == c.after).cut_after = True
+            sl = next(s for s in slides if s.n == c.after)
+            sl.cut_after = True
+            sl.cut_after_hard = getattr(c, "fade_in", None) == 0
     missing = [f"slide {s.n}: {s.video['label']}" for s in slides if s.video and not s.video["exists"]] + \
               [f"cut scene {c.id}: {c.src_label}" for c in cuts if not c.exists]
     if missing:
@@ -973,6 +997,7 @@ def load_slides(slides_dir: Path, script: Path) -> tuple[list[Slide], list[str]]
         if sec is None:
             warnings.append(f"slide_{n:02d}.png has no script section — held silently for {SILENT_HOLD_S:.0f}s")
         slides.append(Slide(n, pngs[n], (sec or {}).get("title", ""), (sec or {}).get("text", ""), ids.get(str(n))))
+        slides[-1].flpt_voice = (sec or {}).get("voice")  # FLPT_GUEST_VOICE_V1
     return slides, warnings
 
 
@@ -1434,7 +1459,9 @@ def make_slide_audio(s: "Slide", cache: Path) -> Path:
     if not (s.live_video and v["audio"] == "mix" and clip_info(v["path"])["has_audio"]):
         return s.padded_wav  # type: ignore[return-value]
     n = s.frames * SPF
-    key = sha_text("mix", s.pad_key, sha_file_memo(v["path"]), v["start"], v["pad"], v["volume"], n)[:20]
+    st = bool(v.get("stereo"))  # FLPT_STEREO_V1: in the hash only when set, so mono mixes keep their keys
+    key = sha_text("mix", s.pad_key, sha_file_memo(v["path"]), v["start"], v["pad"], v["volume"], n,
+                   *(["stereo"] if st else []))[:20]
     out = cache / "audio" / "mix" / f"{key}.wav"
     if out.exists():
         return out
@@ -1442,9 +1469,12 @@ def make_slide_audio(s: "Slide", cache: Path) -> Path:
     tmp = out.with_suffix(".tmp.wav")
     run([FFMPEG, "-y", "-v", "error", "-i", s.padded_wav, *video_input(v["path"], v["start"], v["pad"] == "loop"),
          "-filter_complex",
-         f"[1:a]aresample={SR},aformat=sample_fmts=s16:channel_layouts=mono,volume={v['volume']:g},apad,"
-         f"atrim=end_sample={n}[b];[0:a][b]amix=inputs=2:normalize=0:duration=first,atrim=end_sample={n}[out]",
-         "-map", "[out]", "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le", tmp], f"audio mix for slide {s.n}")
+         f"[1:a]aresample={SR},aformat=sample_fmts=s16:channel_layouts={'stereo' if st else 'mono'},"
+         f"volume={v['volume']:g},apad,atrim=end_sample={n}[b];"
+         f"{'[0:a]pan=stereo|c0=c0|c1=c0[a];[a]' if st else '[0:a]'}[b]"  # FLPT_STEREO_V1: narration in the middle
+         f"amix=inputs=2:normalize=0:duration=first,atrim=end_sample={n}[out]",
+         "-map", "[out]", "-ac", "2" if st else "1", "-ar", str(SR), "-c:a", "pcm_s16le", tmp],
+        f"audio mix for slide {s.n}")
     fix_wav_length(tmp, n)
     os.replace(tmp, out)
     return out
@@ -1650,13 +1680,90 @@ class ElevenLabsTTS(TagRules):
 
 
 HG_API = "https://api.heygen.com"
+FISH_API = "https://api.fish.audio"  # FLPT_VOICES_V1
+# FLPT_VOICES_V1 (engine/tools/patches/34_voices.py): QA only. FLPT_QA_API_BASE=http://127.0.0.1:<port> sends HeyGen,
+# ElevenLabs and Fish.audio to FLPT's loopback stand-in; anything but a loopback address is ignored.
+_FLPT_QA = os.environ.get("FLPT_QA_API_BASE", "").strip().rstrip("/")
+if re.fullmatch(r"http://127\.0\.0\.1:\d{2,5}", _FLPT_QA):
+    HG_API, EL_API, FISH_API = f"{_FLPT_QA}/heygen", f"{_FLPT_QA}/elevenlabs", f"{_FLPT_QA}/fish"
+
+
+def flpt_fish() -> bool:
+    return os.environ.get("FLPT_TTS", "").strip().lower() == "fish"
+
+
+class FishTTS(TagRules):
+    """Narration in a Fish.audio voice (FLPT_TTS=fish): POST /v1/tts with the voice model as reference_id."""
+    tag = "fish"
+    label = "Fish.audio"
+
+    def pause_markup(self, seconds: float, original: str | None) -> str:
+        return " ... " if seconds >= 0.4 else ", "
+
+    def __init__(self, cfg: dict):
+        self.api_key = cfg["FISH_AUDIO_API_KEY"]
+        self.voice_id = cfg["FISH_VOICE_ID"]
+        self.model = (cfg.get("FISH_MODEL") or "s2.1-pro").strip()
+
+    def key(self) -> str:
+        return f"fish|{self.voice_id}|{self.model}|wav"
+
+    def describe(self) -> str:
+        return f"Fish.audio voice {self.voice_id} · model {self.model}"
+
+    def synth(self, text: str, out_wav: Path, tmp: Path) -> None:
+        parts = []
+        h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "model": self.model}
+        for i, chunk in enumerate(split_for_tts(text, 2000)):
+            body = {"text": chunk, "reference_id": self.voice_id, "format": "wav", "latency": "normal", "normalize": True}
+            r = api_call("POST", f"{FISH_API}/v1/tts", what="Fish.audio text-to-speech", headers=h, json=body, timeout=300)
+            if r.status_code != 200 or not r.content:
+                raise ApiError(explain_http("Fish.audio", r), r.status_code, body_snippet(r))
+            src = tmp / f"chunk{i}.src.wav"
+            src.write_bytes(r.content)
+            w = tmp / f"chunk{i}.wav"
+            to_wav48(src, w)
+            parts.append(w)
+        if len(parts) == 1:
+            os.replace(parts[0], out_wav)
+        else:
+            concat_wavs(parts, out_wav)
 
 
 TTS_PROVIDERS = ("elevenlabs", "heygen", "gemini")
 
 
+# FLPT_HEYGEN_BASE (engine/tools/patches/41_heygen_base.py): in the web image HeyGen goes through FLPT's egress broker
+# (http://heygen.internal, or a loopback wrangler dev / stand-in), which swaps the container's dummy key for the user's
+# only on a request carrying the job's capability (X-FLPT-Job) and dedupes creates on their clip key (X-FLPT-Clip).
+def flpt_heygen_base() -> str:
+    b = os.environ.get("FLPT_HEYGEN_BASE", "").strip().rstrip("/")
+    ok = re.fullmatch(r"http://heygen\.internal(:\d{2,5})?", b) or re.fullmatch(r"http://127\.0\.0\.1:\d{2,5}(/[A-Za-z0-9_-]+)*", b)
+    return b if ok else ""
+
+
+_FLPT_HG_BASE = flpt_heygen_base()
+if _FLPT_HG_BASE:
+    HG_API, HG_UPLOAD = _FLPT_HG_BASE, f"{_FLPT_HG_BASE}/upload/v1/asset"
+
+
+def flpt_hg(h: dict, clip: str | None = None) -> dict:
+    """HeyGen's headers, plus (only through FLPT's broker) the job's capability and, on a create, its clip key."""
+    if not _FLPT_HG_BASE:
+        return h
+    out = dict(h)
+    job = os.environ.get("FLPT_HEYGEN_JOB", "").strip()
+    if re.fullmatch(r"[A-Za-z0-9._~-]{16,256}", job):
+        out["X-FLPT-Job"] = job
+    if clip:
+        out["X-FLPT-Clip"] = clip
+    return out
+
+
 def tts_provider(cfg: dict) -> str:
     """Which service narrates: 'elevenlabs' (default), 'heygen' (your HeyGen voice) or 'gemini' (Gemini TTS)."""
+    if flpt_fish():  # FLPT_VOICES_V1: Fish.audio, chosen by FLPT for this run only
+        return "fish"
     p = (cfg.get("TTS_PROVIDER") or "elevenlabs").strip().lower()
     if p not in TTS_PROVIDERS:
         die(f"TTS_PROVIDER={p!r} is not one of {', '.join(TTS_PROVIDERS)}")
@@ -1665,12 +1772,36 @@ def tts_provider(cfg: dict) -> str:
 
 def provider_keys(provider: str) -> list[str]:
     return {"heygen": ["HEYGEN_API_KEY", "HEYGEN_VOICE_ID"], "gemini": ["GEMINI_API_KEY"],
-            "elevenlabs": ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"]}[provider]
+            "elevenlabs": ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"],
+            "fish": ["FISH_AUDIO_API_KEY", "FISH_VOICE_ID"]}[provider]  # FLPT_VOICES_V1
 
 
 def make_engine(cfg: dict):
     p = tts_provider(cfg)
-    return {"heygen": HeyGenTTS, "gemini": GeminiTTS, "elevenlabs": ElevenLabsTTS}[p](cfg)
+    return {"heygen": HeyGenTTS, "gemini": GeminiTTS, "elevenlabs": ElevenLabsTTS, "fish": FishTTS}[p](cfg)  # FLPT_VOICES_V1
+
+
+# FLPT_WORDS_V1: a provider's word timings, kept in a words/ subfolder beside the narration (never *.json beside it:
+# retime.py reads every cache/audio/*/*.json as narration metadata)
+def flpt_words(reply: dict, at: float) -> list:
+    raw = reply.get("word_timestamps") if isinstance(reply, dict) else None
+    out = []
+    for w in raw if isinstance(raw, list) else []:
+        if not isinstance(w, dict):
+            continue
+        text = w.get("word", w.get("text"))
+        start, end = w.get("start", w.get("start_time")), w.get("end", w.get("end_time"))
+        if isinstance(text, str) and isinstance(start, (int, float)) and isinstance(end, (int, float)) and end >= start:
+            out.append({"text": text, "start": round(at + float(start), 3), "end": round(at + float(end), 3)})
+    return out
+
+
+def flpt_save_words(out_wav: Path, words: list) -> None:
+    if not words:
+        return
+    d = out_wav.parent / "words"
+    d.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(d / f"{out_wav.stem}.json", words)
 
 
 class HeyGenTTS(TagRules):
@@ -1715,11 +1846,12 @@ class HeyGenTTS(TagRules):
 
     def synth(self, text: str, out_wav: Path, tmp: Path) -> None:
         parts = []
+        words, at = [], 0.0  # FLPT_WORDS_V1
         h = {"X-Api-Key": self.api_key, "Content-Type": "application/json", "accept": "application/json"}
         for i, chunk in enumerate(split_for_tts(text, 4800)):
             body = {"text": chunk, "voice_id": self.voice_id, "speed": self.speed, "language": self.language,
                     "engine": self.engine}
-            r = api_call("POST", f"{HG_API}/v3/voices/speech", what="HeyGen text-to-speech", headers=h,
+            r = api_call("POST", f"{HG_API}/v3/voices/speech", what="HeyGen text-to-speech", headers=flpt_hg(h, f"tts-{out_wav.stem}-{i}"),
                          json=body, timeout=300)
             if r.status_code != 200:
                 raise ApiError(explain_http("HeyGen", r), r.status_code, body_snippet(r))
@@ -1736,11 +1868,14 @@ class HeyGenTTS(TagRules):
             w = tmp / f"chunk{i}.wav"
             to_wav48(src, w)
             parts.append(w)
+            words += flpt_words(d, at)  # FLPT_WORDS_V1
+            at += wav_frames(w) / SR
         if len(parts) == 1:
             os.replace(parts[0], out_wav)
             shutil.copyfile(tmp / "chunk0.mp3", out_wav.with_suffix(".mp3"))
         else:
             concat_wavs(parts, out_wav)
+        flpt_save_words(out_wav, words)
 
 
 # ─── Gemini TTS ─────────────────────────────────────────────────────────────
@@ -1914,7 +2049,112 @@ PREFERRED_VOICES = ["Ava", "Zoe", "Evan", "Nathan", "Allison", "Samantha", "Tom"
                     "Daniel", "Karen", "Moira", "Tessa", "Alex"]
 
 
+# FLPT_FREE_TTS (engine/tools/patches/40_free_tts.py): where there is no Mac voice (the web image on Linux), the free
+# voice is Kokoro-82M, run by FLPT's own Python for it from pinned model files. Only with FLPT_FREE_TTS=kokoro: SayTTS
+# keeps its name, tag ("say") and pause markup and speaks through Kokoro; its cache key says kokoro. Offline, keyless.
+FLPT_KOKORO_VOICE = "af_heart"
+FLPT_KOKORO_ENGLISH = ("af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah", "am_michael", "am_fenrir",
+                       "am_puck", "bf_emma", "bf_isabella", "bm_george", "bm_fable")
+FLPT_KOKORO_RUN = r"""
+import json, sys, wave
+import numpy as np
+from kokoro_onnx import Kokoro
+a = json.loads(sys.argv[1])
+k = Kokoro(a["model"], a["voices"])
+sr, out = 24000, []
+for p in a["parts"]:
+    if "text" in p:
+        audio, sr = k.create(p["text"], voice=a["voice"], speed=a["speed"], lang=a["lang"])
+        out.append(np.asarray(audio, dtype=np.float32).ravel())
+    else:
+        out.append(np.zeros(int(round(p["pause"] * sr)), dtype=np.float32))
+pcm = np.concatenate(out) if out else np.zeros(int(0.2 * sr), dtype=np.float32)
+pcm = (np.clip(pcm, -1.0, 1.0) * 32767.0).round().astype("<i2")
+with wave.open(a["out"], "wb") as w:
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(sr)
+    w.writeframes(pcm.tobytes())
+print(json.dumps({"ok": True, "samples": int(pcm.size), "rate": int(sr)}))
+"""
+_flpt_kokoro_names: list | None = None
+
+
+def flpt_free_tts() -> bool:
+    return os.environ.get("FLPT_FREE_TTS", "").strip().lower() == "kokoro"
+
+
+def flpt_kokoro_env() -> dict:
+    """FLPT's Kokoro: its Python, model and voices files, each there, or the run stops before anything is made."""
+    need = {k: os.environ.get(k, "").strip() for k in ("FLPT_KOKORO_PYTHON", "FLPT_KOKORO_MODEL", "FLPT_KOKORO_VOICES")}
+    missing = [k for k, v in need.items() if not v or not Path(v).is_file()]
+    if missing:
+        die(f"FLPT_FREE_TTS=kokoro needs {', '.join(missing)} (FLPT's Kokoro and its pinned model files). Nothing was made.")
+    return need
+
+
+def flpt_kokoro_voices() -> list[tuple[str, str]]:
+    """FLPT's English Kokoro voices in the voices file, as say_voices() lists the Mac's: (name, locale)."""
+    global _flpt_kokoro_names
+    if _flpt_kokoro_names is None:
+        env = flpt_kokoro_env()
+        code = "import json, sys, numpy; print(json.dumps(sorted(numpy.load(sys.argv[1]).keys())))"
+        r = subprocess.run([env["FLPT_KOKORO_PYTHON"], "-I", "-B", "-c", code, env["FLPT_KOKORO_VOICES"]],
+                           capture_output=True, text=True)
+        try:
+            present = set(json.loads(r.stdout.strip().splitlines()[-1]))
+        except (ValueError, IndexError):
+            die(f"Kokoro's voices file couldn't be read: {(r.stderr or r.stdout).strip()[-300:]}")
+        _flpt_kokoro_names = [n for n in FLPT_KOKORO_ENGLISH if n in present]
+    return [(n, "en_GB" if n.startswith("b") else "en_US") for n in _flpt_kokoro_names]
+
+
+def flpt_kokoro_pick(requested: str | None) -> str:
+    """The voice asked for when Kokoro has it, else Kokoro's default (a Mac voice's name means the default)."""
+    names = [n for n, _ in flpt_kokoro_voices()]
+    if not names:
+        die("Kokoro's voices file holds none of FLPT's English voices.")
+    if requested and requested in names:
+        return requested
+    return FLPT_KOKORO_VOICE if FLPT_KOKORO_VOICE in names else names[0]
+
+
+def flpt_kokoro_speed(rate) -> float:
+    """say's words per minute as Kokoro's speed: 165 (the draft's default) is 1.0, kept within Kokoro's 0.5–2.0."""
+    return round(min(2.0, max(0.5, float(rate) / 165.0)), 3)
+
+
+def flpt_kokoro_key(voice: str, rate) -> str:
+    mid = os.environ.get("FLPT_KOKORO_MODEL_ID", "").strip()
+    if not mid:
+        m = Path(os.environ.get("FLPT_KOKORO_MODEL", "").strip() or "kokoro")
+        mid = f"{m.name}:{m.stat().st_size if m.is_file() else 0}"
+    return f"kokoro|{voice}|{flpt_kokoro_speed(rate)}|{mid}"
+
+
+def flpt_kokoro_synth(text: str, voice: str, rate, out_wav: Path, tmp: Path) -> None:
+    """One narration through Kokoro: the text between [[slnc ms]] pauses spoken, the pauses kept as silence."""
+    env = flpt_kokoro_env()
+    parts = []
+    for i, bit in enumerate(re.split(r"\[\[slnc (\d+)\]\]", text)):
+        if i % 2:
+            parts.append({"pause": int(bit) / 1000.0})
+        elif bit.strip():
+            parts.append({"text": " ".join(bit.split())})
+    raw = tmp / "kokoro.wav"
+    req = {"model": env["FLPT_KOKORO_MODEL"], "voices": env["FLPT_KOKORO_VOICES"], "voice": voice,
+           "speed": flpt_kokoro_speed(rate), "lang": "en-gb" if voice.startswith("b") else "en-us", "parts": parts,
+           "out": str(raw)}
+    r = subprocess.run([env["FLPT_KOKORO_PYTHON"], "-I", "-B", "-c", FLPT_KOKORO_RUN, json.dumps(req)],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not raw.is_file():
+        raise PipelineError(f"Kokoro couldn't speak this line: {(r.stderr or r.stdout).strip()[-400:]}")
+    to_wav48(raw, out_wav)
+
+
 def say_voices() -> list[tuple[str, str]]:
+    if flpt_free_tts():  # FLPT_FREE_TTS: the free voices are Kokoro's
+        return flpt_kokoro_voices()
     try:
         out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
     except OSError:
@@ -1928,6 +2168,8 @@ def say_voices() -> list[tuple[str, str]]:
 
 
 def pick_say_voice(requested: str | None) -> str:
+    if flpt_free_tts():  # FLPT_FREE_TTS: Kokoro's voice (a Mac voice's name means its default)
+        return flpt_kokoro_pick(requested)
     voices = say_voices()
     if not voices:
         die("macOS `say` is not available — draft mode needs a Mac.")
@@ -1969,9 +2211,13 @@ class SayTTS(TagRules):
         self.voice, self.rate = voice, rate
 
     def key(self) -> str:
+        if flpt_free_tts():  # FLPT_FREE_TTS: Kokoro's narration never shares a key with the Mac's
+            return flpt_kokoro_key(self.voice, self.rate)
         return f"say|{self.voice}|{self.rate}"
 
     def describe(self) -> str:
+        if flpt_free_tts():  # FLPT_FREE_TTS
+            return f"Kokoro-82M · voice {self.voice} · speed {flpt_kokoro_speed(self.rate)}"
         return f"macOS say · voice {self.voice} · {self.rate} wpm"
 
     def pause_markup(self, seconds: float, original: str | None) -> str:
@@ -1981,11 +2227,92 @@ class SayTTS(TagRules):
         t = self.prepare(text) if has_tags(text) else text      # idempotent: [[slnc]] is not a tag
         t = re.sub(r"<[^>]+>", "", t)
         t = t.replace("\n\n", " [[slnc 350]] ")
+        if flpt_free_tts():  # FLPT_FREE_TTS: Kokoro speaks it, the pauses kept as silence
+            flpt_kokoro_synth(t, self.voice, self.rate, out_wav, tmp)
+            return
         txt = tmp / "in.txt"
         txt.write_text(t, encoding="utf-8")
         aiff = tmp / "out.aiff"
         run(["say", "-v", self.voice, "-r", str(self.rate), "-f", txt, "-o", aiff], "say")
         to_wav48(aiff, out_wav)
+
+
+# FLPT_DRAFT_FINAL (engine/tools/patches/33_draft_final.py): with --draft and FLPT_DRAFT_FINAL=1 the draft's path makes
+# the film itself (a cartoon presenter on the Mac's voice): final quality, presentation.mp4 and its timeline, the editing
+# master, still no network and no key. Its narration lives in its own cache folder (say_final), where every reader of
+# the film's narration finds it, and is the draft's audio whenever that's cached (the same file: the same pad_keys).
+def flpt_draft_final() -> bool:
+    return os.environ.get("FLPT_DRAFT_FINAL") == "1"
+
+
+class FilmSayTTS(SayTTS):
+    tag = "say_final"
+    label = "macOS say (film)"
+
+    def synth(self, text: str, out_wav: Path, tmp: Path) -> None:
+        draft = out_wav.parent.parent / "say" / out_wav.name
+        if draft.is_file():
+            shutil.copyfile(draft, out_wav)
+            return
+        super().synth(text, out_wav, tmp)
+
+
+# FLPT_FIXTURE_TTS: QA only (see engine/tools/patches/11_fixture_tts.py). With FLPT_FIXTURE_TTS=<folder>, narration
+# comes from <folder>/<sha256(spoken text)[:16]>.wav, else from a fixed stand-in voice; nothing is synthesized.
+class FixtureTTS:
+    def __init__(self, inner, folder: Path):
+        self.inner, self.folder = inner, folder
+        self.tag = inner.tag
+        self.label = f"fixture voice ({inner.label})"
+
+    def __getattr__(self, name):  # prepare(), dropped and the tag rules stay the wrapped engine's
+        if name == "inner":
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
+    def key(self) -> str:
+        return f"{self.inner.key()}|fixture"
+
+    def describe(self) -> str:
+        return f"fixture voice from {self.folder} (standing in for {self.inner.describe()})"
+
+    def synth(self, text: str, out_wav: Path, tmp: Path) -> None:
+        src = self.folder / f"{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}.wav"
+        if src.is_file():
+            to_wav48(src, out_wav)
+            return
+        import array
+        pcm = array.array("h")
+        rest = lambda s: pcm.extend([0] * int(round(s * SR)))  # noqa: E731
+        rest(0.12)
+        for tok in re.findall(r"\[\[slnc (\d+)\]\]|<break time=\"([\d.]+)s\"|([\w']+)", text):
+            if tok[0] or tok[1]:
+                rest(int(tok[0]) / 1000 if tok[0] else float(tok[1]))
+                continue
+            period = 160 + 8 * (sum(map(ord, tok[2])) % 17)       # one pitch per word, from its letters
+            n = int(SR * (0.16 + 0.03 * min(len(tok[2]), 8)))
+            ramp = SR // 200
+            for i in range(n):
+                ph = i % period
+                tri = (4 * 5000 * ph) // period - 5000 if ph < period // 2 else 15000 - (4 * 5000 * ph) // period
+                pcm.append((tri * min(i, n - 1 - i, ramp)) // ramp)
+            rest(0.07)
+        rest(0.2)
+        tmp_wav = out_wav.with_suffix(".tmp.wav")
+        with wave.open(str(tmp_wav), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            if sys.byteorder != "little":
+                pcm.byteswap()
+            w.writeframes(pcm.tobytes())
+        os.replace(tmp_wav, out_wav)
+
+
+def fixture_tts(engine):
+    """FLPT_FIXTURE_TTS: the run's engine, or with FLPT_FIXTURE_TTS=<folder> set, fixed voices in its place."""
+    folder = os.environ.get("FLPT_FIXTURE_TTS", "").strip()
+    return FixtureTTS(engine, Path(folder).expanduser().resolve()) if folder else engine
 
 
 # ─── narration + timeline ───────────────────────────────────────────────────
@@ -2000,12 +2327,256 @@ def spoken_text(engine, text: str) -> str:
     return engine.prepare(text) if hasattr(engine, "prepare") else text
 
 
+# FLPT_GUEST_VOICE_V1 (engine/tools/patches/42_guest_voice.py): guest narrators. A slide with no presenter on screen
+# may be narrated by another voice, named under its heading in script.md ("> flpt-voice: <provider>/<id> · <name>",
+# a stage direction no narrator reads). That slide gets the guest's engine and the guest's cache key; nothing else moves.
+FLPT_GUEST_TAG = re.compile(r"^\s*>\s*flpt-voice:\s*([a-z][a-z-]{1,15})/([A-Za-z0-9%._:()'~*!-]{1,192})(?:\s+·\s+.*)?\s*$")
+FLPT_HOUSE_VOICES = {"362c984bbb7143aebbcf1b87f7ca7624": "Epic Storyteller Female",
+                     "a1f443e46ae74ecbb84b5ef9ab9555f6": "Sarcastic Old Man",
+                     "81dcca64ec094339b4dcd6508d04c28b": "Hobbiton Narrator",
+                     "0d63fefbbba84269884f80c4718af930": "Young Professional Analyst",
+                     "a57d512e30bf40cb996f14ab9be3f16a": "Rin",
+                     "3274196bca8f4208a36aba959bff5746": "Profound Narrator JD"}
+FLPT_GUEST_IDS = {
+    "fish-house": lambda s: s in FLPT_HOUSE_VOICES,
+    "fish": lambda s: re.fullmatch(r"[0-9a-f]{32}", s) is not None,
+    "elevenlabs": lambda s: re.fullmatch(r"[A-Za-z0-9]{8,64}", s) is not None,
+    "heygen": lambda s: re.fullmatch(r"[A-Za-z0-9_-]{6,128}", s) is not None,
+    "say": lambda s: re.fullmatch(r"[\w ()._'-]{1,64}", s) is not None,
+}
+FLPT_GUEST_KEYS = {"fish-house": "FLPT_VOICES_TOKEN", "fish": "FISH_AUDIO_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY",
+                   "heygen": "HEYGEN_API_KEY"}
+FLPT_GUEST_SAY = ("Daniel", "Moira", "Karen", "Rishi", "Tessa", "Fred", "Ralph")  # the draft's guests, by preference
+# the two runs FLPT's base patches add in which nothing is made (its estimate, a cached-only re-composite)
+_FLPT_NOTHING_MADE = ("FLPT_" "ESTIMATE_ONLY", "FLPT_" "CACHED_ONLY")
+FLPT_VOICES_API = "https://flpt.bombadillo-ai.com"
+# another Worker only on FLPT's own domain, or a loopback `wrangler dev`: the user's sign-in is sent nowhere else
+FLPT_VOICES_HOSTS = re.compile(r"https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,4}bombadillo-ai\.com(?::\d{2,5})?"
+                               r"|https://bombadillo-ai\.com(?::\d{2,5})?|http://(?:127\.0\.0\.1|localhost):\d{2,5}")
+if FLPT_VOICES_HOSTS.fullmatch(os.environ.get("FLPT_VOICES_URL", "").strip().rstrip("/")):
+    FLPT_VOICES_API = os.environ["FLPT_VOICES_URL"].strip().rstrip("/")
+if re.fullmatch(r"http://127\.0\.0\.1:\d{2,5}", _FLPT_QA):  # QA only: FLPT's loopback stand-in
+    FLPT_VOICES_API = f"{_FLPT_QA}/flpt"
+
+
+def flpt_guest_tag(lines):
+    """A slide section's guest voice ({provider, id}) from its first flpt-voice line, or None."""
+    from urllib.parse import unquote
+    for line in lines:
+        m = FLPT_GUEST_TAG.match(line)
+        if not m:
+            continue
+        p, vid = m.group(1), unquote(m.group(2))
+        ok = FLPT_GUEST_IDS.get(p)
+        return {"provider": p, "id": vid} if ok and ok(vid) else None
+    return None
+
+
+class FlptHouseTTS(TagRules):
+    """An FLPT voice (fish-house): made by FLPT's Worker with Michael's Fish.audio house voice, for the signed-in user."""
+    tag = "flpt_voice"
+    label = "FLPT voice"
+
+    def pause_markup(self, seconds: float, original: str | None) -> str:
+        return " ... " if seconds >= 0.4 else ", "
+
+    def __init__(self, cfg: dict, voice_id: str):
+        self.token = cfg.get("FLPT_VOICES_TOKEN", "")
+        self.voice_id = voice_id
+        # the video the Worker meters (15,000 characters a video): FLPT names it, else this episode's folder does
+        self.video = (cfg.get("FLPT_VOICES_VIDEO") or os.environ.get("FLPT_VOICES_VIDEO") or "").strip()[:64] \
+            or sha_text("flpt-video", str(VIDEO_DIR.resolve()))[:16]
+
+    def key(self) -> str:
+        return f"flpt_voice|{self.voice_id}|wav"
+
+    def describe(self) -> str:
+        return f"FLPT voice {FLPT_HOUSE_VOICES.get(self.voice_id, self.voice_id)}"
+
+    def request_key(self, text: str, i: int) -> str:
+        """The request's idempotency key: this video, this narration (its cache hash) and the chunk. A retry (a 5xx, a
+        dropped connection) sends the same key, so the Worker makes and meters it once (W4-10)."""
+        return f"{sha_text('flpt-voice', self.video, narration_hash(self, text))[:32]}-{i}"
+
+    def synth(self, text: str, out_wav: Path, tmp: Path) -> None:
+        parts = []
+        for i, chunk in enumerate(split_for_tts(text, 2000)):
+            h = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", "Accept": "audio/wav",
+                 "Idempotency-Key": self.request_key(text, i)}
+            body = {"voice": self.voice_id, "text": chunk, "video": self.video, "format": "wav"}
+            r = api_call("POST", f"{FLPT_VOICES_API}/api/voices/fish", what="FLPT voice", headers=h, json=body, timeout=300)
+            if r.status_code != 200 or not r.content:
+                why = {401: "the FLPT voices sign-in has expired", 402: "this video's free FLPT voice characters (or this "
+                       "month's videos) are used up", 403: "that voice isn't one of the FLPT voices"}.get(r.status_code, "")
+                raise ApiError(f"FLPT voices HTTP {r.status_code}" + (f": {why}" if why else f": {body_snippet(r)}"),
+                               r.status_code, body_snippet(r))
+            src = tmp / f"chunk{i}.src.wav"
+            src.write_bytes(r.content)
+            w = tmp / f"chunk{i}.wav"
+            to_wav48(src, w)
+            parts.append(w)
+        if len(parts) == 1:
+            os.replace(parts[0], out_wav)
+        else:
+            concat_wavs(parts, out_wav)
+
+
+def flpt_guest_say(spec: dict, main_voice) -> str:
+    """The Mac voice a guest speaks in the draft: the one named for a Mac guest, else one of FLPT_GUEST_SAY (never the
+    draft's own when another is there), the same for the same guest on every run."""
+    voices = say_voices()
+    names = [n for n, _loc in voices]
+    if spec["provider"] == "say" and spec["id"] in names:
+        return spec["id"]
+    english = [n for n, loc in voices if loc.startswith("en_")]
+    cands = sorted(n for n in english if n.split(" (")[0] in FLPT_GUEST_SAY and n != main_voice)
+    if not cands:
+        cands = sorted(n for n in english if n != main_voice) or [main_voice or (names[0] if names else "Samantha")]
+    i = int(hashlib.sha256(f"{spec['provider']}/{spec['id']}".encode("utf-8")).hexdigest(), 16) % len(cands)
+    return cands[i]
+
+
+def flpt_guest_engine(spec: dict, main, cfg: dict, args, draft: bool, where: str):
+    """The engine a guest's slide is narrated by (QA's fixture voices still stand in for it: fixture_tts)."""
+    p, vid = spec["provider"], spec["id"]
+    if draft and not flpt_draft_final():  # the free draft: another Mac voice shows where the guest jumps in
+        voice = flpt_guest_say(spec, getattr(getattr(main, "inner", main), "voice", None))
+        return fixture_tts(SayTTS(voice, args.say_rate))
+    if p == "say":
+        return fixture_tts(FilmSayTTS(pick_say_voice(vid), args.say_rate))
+    if draft:  # the film on the draft's path, made offline: only the Mac can speak (never another voice in its place)
+        die(f"{where}: its guest voice needs the network, and this film is made offline. Nothing was generated.")
+    c = dict(cfg)
+    key = FLPT_GUEST_KEYS[p]
+    if not c.get(key):
+        if any(os.environ.get(k) == "1" for k in _FLPT_NOTHING_MADE):
+            c[key] = "guest-placeholder"  # nothing is made in these runs: no key is needed or sent
+        else:
+            die(f"{where}: its guest voice needs {'the FLPT voices sign-in' if p == 'fish-house' else key}, which this run "
+                f"doesn't have. Nothing was generated.")
+    if p == "fish-house":
+        return fixture_tts(FlptHouseTTS(c, vid))
+    if p == "fish":
+        c["FISH_VOICE_ID"] = vid
+        return fixture_tts(FishTTS(c))
+    if p == "elevenlabs":
+        c["ELEVENLABS_VOICE_ID"] = vid
+        return fixture_tts(ElevenLabsTTS(c))
+    c["HEYGEN_VOICE_ID"] = vid
+    return fixture_tts(HeyGenTTS(c))
+
+
+def flpt_guests(items: list, engine, cfg: dict, args, draft: bool) -> None:
+    """Each slide with a guest voice (and no presenter on screen) gets its engine: s.flpt_engine."""
+    made = {}
+    for s in items:
+        spec = getattr(s, "flpt_voice", None)
+        if s.kind != "slide" or not spec:
+            continue
+        if getattr(s, "flpt_bubble", s.bubble):
+            log(f"  {s.name}  guest voice left out: the presenter is on screen here, so the presenter speaks")
+            continue
+        k = f"{spec['provider']}/{spec['id']}"
+        if k not in made:
+            made[k] = flpt_guest_engine(spec, engine, cfg, args, draft, s.name.strip())
+        s.flpt_engine = made[k]
+        log(f"  {s.name}  guest voice: {made[k].describe()}")
+
+
+def flpt_engine(s, engine):
+    """The engine that narrates this item: its guest's, else the run's."""
+    return getattr(s, "flpt_engine", None) or engine
+
+
+def flpt_guest_items(cache: Path) -> set:
+    """The slides (narration items) a guest has narrated in this cache: cache/audio/flpt_guest_items.json."""
+    try:
+        got = json.loads((cache / "audio" / "flpt_guest_items.json").read_text())
+    except (OSError, ValueError):
+        return set()
+    return {x for x in got if isinstance(x, str)} if isinstance(got, list) else set()
+
+
+def flpt_note_guest(cache: Path, seen: set, s) -> None:
+    """A guest narrates this slide: its item is noted once, so flpt_newest follows it when its voice changes again."""
+    item = s.name.strip()
+    if s.kind != "slide" or not getattr(s, "flpt_engine", None) or item in seen:
+        return
+    seen.add(item)
+    atomic_write_json(cache / "audio" / "flpt_guest_items.json", sorted(seen))
+
+
+def flpt_newest(cache: Path, adir: Path, h: str, s, seen: set) -> None:
+    """The narration this run uses for a slide made that slide's newest (retime.py and FLPT take the newest), only for a
+    slide a guest has narrated (seen): every other slide's narration metadata stays exactly as it was."""
+    meta = adir / f"{h}.json"
+    if s.kind != "slide" or s.name.strip() not in seen or not meta.is_file():
+        return
+    try:
+        mine = json.loads(meta.read_text())
+    except ValueError:
+        return
+    draftish = adir.name == "say"
+    newest = ""
+    for j in (cache / "audio").glob("*/*.json"):
+        if j == meta or (j.parent.name == "say") != draftish:
+            continue
+        try:
+            m = json.loads(j.read_text())
+        except ValueError:
+            continue
+        if isinstance(m, dict) and m.get("item") == mine.get("item"):
+            newest = max(newest, str(m.get("created", "")))
+    if not newest or str(mine.get("created", "")) > newest:
+        return
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    stamp = now_iso()
+    try:
+        if stamp <= newest:
+            t = datetime.strptime(newest, fmt).replace(tzinfo=timezone.utc).timestamp() + 1
+            stamp = datetime.fromtimestamp(t, timezone.utc).strftime(fmt)
+    except ValueError:
+        pass
+    mine["created"] = stamp
+    atomic_write_json(meta, mine)
+
+
+def flpt_guest_estimate(items: list, cache: Path, regen: set) -> None:
+    """In FLPT's estimate run, with guests: one line of its own, {"flpt_guests": {provider: characters still to make}},
+    printed before the estimate's; then the guests' slides are left out of the estimate's voice_chars (the presenter's
+    voice, which doesn't speak them). The run ends right after the estimate, so nothing else reads them."""
+    if os.environ.get(_FLPT_NOTHING_MADE[0]) != "1":
+        return
+    out = {}
+    for s in items:
+        eng = getattr(s, "flpt_engine", None)
+        if not eng or not s.text:
+            continue
+        spoken = spoken_text(eng, s.text)
+        p = s.flpt_voice["provider"]
+        wav = cache / "audio" / eng.tag / f"{narration_hash(eng, spoken)}.wav"
+        out[p] = out.get(p, 0) + (len(spoken) if spoken and (s.n in regen or not wav.exists()) else 0)
+        s.text = ""
+    if out:
+        print(json.dumps({"flpt_guests": out}), flush=True)
+
+
+def flpt_guest_row(s) -> dict:
+    """A guest's slide on the timeline: {"voice": "<provider>/<id>"}."""
+    spec = getattr(s, "flpt_voice", None)
+    return {"voice": f"{spec['provider']}/{spec['id']}"} if spec and getattr(s, "flpt_engine", None) else {}
+
+
 def make_narration(items: list, engine, cache: Path, regen: set[int]) -> list:
     """Synthesize (or reuse) narration for each slide / cut-scene voiceover. Returns the names that failed."""
-    adir = cache / "audio" / engine.tag
-    adir.mkdir(parents=True, exist_ok=True)
+    main = engine  # FLPT_GUEST_VOICE_V1: a guest's slide is narrated by its own engine, in its own folder
     failed = []
+    flpt_seen = flpt_guest_items(cache)  # FLPT_GUEST_VOICE_V1: the slides a guest has narrated in this cache
     for s in items:
+        engine = flpt_engine(s, main)
+        adir = cache / "audio" / engine.tag
+        adir.mkdir(parents=True, exist_ok=True)
+        flpt_note_guest(cache, flpt_seen, s)
         if not s.text:
             if s.kind == "slide":
                 log(f"  {s.name}  (no narration — silent hold)")
@@ -2026,6 +2597,7 @@ def make_narration(items: list, engine, cache: Path, regen: set[int]) -> list:
             s.narration_wav = wav
             s.narration_s = wav_frames(wav) / SR
             log(f"  {s.name}  cached   {s.narration_s:6.1f}s  ({len(spoken)} chars)")
+            flpt_newest(cache, adir, h, s, flpt_seen)  # FLPT_GUEST_VOICE_V1
             continue
         log(f"  {s.name}  generating ({len(spoken)} chars) …")
         t0 = time.time()
@@ -2072,6 +2644,7 @@ def build_timeline(items: list, all_numbers: list[int], cache: Path, tail: float
         lead, tl = slide_lead_tail(s, first, last, tail)
         body = (wav_frames(s.narration_wav) if s.narration_wav else int(SILENT_HOLD_S * SR))
         lead_n = int(round(lead * SR))
+        s.flpt_lead = lead_n / SR  # FLPT_PADKEYS_V1
         total = lead_n + body + int(round(tl * SR))
         s.frames = math.ceil(total / SPF)
         total = s.frames * SPF
@@ -2107,7 +2680,7 @@ class HeyGen:
         self.v = "v2" if version.lower().startswith("v2") else "v3"
 
     def h(self, **extra) -> dict:
-        return {"x-api-key": self.key, "accept": "application/json", **extra}
+        return flpt_hg({"x-api-key": self.key, "accept": "application/json", **extra})  # FLPT_HEYGEN_BASE
 
     def get(self, path: str, what: str, **params):
         return api_call("GET", HG_API + path, what=what, headers=self.h(), params=params or None, timeout=90)
@@ -2165,7 +2738,7 @@ class HeyGen:
         data = mp3.read_bytes()
         if self.v == "v3":
             r = api_call("POST", HG_API + "/v3/assets", what="upload audio",
-                         headers={"x-api-key": self.key, "accept": "application/json"},
+                         headers=flpt_hg({"x-api-key": self.key, "accept": "application/json"}),
                          files={"file": (mp3.name, data, "audio/mpeg")}, timeout=300)
             if r.status_code != 200:
                 raise ApiError(explain_http("HeyGen", r), r.status_code, body_snippet(r))
@@ -2173,12 +2746,12 @@ class HeyGen:
             aid = d.get("asset_id") or d.get("id")
         else:
             # Legacy: multipart field "file" (proven in practice); the spec also allows a raw body.
-            r = api_call("POST", HG_UPLOAD, what="upload audio", headers={"X-Api-Key": self.key},
+            r = api_call("POST", HG_UPLOAD, what="upload audio", headers=flpt_hg({"X-Api-Key": self.key}),
                          files={"file": (mp3.name, data, "audio/mpeg")}, timeout=300)
             if r.status_code != 200:
                 log(f"      multipart upload returned HTTP {r.status_code}; trying a raw-body upload")
                 r = api_call("POST", HG_UPLOAD, what="upload audio (raw)",
-                             headers={"X-Api-Key": self.key, "Content-Type": "audio/mpeg"}, data=data, timeout=300)
+                             headers=flpt_hg({"X-Api-Key": self.key, "Content-Type": "audio/mpeg"}), data=data, timeout=300)
             if r.status_code != 200:
                 raise ApiError(explain_http("HeyGen", r), r.status_code, body_snippet(r))
             d = (r.json() or {}).get("data") or {}
@@ -2187,17 +2760,17 @@ class HeyGen:
             raise ApiError(f"HeyGen upload returned no asset id: {body_snippet(r)}")
         return aid
 
-    def generate(self, payload: dict, idem_key: str) -> str:
+    def generate(self, payload: dict, idem_key: str, clip: str | None = None) -> str:  # FLPT_HEYGEN_BASE: clip
         if self.v == "v3":
             # Idempotency-Key makes retries safe: a repeat within 24 h replays the first answer
             # instead of starting (and billing) a second render.
             r = api_call("POST", HG_API + "/v3/videos", what="create video",
-                         headers=self.h(**{"Content-Type": "application/json", "Idempotency-Key": idem_key}),
+                         headers={**self.h(**{"Content-Type": "application/json", "Idempotency-Key": idem_key}), **flpt_hg({}, clip)},
                          json=payload, timeout=120)
         else:
             # Legacy route has no idempotency: only retry when the request was clearly refused (429).
             r = api_call("POST", HG_API + "/v2/video/generate", what="generate video",
-                         headers=self.h(**{"Content-Type": "application/json"}), json=payload,
+                         headers={**self.h(**{"Content-Type": "application/json"}), **flpt_hg({}, clip)}, json=payload,
                          retry_statuses=(429,), retries=4, timeout=120)
         if r.status_code != 200:
             raise ApiError(explain_http("HeyGen", r), r.status_code, body_snippet(r))
@@ -2377,7 +2950,7 @@ def make_avatar_clips(slides: list[Slide], cfg: dict, cache: Path, regen: set[in
                 while True:
                     payload = heygen_payload(cfg, version, asset_id, res, f"slide {s.n:02d} {s.title}"[:90])
                     try:
-                        vid = hg.generate(payload, f"{idem}-{res}")
+                        vid = hg.generate(payload, f"{idem}-{res}", clip=k)  # FLPT_HEYGEN_BASE: X-FLPT-Clip
                         break
                     except ApiError as e:
                         nxt = RES_FALLBACK[RES_FALLBACK.index(res) + 1:] if res in RES_FALLBACK else []
@@ -2597,7 +3170,8 @@ def build_cutscene_segment(c: CutScene, enc: Encoder, out: Path) -> None:
     else:
         cmd += ["-framerate", str(FPS), "-i", c.card]
         chain = f"{TO_YUV},{hold(n)}"
-    fades = ",".join(fade_filters(n, fade, fade))
+    fin = fade if getattr(c, "fade_in", None) is None else round(min(c.fade_in, c.duration / 3), 3)
+    fades = ",".join(fade_filters(n, fin, fade))
     tmp = out.with_suffix(".tmp.mp4")
     cmd += ["-filter_complex", f"[0:v]{chain}{',' + fades if fades else ''},format=yuv420p[out]",
             "-map", "[out]", "-frames:v", str(n), "-r", str(FPS), *enc.args, "-an", tmp]
@@ -2608,7 +3182,8 @@ def build_cutscene_segment(c: CutScene, enc: Encoder, out: Path) -> None:
 def slide_fades(s: Slide, nums: list[int]) -> tuple[float, float]:
     """(fade in, fade out) from/to black: the deck's start/end and either side of a cut scene."""
     fin = CUT_FADE_S if s.cut_before else (INTRO_FADE_S if s.n == nums[0] else 0.0)
-    fout = CUT_FADE_S if s.cut_after else (OUTRO_FADE_S if s.n == nums[-1] else 0.0)
+    fout = ((0.0 if getattr(s, "cut_after_hard", False) else CUT_FADE_S) if s.cut_after
+            else (OUTRO_FADE_S if s.n == nums[-1] else 0.0))
     return fin, fout
 
 
@@ -2636,7 +3211,9 @@ def composite(items: list, all_slides: dict[int, Slide], cache: Path, out_mp4: P
         if it.kind == "cutscene":
             c = it
             vis = sha_text("vid", sha_file_memo(c.src), c.fit, c.clip_start) if c.exists else psha(c.card)
-            key = sha_text("cut", PIPELINE_VERSION, enc.key(), c.frames, vis, cut_fade(c), FPS)[:20]
+            key = sha_text("cut", PIPELINE_VERSION, enc.key(), c.frames, vis, cut_fade(c), FPS,
+                           *([c.fade_in] if getattr(c, "fade_in", None) not in (None, c.fade) else []))[:20]
+            # FLPT_FADEIN_KEY_V1: fade_in is in the key only when it differs from fade (old segments keep theirs)
             seg = sdir / f"c_{c.slug}_{key}.mp4"
             segs.append(seg)
             if seg.exists():
@@ -2656,8 +3233,9 @@ def composite(items: list, all_slides: dict[int, Slide], cache: Path, out_mp4: P
         nb_next = all_slides[nums[i + 1]] if i + 1 < len(nums) else None
         bub_in = BUBBLE_FADE_S if (bubble and s.bubble and nb_prev is not None and not nb_prev.bubble
                                    and not s.cut_before) else 0.0
-        bub_out = BUBBLE_FADE_S if (bubble and s.bubble and nb_next is not None and not nb_next.bubble
-                                    and not s.cut_after) else 0.0
+        # a hard cut into a cut scene ("fade_in": 0) has no bubble on the far side: fade it out first
+        bub_out = BUBBLE_FADE_S if (bubble and s.bubble and (getattr(s, "cut_after_hard", False) or (
+            nb_next is not None and not nb_next.bubble and not s.cut_after))) else 0.0
         key = sha_text("seg", PIPELINE_VERSION, enc.key(), s.frames, bg_key(s), bub_in, bub_out,
                        psha(prev_png) if prev_png else "", fin, fout,
                        s.avatar_kind if bubble else "none", s.avatar_key if bubble else "",
@@ -2704,6 +3282,17 @@ def chapter_row(it) -> dict:
             "video": (it.video or {}).get("label") if it.video else None}
 
 
+# FLPT_PADKEYS_V1: what the cartoon presenter (FLPT's own pass) needs to draw a slide's bubble, on its timeline row
+def flpt_pad_row(s, timeline: Path) -> dict:
+    if not getattr(s, "pad_key", ""):
+        return {}
+    base = timeline.parent.parent
+    rel = lambda p: os.path.relpath(p, base) if p else None  # noqa: E731
+    return {"pad_key": s.pad_key, "padded_wav": rel(s.padded_wav), "narration": rel(s.narration_wav),
+            "lead": round(getattr(s, "flpt_lead", 0.0), 4), "bubble": bool(s.bubble),
+            "spoken": strip_tags_for_display(s.text or "").strip()}
+
+
 def write_timeline(path: Path, items: list, video: Path, draft: bool, extra: dict) -> None:
     slides = [s for s in items if s.kind == "slide"]
     data = {
@@ -2712,11 +3301,13 @@ def write_timeline(path: Path, items: list, video: Path, draft: bool, extra: dic
         "slides": [{"n": s.n, "id": s.sid, "title": s.title, "start": round(s.start, 3),
                     "duration": round(s.duration, 3), "frames": s.frames,
                     "narration_seconds": round(s.narration_s, 3), "avatar": s.avatar_kind,
-                    **({"video": s.video["label"]} if s.video else {})} for s in slides],
+                    **({"video": s.video["label"]} if s.video else {}), **flpt_pad_row(s, path)} for s in slides],
         "cutscenes": [chapter_row(c) for c in items if c.kind == "cutscene"],
         "chapters": [chapter_row(it) for it in items],
         **extra,
     }
+    for row, s in zip(data["slides"], slides):  # FLPT_GUEST_VOICE_V1: a guest's slide names its voice
+        row.update(flpt_guest_row(s))
     atomic_write_json(path, data)
 
 
@@ -3091,7 +3682,13 @@ def cmd_check(cfg: dict, paths, args) -> int:
         log(f"  ✗ {e}")
         return 1
     provider = tts_provider(cfg)
-    probe = make_engine_for_estimate(cfg)
+    # FLPT_CARTOON_V1: a cartoon has no avatar to check; on the Mac's voice (FLPT_TTS=say: the film's draft path) there's
+    # no key and nothing online to check at all
+    flpt_say = flpt_cartoon() and os.environ.get("FLPT_TTS", "").strip().lower() == "say"
+    if flpt_say:
+        provider = "say"
+        block_network()
+    probe = SayTTS("draft", 165) if flpt_say else make_engine_for_estimate(cfg)
     texts = [s.text for s in slides] + [c.text for c in cuts]
     chars = sum(len(spoken_text(probe, t)) for t in texts if t)
     est_s = chars / CHARS_PER_SEC + len(slides) * TAIL_S
@@ -3133,7 +3730,10 @@ def cmd_check(cfg: dict, paths, args) -> int:
         if k == "GEMINI_VOICE" and v and v.startswith("voicekey_"):
             shown = mask_key(v)
         log(f"            {k:<22s} {shown}{'   ← ' + src[k] if k in src and src[k] != 'project' else ''}")
-    required = provider_keys(provider) + ([] if args.no_avatar else ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"])
+    required = ([] if flpt_say else provider_keys(provider)) + \
+        ([] if args.no_avatar or flpt_cartoon() else ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"])  # FLPT_CARTOON_V1
+    if flpt_cartoon():
+        log(f"  presenter: FLPT's cartoon, no avatar · voice: {'the Mac' if flpt_say else provider}")
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         log(f"  ✗ missing: {', '.join(missing)}  (see SETUP.md)")
@@ -3170,7 +3770,7 @@ def cmd_check(cfg: dict, paths, args) -> int:
         step("Narration voice (HeyGen)")
         try:
             r = api_call("GET", f"{HG_API}/v3/voices/{cfg['HEYGEN_VOICE_ID']}", what="HeyGen voice",
-                         headers={"X-Api-Key": cfg["HEYGEN_API_KEY"], "accept": "application/json"})
+                         headers=flpt_hg({"X-Api-Key": cfg["HEYGEN_API_KEY"], "accept": "application/json"}))
             if r.status_code == 200:
                 v = (r.json() or {}).get("data") or {}
                 log(f"  ✓ voice: {v.get('name')}  (status: {v.get('status')})")
@@ -3192,7 +3792,7 @@ def cmd_check(cfg: dict, paths, args) -> int:
             v = r.json()
             cat = v.get("category", "?")
             log(f"  ✓ key accepted · voice: {v.get('name')}  (category: {cat})")
-            if cat not in ("cloned", "professional"):
+            if cat not in ("cloned", "professional") and not flpt_cartoon():  # FLPT_CARTOON_V1: any voice will do
                 log("  ✗ this is NOT a cloned voice. Use your clone's voice_id (run --list-voices).")
                 ok = False
         else:
@@ -3221,7 +3821,7 @@ def cmd_check(cfg: dict, paths, args) -> int:
             log(f"  ✗ {e}")
             ok = False
 
-    if not args.no_avatar:
+    if not args.no_avatar and not flpt_cartoon():  # FLPT_CARTOON_V1: no avatar to check
         version = heygen_version(cfg)
         step(f"HeyGen (API {version})")
         hg = HeyGen(cfg["HEYGEN_API_KEY"], version)
@@ -3285,7 +3885,7 @@ def cmd_check(cfg: dict, paths, args) -> int:
 
 
 def output_name(args, subset: list[int] | None) -> str:
-    name = ("draft_" if args.draft else "") + "presentation" + ("_no_avatar" if args.no_avatar else "")
+    name = ("draft_" if args.draft and not flpt_draft_final() else "") + "presentation" + ("_no_avatar" if args.no_avatar else "")
     if subset:
         name += f"_slides_{subset[0]:02d}-{subset[-1]:02d}"
     return name
@@ -3301,7 +3901,8 @@ def confirm(prompt: str) -> bool:
 def make_engine_for_estimate(cfg: dict):
     """An engine instance just for tag translation / character counts (no keys needed)."""
     c = dict(cfg)
-    for k in ("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "HEYGEN_API_KEY", "HEYGEN_VOICE_ID", "GEMINI_API_KEY"):
+    for k in ("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "HEYGEN_API_KEY", "HEYGEN_VOICE_ID", "GEMINI_API_KEY",
+              "FISH_AUDIO_API_KEY", "FISH_VOICE_ID"):  # FLPT_VOICES_V1: a Fish.audio voice counts without its key too
         c.setdefault(k, "")
     try:
         return make_engine(c)
@@ -3376,7 +3977,7 @@ def cmd_render(cfg: dict, paths, args) -> int:
 
     # Media: the final render needs every file; the draft shows a title card instead.
     missing = [s for s in work_slides if s.video and not s.video["exists"]] + [c for c in work_cuts if not c.exists]
-    if missing and not draft:
+    if missing and (not draft or flpt_draft_final()):  # FLPT_DRAFT_FINAL: a film never shows a placeholder
         die("Media files are missing (a --draft uses placeholder cards; the final render needs the real files):\n    "
             + "\n    ".join(f"slide {m.n}: {m.video['label']}" if m.kind == "slide" else f"cut scene {m.id}: {m.src_label}"
                             for m in missing))
@@ -3390,8 +3991,17 @@ def cmd_render(cfg: dict, paths, args) -> int:
                                       f"{m.src_label} — not made yet · placeholder, {secs:g} s")
 
     # Engines
+    if flpt_cartoon() and not draft:  # FLPT_CARTOON_V1: no avatar, so nothing is asked of HeyGen's look or (unless
+        cfg.setdefault("HEYGEN_AVATAR_ID", "cartoon")  # it's the voice) of HeyGen's key: placeholders, never sent
+        if tts_provider(cfg) != "heygen":
+            cfg.setdefault("HEYGEN_API_KEY", "cartoon")
+        for _s in work_slides:  # every slide is voice alone until the bubble: the estimate counts no clip (T4)
+            _s.flpt_bubble, _s.bubble = _s.bubble, False
     if draft:
-        engine = SayTTS(pick_say_voice(args.say_voice), args.say_rate)
+        engine = fixture_tts(SayTTS(pick_say_voice(args.say_voice), args.say_rate))  # FLPT_FIXTURE_TTS
+        if flpt_draft_final():  # FLPT_DRAFT_FINAL: the film's narration, in its own folder
+            engine = fixture_tts(FilmSayTTS(pick_say_voice(args.say_voice), args.say_rate))
+        flpt_guests(items, engine, cfg, args, draft=True)  # FLPT_GUEST_VOICE_V1
     else:
         # FLPT patch: the app's filming estimate (FLPT_ESTIMATE_ONLY=1) gets no keys: placeholders stand in (the network
         # is blocked, and nothing is generated). Only when the app sets it.
@@ -3406,15 +4016,16 @@ def cmd_render(cfg: dict, paths, args) -> int:
         need(cfg, provider_keys(provider) + ([] if args.no_avatar else ["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID"]),
              paths.keys)
         try:
-            engine = make_engine(cfg)
+            engine = fixture_tts(make_engine(cfg))  # FLPT_FIXTURE_TTS
         except PipelineError as e:
             die(str(e))
         log(f"\n  Narration: {engine.describe()}")
+        flpt_guests(items, engine, cfg, args, draft=False)  # FLPT_GUEST_VOICE_V1
         if provider == "elevenlabs":
             log(f"  ElevenLabs key {mask_key(cfg['ELEVENLABS_API_KEY'])}")
         elif provider == "gemini":
             log(f"  Gemini key {mask_key(cfg['GEMINI_API_KEY'])}")
-        if not args.no_avatar:
+        if not args.no_avatar and not flpt_cartoon():  # FLPT_CARTOON_V1: no avatar to film
             log(f"  HeyGen key {mask_key(cfg['HEYGEN_API_KEY'])} · API {heygen_version(cfg)} · "
                 f"{character_type(cfg)} {cfg['HEYGEN_AVATAR_ID']} · {heygen_resolution(cfg)}")
         new_chars, clip_n, clip_s = estimate_paid(items, all_numbers, engine, cfg, paths.cache, args.tail,
@@ -3422,6 +4033,7 @@ def cmd_render(cfg: dict, paths, args) -> int:
         if os.environ.get("FLPT_CACHED_ONLY") == "1" and (new_chars or clip_n):  # FLPT patch
             die(f"cached-only: this run would need paid generation ({new_chars:,} characters, {clip_n} avatar "
                 f"clips), so it stopped. Nothing was generated.")
+        flpt_guest_estimate(items, paths.cache, regen)  # FLPT_GUEST_VOICE_V1: in an estimate, the guests' line first
         if os.environ.get("FLPT_ESTIMATE_ONLY") == "1":  # FLPT patch: the paid work as one JSON line, then stop
             adir = paths.cache / "audio" / engine.tag
             voice_chars = 0  # narration still to synthesize with no avatar clip (hidden-bubble slides, voiceovers)
@@ -3438,7 +4050,7 @@ def cmd_render(cfg: dict, paths, args) -> int:
             return 0
         log("\n  Paid work in this run (anything already cached is free):")
         log(f"    {engine.label}: {new_chars:,} characters to synthesize")
-        if not args.no_avatar:
+        if not args.no_avatar and not flpt_cartoon():
             log(f"    HeyGen:     {clip_n} of {sum(1 for s in work_slides if s.bubble)} clips to render, "
                 f"≈ {clip_s / 60:.1f} min of avatar video")
         if warnings:
@@ -3475,7 +4087,11 @@ def cmd_render(cfg: dict, paths, args) -> int:
     if bubble:
         step(f"Presenter bubble — {bubble.describe()}")
         bubble.ensure_artwork()
-        if draft:
+        if flpt_cartoon():  # FLPT_CARTOON_V1: FLPT's own cartoon clips (or its still), never an avatar clip
+            for _s in work_slides:
+                _s.bubble = getattr(_s, "flpt_bubble", _s.bubble)
+            crop_for_clips = cartoon_bubbles(work_slides, bubble, paths)
+        elif draft:
             src, z, fy = placeholder_source(paths)
             key = sha_file(src)[:12]
             still = bubble.still_bubble(src, z, fy, bubble.still_name(f"still_{key}_{z}_{fy}"))
@@ -3510,23 +4126,26 @@ def cmd_render(cfg: dict, paths, args) -> int:
 
     # Composite
     step("Composite (one encode per slide / cut scene, then join)")
-    enc = Encoder(draft)
+    enc = Encoder(draft and not flpt_draft_final())  # FLPT_DRAFT_FINAL: final quality
     paths.out.mkdir(parents=True, exist_ok=True)
     name = output_name(args, subset)
     out_mp4 = paths.out / f"{name}.mp4"
     t = 0.0
     for it in items:
         it.start, t = t, t + it.duration
-    composite(items, all_slides, paths.cache, out_mp4, bubble, crop_for_clips, enc, "draft" if draft else "final")
-    write_timeline(paths.out / f"{name}.timeline.json", items, out_mp4, draft,
+    composite(items, all_slides, paths.cache, out_mp4, bubble, crop_for_clips, enc,
+              "draft" if draft and not flpt_draft_final() else "final")
+    write_timeline(paths.out / f"{name}.timeline.json", items, out_mp4, draft and not flpt_draft_final(),
                    {"narration": engine.describe(), "bubble": bs if bubble else None,
-                    "avatar_problems": {str(k): v for k, v in problems.items()}})
+                    **({"draft_final": True} if draft and flpt_draft_final() else {}),  # FLPT_DRAFT_FINAL
+                    "avatar_problems": {str(k): v for k, v in problems.items()},
+                    **({"presenter": "cartoon"} if flpt_cartoon() else {})})  # FLPT_CARTOON_V1
     ok = verify(out_mp4, items)
     if problems:
         log("\n  Avatar problems (these slides show a still bubble; re-run to retry them):")
         for n, why in sorted(problems.items()):
             log(f"    slide {n}: {why}")
-    if ok and not draft and not getattr(args, "no_edit_master", False):
+    if ok and (not draft or flpt_draft_final()) and not getattr(args, "no_edit_master", False):
         make_edit_master(out_mp4, cfg_float(cfg, "EDIT_NUDGE_MS", EDIT_NUDGE_MS))
     log(f"\n  Done in {fmt_t(time.time() - t_start)} → {out_mp4}")
     if not ok:
@@ -3537,11 +4156,15 @@ def cmd_render(cfg: dict, paths, args) -> int:
 def estimate_paid(items: list, all_numbers: list[int], engine, cfg: dict, cache: Path, tail: float,
                   regen: set[int], regen_avatar: set[int]) -> tuple[int, int, float]:
     """(characters to synthesize, clips to render, seconds of avatar video) — exact where audio is cached."""
-    adir = cache / "audio" / engine.tag
+    main = engine  # FLPT_GUEST_VOICE_V1
     chars, clips, secs = 0, 0, 0.0
     jobs_file = cache / "avatar" / "jobs.json"
     jobs = json.loads(jobs_file.read_text()) if jobs_file.exists() else {}
     for s in items:
+        engine = flpt_engine(s, main)  # FLPT_GUEST_VOICE_V1: a guest's slide, by its own engine
+        adir = cache / "audio" / engine.tag
+        if getattr(s, "flpt_engine", None) and s.flpt_voice["provider"] == "say":
+            continue  # FLPT_GUEST_VOICE_V1: a Mac guest is free and made here (a cached-only run makes it too)
         spoken = spoken_text(engine, s.text) if s.text else ""
         wav = adir / f"{narration_hash(engine, spoken)}.wav" if spoken else None
         rid = s.n if s.kind == "slide" else s.after
@@ -3549,7 +4172,7 @@ def estimate_paid(items: list, all_numbers: list[int], engine, cfg: dict, cache:
             if spoken and (rid in regen or not wav.exists()):
                 chars += len(spoken)
             continue
-        if not s.bubble:                    # voice-over only: no avatar clip
+        if not s.bubble or flpt_cartoon():  # voice-over only: no avatar clip (FLPT_CARTOON_V1: FLPT draws it)
             if spoken and (rid in regen or not wav.exists()):
                 chars += len(spoken)
             continue
@@ -3567,6 +4190,78 @@ def estimate_paid(items: list, all_numbers: list[int], engine, cfg: dict, cache:
             clips += 1
             secs += probe.duration
     return chars, clips, secs
+
+
+# FLPT_CARTOON_V1: the cartoon's voice for this run only (FLPT_PRESENTER_SET: JSON of non-secret narration settings),
+# laid over the profile in memory and never written to it
+FLPT_PRESENTER_KEYS = ("TTS_PROVIDER", "HEYGEN_VOICE_ID", "HEYGEN_VOICE_ENGINE", "HEYGEN_VOICE_SPEED", "HEYGEN_VOICE_LANGUAGE",
+                       "ELEVENLABS_VOICE_ID", "ELEVENLABS_MODEL", "FISH_VOICE_ID", "FISH_MODEL")
+
+
+def flpt_presenter_set() -> dict:
+    if not flpt_cartoon():
+        return {}
+    try:
+        raw = json.loads(os.environ.get("FLPT_PRESENTER_SET") or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v.strip() for k, v in raw.items()
+            if k in FLPT_PRESENTER_KEYS and isinstance(v, str) and v.strip() and not is_secret(k)
+            and (k != "TTS_PROVIDER" or v.strip().lower() in TTS_PROVIDERS)}
+
+
+# FLPT_CARTOON_V1: FLPT's cartoon presenter (engine/tools/patches/30_cartoon.py). With FLPT_PRESENTER=cartoon no avatar
+# clip is made, asked for or paid for: the narration is voice alone, and each bubble shows FLPT's own clip for that
+# slide's padded narration (cache/cartoon/index.json: pad_key -> clip, drawn by FLPT in its own sandboxed pass), else
+# the cartoon's still.
+def flpt_cartoon() -> bool:
+    return os.environ.get("FLPT_PRESENTER", "").strip().lower() == "cartoon"
+
+
+def cartoon_bubbles(slides: list, bubble, paths) -> str:
+    """Each bubble slide's cartoon clip, else the cartoon's still. Returns the crop for the clips (the whole frame)."""
+    global BUBBLE_FOCUS_X
+    cdir = paths.cache / "cartoon"
+    try:
+        idx = json.loads((cdir / "index.json").read_text())
+    except (OSError, ValueError):
+        idx = {}
+    if not isinstance(idx, dict):
+        idx = {}
+    root = cdir.resolve()
+    have = []
+    for s in slides:
+        if not s.bubble:
+            continue
+        rel = idx.get(s.pad_key)
+        clip = (cdir / rel).resolve() if isinstance(rel, str) else None
+        if clip is not None and root in clip.parents and clip.is_file():
+            s.avatar_kind, s.avatar_src = "clip", clip
+            have.append(s)
+    crop = ""
+    if have:
+        BUBBLE_FOCUS_X = 0.5
+        w0, h0 = video_size(have[0].avatar_src)
+        crop = crop_expr(w0, h0, 1.0, 0.5)
+        for s in have:
+            if video_size(s.avatar_src) != (w0, h0):
+                log(f"  ! slide {s.n}: cartoon clip size differs from the others")
+            s.avatar_key = sha_file(s.avatar_src)[:16]
+            s.clip_offset = clip_sync_offset(s.avatar_src, s.padded_wav)
+            if s.clip_offset:
+                log(f"  slide {s.n:2d}  lip-sync: cartoon speech is {s.clip_offset:+.2f}s off -> corrected")
+        log(f"  cartoon presenter: {len(have)} clip(s) · crop {crop}")
+    missing = [s for s in slides if s.bubble and s.avatar_kind != "clip"]
+    if missing:
+        own = cdir / "still.png"
+        src, z, fy = (own, 1.0, 0.5) if own.is_file() else placeholder_source(paths)
+        still = bubble.still_bubble(src, z, fy, bubble.still_name(f"still_{sha_file(src)[:12]}_{z}_{fy}"))
+        for s in missing:
+            s.avatar_kind, s.avatar_src, s.avatar_key = "still", still, sha_file(still)[:16]
+        log(f"  cartoon presenter: still bubble on slide(s) {[s.n for s in missing]}")
+    return crop
 
 
 def placeholder_source(paths) -> tuple[Path, float, float]:
@@ -3678,6 +4373,7 @@ def main() -> int:
 
     # presenter.env → keys.env → api_keys.txt (in --draft only the BUBBLE_* settings are used; no network)
     cfg, _src = load_merged_config(p.keys, p.config_dir)
+    cfg.update(flpt_presenter_set())  # FLPT_CARTOON_V1: the cartoon's voice, this run only
 
     try:
         if args.list_voices:

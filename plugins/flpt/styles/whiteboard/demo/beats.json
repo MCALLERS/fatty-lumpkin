@@ -1,0 +1,28 @@
+{
+  "style": "whiteboard",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    {
+      "name": "day",
+      "t": 0.5,
+      "end": 1.2
+    },
+    {
+      "name": "arc",
+      "t": 1.8,
+      "end": 2.4
+    },
+    {
+      "name": "tree",
+      "t": 2.75,
+      "end": 3.4
+    },
+    {
+      "name": "sun",
+      "t": 5.2,
+      "end": 5.9
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "style": "painted-doc",
+  "placement": "duet",
+  "duration": 7,
+  "hold": 0.5,
+  "beats": [
+    { "name": "arc", "t": 1.0 },
+    { "name": "label", "t": 1.6 },
+    { "name": "swell", "t": 2.6 },
+    { "name": "title", "t": 3.6 }
+  ]
+}

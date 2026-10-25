@@ -12,6 +12,11 @@
 // FLPT renders the cuts in one ffmpeg pass from the film (one generation, like Refine's): presentation_tight.mp4 and
 // its CapCut-safe master, cut on the same frames and samples. The method's verify_tight.py then checks every word
 // against the film, by sound and by picture, before anything is kept. The film itself is never touched.
+//
+// Live Motion (PLAN §2.6, W2-03): a slide whose scene plays its own sound (a `flpt-scene` entry with `audio: 'mix'`:
+// music, or effects on its beats) is kept whole. tighten.py is given it as a cut scene (a synthetic chapter, `lm-<n>`),
+// so no pause inside it or at its edges is cut, and no laugh there is offered; the music and the hits stay where they
+// land. The cost: that slide's pauses aren't tightened. Tightening runs on the film alone, before anything is spliced.
 const fs = require('fs');
 const path = require('path');
 const refine = require('./refine');
@@ -224,15 +229,40 @@ function renderArgs({ cuts, frames, film, out }) {
 // ── running it ───────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * tighten.py's plan for the film, run on FLPT's stand-in talk folder (<pres>/refine/tighten: the film linked, its
- * timeline, the words). Returns { cuts: [{ a, b, why, jump }] (film frames), removed (s), skipped: [why] }.
+ * The timeline tighten.py is given: the film's, with each slide in `keep` (slide numbers) turned into a cut scene of
+ * the same span (`lm-<n>`, `synthetic: true`), which tighten.py never cuts inside or across. Pure.
  */
-async function planCuts({ python, engineRoot, work, film, timeline, scribe, laughs = [], holds = [], env, signal }) {
+function protectedTimeline(timeline, keep = []) {
+  const whole = new Set([...keep].map(Number));
+  const chapters = refine.filmChapters(timeline);
+  const slides = [];
+  const cutscenes = [];
+  for (const { f0, f1, frames, ...c } of chapters) { // eslint-disable-line no-unused-vars
+    const span = { start: r3(f0 / FPS), duration: r3(frames / FPS) };
+    if (c.kind === 'slide' && whole.has(Number(c.n))) cutscenes.push({ kind: 'cutscene', id: `lm-${c.n}`, title: c.title || `Slide ${c.n}`, after_slide: Number(c.n) - 1, synthetic: true, ...span, frames });
+    else if (c.kind === 'slide') slides.push({ ...(timeline.slides || []).find((s) => Number(s.n) === Number(c.n)), ...c, ...span, frames });
+    else cutscenes.push({ ...c, ...span, frames });
+  }
+  return { ...timeline, slides, cutscenes };
+}
+
+/** The slides to keep whole: those whose Live Motion scene plays its own sound (refine.sceneSound). → [{ n, music }] */
+function wholeSlides(pres) {
+  const s = refine.sceneSound(pres);
+  return [...s.sound].sort((a, b) => a - b).map((n) => ({ n, music: s.music.has(n) }));
+}
+
+/**
+ * tighten.py's plan for the film, run on FLPT's stand-in talk folder (<pres>/refine/tighten: the film linked, its
+ * timeline, the words). `keep`: slide numbers kept whole (protectedTimeline). Returns { cuts: [{ a, b, why, jump }]
+ * (film frames), removed (s), skipped: [why] }.
+ */
+async function planCuts({ python, engineRoot, work, film, timeline, scribe, laughs = [], holds = [], keep = [], env, signal }) {
   const out = talkOut(work);
   fs.rmSync(path.join(work, 'presentation'), { recursive: true, force: true });
   fs.mkdirSync(path.join(out, 'tighten'), { recursive: true });
   fs.symlinkSync(film, path.join(out, 'presentation.mp4'));
-  fs.writeFileSync(path.join(out, 'presentation.timeline.json'), JSON.stringify({ ...timeline, cutscenes: timeline.cutscenes || [] }));
+  fs.writeFileSync(path.join(out, 'presentation.timeline.json'), JSON.stringify(protectedTimeline({ ...timeline, cutscenes: timeline.cutscenes || [] }, keep)));
   fs.writeFileSync(path.join(out, 'tighten', 'scribe.json'), JSON.stringify(scribe));
   const args = [path.join(scriptsDir(engineRoot), 'tighten.py'), work];
   if (laughs.length) args.push('--laughs', laughs.map(([a, b]) => `${a}-${b}`).join(','));
@@ -304,11 +334,16 @@ async function apply(d) {
   const scribe = d.scribe || scribeFromWords(timeline, words);
   if (!scribe.words.some((w) => w.type === 'word')) throw new Error('No word timings: the narration the film was made with isn\'t in video/cache/audio any more.');
   const holds = holdsFor(timeline, words, script);
-  const laughs = d.scribe ? laughRanges(d.scribe, timeline) : [];
+  // Live Motion slides with their own sound stay whole (d.keep: [{ n, music }], else from the episode's media.json)
+  const whole = (Array.isArray(d.keep) ? d.keep : wholeSlides(d.pres)).filter((k) => chapters.some((c) => c.kind === 'slide' && Number(c.n) === Number(k.n)));
+  const keep = whole.map((k) => Number(k.n));
+  const inWhole = ([a]) => chapters.some((c) => c.kind === 'slide' && keep.includes(Number(c.n)) && a >= c.f0 / FPS && a < c.f1 / FPS);
+  const laughs = d.scribe ? laughRanges(d.scribe, timeline).filter((r) => !inWhole(r)) : [];
 
   // 2. The plan.
   say(`  planning the cuts (tighten.py, ${d.scribe ? 'Scribe\'s' : 'free'} word timings${laughs.length ? `, ${laughs.length} laugh${s(laughs.length)}` : ''}${holds.length ? `, ${holds.length} scripted long pause${s(holds.length)} held` : ''})…`);
-  const p = await planCuts({ python: d.python, engineRoot: d.engineRoot, work, film: d.film, timeline, scribe, laughs, holds, env, signal });
+  for (const k of whole) say(`  slide ${k.n} kept whole (${k.music ? 'music' : 'its sound'})`);
+  const p = await planCuts({ python: d.python, engineRoot: d.engineRoot, work, film: d.film, timeline, scribe, laughs, holds, keep, env, signal });
   const removed = removedRanges(p.cuts);
   const gone = removed.reduce((a, [x, y]) => a + y - x, 0);
   const pauses = p.cuts.filter((c) => c.why.startsWith('pause')).length;
@@ -316,6 +351,7 @@ async function apply(d) {
   const notes = [p.cuts.length ? `${(gone / FPS).toFixed(1)} s shorter: ${pauses} pause${s(pauses)} tightened${laughCuts ? `, ${laughCuts} laugh${s(laughCuts)} cut` : ''}.`
     : 'No pause runs over 1.1 s, so the film keeps its length.'];
   if (holds.length) notes.push(`${holds.length} scripted long pause${s(holds.length)} kept at ${T.hold} s.`);
+  if (whole.length) notes.push(`Slide${s(whole.length)} ${whole.map((k) => k.n).join(', ')} kept whole (${whole.some((k) => k.music) ? 'music' : 'its sound'}).`);
   if (p.skipped.length) notes.push(`${p.skipped.length} pause${s(p.skipped.length)} over moving pictures left as ${p.skipped.length === 1 ? 'it was' : 'they were'}.`);
   if (d.scribe && !laughs.length) notes.push('No laughs to cut.');
   if (!d.scribe && untimed.length) notes.push(`Slide${s(untimed.length)} ${untimed.join(', ')}: no word timings, so ${untimed.length === 1 ? 'its' : 'their'} pauses stay as they are.`);
@@ -373,4 +409,4 @@ async function apply(d) {
 }
 
 module.exports = { scribeFromWords, holdsFor, laughRanges, removedRanges, mapFrame, shiftWords, remapTimeline, renderArgs, planCuts, verifySync,
-  apply, workDir, T, JUMP_MAX, DISSOLVE };
+  protectedTimeline, wholeSlides, apply, workDir, T, JUMP_MAX, DISSOLVE };

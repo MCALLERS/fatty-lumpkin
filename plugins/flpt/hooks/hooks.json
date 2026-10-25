@@ -1,0 +1,23 @@
+{
+  "description": "FLPT's scene guard: while a Live Motion piece is open, only its crew's four files can be written, key files and references stay closed, and the scene crew runs flpt-scene alone.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit|NotebookRead|Glob|Grep|LS|Bash|WebFetch|WebSearch|Task|Agent|Skill",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/tools/scene-guard.js\"", "timeout": 30 }]
+      }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/tools/scene-guard.js\"", "timeout": 30 }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/tools/scene-guard.js\"", "timeout": 30 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/tools/scene-guard.js\"", "timeout": 30 }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/tools/scene-guard.js\"", "timeout": 30 }] }
+    ]
+  }
+}

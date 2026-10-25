@@ -1,0 +1,741 @@
+{
+  "schema": "flpt.style/1",
+  "id": "crosshatch",
+  "version": "1.0.0",
+  "name": "Crosshatch",
+  "line": "Ink that redraws itself, shaded by hand; paper outside, navy inside.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "curious",
+      "warm"
+    ],
+    "look": [
+      "ink",
+      "hatch",
+      "pencil",
+      "paper",
+      "navy"
+    ],
+    "pace": "medium",
+    "use": [
+      "tech",
+      "explainer",
+      "process"
+    ]
+  },
+  "tokens": {
+    "paper": "#F4ECD9",
+    "inks": [
+      "#3A2417",
+      "#D97757",
+      "#D6A466",
+      "#F0C55A",
+      "#5F9C5C",
+      "#D4382C",
+      "#0C0D1C",
+      "#C8D0F0",
+      "#52D6C4",
+      "#E0368F"
+    ],
+    "accent": "#D97757",
+    "type": {
+      "display": "Caveat",
+      "text": "Caveat",
+      "mono": "IBM Plex Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-bold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "IBM Plex Mono",
+      "file": "fonts/IBMPlexMono-SemiBold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "boil",
+      "write-on",
+      "hatch-in",
+      "push",
+      "parallax",
+      "iris",
+      "match-cut",
+      "pop",
+      "spring"
+    ],
+    "pace": "medium",
+    "easing": "spring:smooth"
+  },
+  "sound": {
+    "score": "drift-90",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 60
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "from": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:75863b958375fc40680663d151a24b49754dd42c42a6c1aac3fcf198bb982fde",
+    "STYLE.md": "sha256:99386882db1bc81370cdd01ee1d32dcf7af534885f2f0ee3f5c50ab0835cb70d",
+    "starter/scene.js": "sha256:c31ed0c3a143c3bc8d60bf197f2430f3675b3b75bc502f451d14c13c8fa0695c"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.C",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette: paper, ink, wood, navy, peri, cyan, terra and more"
+    },
+    {
+      "fn": "ctx.kit.HAND",
+      "kind": "value",
+      "params": [],
+      "doc": "the hand font stack (Caveat), for your own ctx.text"
+    },
+    {
+      "fn": "ctx.kit.MONO",
+      "kind": "value",
+      "params": [],
+      "doc": "the machine font stack (IBM Plex Mono)"
+    },
+    {
+      "fn": "ctx.kit.RAINBOW",
+      "kind": "value",
+      "params": [],
+      "doc": "the five rainbow contour colours"
+    },
+    {
+      "fn": "ctx.kit.arcPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "a0",
+        "a1",
+        "n",
+        "sy"
+      ],
+      "doc": "points on an arc from a0 to a1 (sy squashes it)"
+    },
+    {
+      "fn": "ctx.kit.asterisk",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r0",
+        "r1",
+        "n",
+        "rot",
+        "color",
+        "w"
+      ],
+      "doc": "an n-pointed asterisk of strokes (a spark, a flower centre)"
+    },
+    {
+      "fn": "ctx.kit.bbox",
+      "kind": "function",
+      "params": [
+        "P",
+        "pad"
+      ],
+      "doc": "the bounding box of points, padded"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "runtime-internal: the runtime binds the frame; never call it"
+    },
+    {
+      "fn": "ctx.kit.box",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "doc": "a dense rectangle outline (keeps its corners when wobbled)"
+    },
+    {
+      "fn": "ctx.kit.burst",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r0",
+        "r1",
+        "o"
+      ],
+      "doc": "radial ticks: an impact on paper"
+    },
+    {
+      "fn": "ctx.kit.caption",
+      "kind": "function",
+      "params": [
+        "str",
+        "t",
+        "o"
+      ],
+      "doc": "a caption card, bottom centre, written on"
+    },
+    {
+      "fn": "ctx.kit.card",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a paper card with a hand-lettered label"
+    },
+    {
+      "fn": "ctx.kit.cline",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "o"
+      ],
+      "doc": "a faint construction line (the drafting layer)"
+    },
+    {
+      "fn": "ctx.kit.construct",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "o"
+      ],
+      "doc": "a construction circle: sweep, ticks, cross (the drafting layer)"
+    },
+    {
+      "fn": "ctx.kit.darkWorld",
+      "kind": "function",
+      "params": [
+        "key",
+        "o"
+      ],
+      "doc": "inside the machine: navy, dust and crosses; drift for parallax"
+    },
+    {
+      "fn": "ctx.kit.depth",
+      "kind": "function",
+      "params": [
+        "cam",
+        "d"
+      ],
+      "doc": "a camera for a layer at depth d (parallax)"
+    },
+    {
+      "fn": "ctx.kit.dist",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "the distance between two points"
+    },
+    {
+      "fn": "ctx.kit.drawPencil",
+      "kind": "function",
+      "params": [
+        "tx",
+        "ty",
+        "ang",
+        "len",
+        "k",
+        "key"
+      ],
+      "doc": "a yellow pencil, lying at an angle"
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n",
+        "a0",
+        "a1"
+      ],
+      "doc": "points on an ellipse"
+    },
+    {
+      "fn": "ctx.kit.fillAll",
+      "kind": "function",
+      "params": [
+        "color"
+      ],
+      "doc": "fill the whole frame with a colour (screen space)"
+    },
+    {
+      "fn": "ctx.kit.grain",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "paper grain over the frame, screen space, last"
+    },
+    {
+      "fn": "ctx.kit.hand",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "hand lettering (Caveat), registered with the text checks"
+    },
+    {
+      "fn": "ctx.kit.handW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "weight"
+      ],
+      "doc": "the width of hand lettering at a size and weight"
+    },
+    {
+      "fn": "ctx.kit.hatch",
+      "kind": "function",
+      "params": [
+        "bb",
+        "t"
+      ],
+      "doc": "parallel hatching inside the clip; dens(x, y) shapes it by light"
+    },
+    {
+      "fn": "ctx.kit.hero",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "the terracotta hero: mood, look, squash, dark (glow on navy)"
+    },
+    {
+      "fn": "ctx.kit.hexGrid",
+      "kind": "function",
+      "params": [
+        "bb",
+        "size",
+        "o"
+      ],
+      "doc": "hex cells (the dark world floor)"
+    },
+    {
+      "fn": "ctx.kit.ink",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "a wobbly stroke that boils on twos; frac writes it on"
+    },
+    {
+      "fn": "ctx.kit.inkMug",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "key",
+        "o"
+      ],
+      "doc": "a mug from above; the coffee bridges to anything round"
+    },
+    {
+      "fn": "ctx.kit.irisHole",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "o"
+      ],
+      "doc": "a ragged hatched hole between worlds; inner draws through it"
+    },
+    {
+      "fn": "ctx.kit.irisRim",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "dir",
+        "o"
+      ],
+      "doc": "the ragged hatched rim of an iris (irisHole draws it)"
+    },
+    {
+      "fn": "ctx.kit.label",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "t",
+        "o"
+      ],
+      "doc": "a label in the world, written on, with an optional inked arrow"
+    },
+    {
+      "fn": "ctx.kit.letters",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "kinetic type: one glyph at a time, each(i, n, ch) moves it"
+    },
+    {
+      "fn": "ctx.kit.mono",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "color",
+        "o"
+      ],
+      "doc": "machine text (IBM Plex Mono), glyphs jittered; count types it"
+    },
+    {
+      "fn": "ctx.kit.monoW",
+      "kind": "function",
+      "params": [
+        "size"
+      ],
+      "doc": "the cell width of machine text at a size"
+    },
+    {
+      "fn": "ctx.kit.noteSheet",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a ruled sheet of notes, lines written on"
+    },
+    {
+      "fn": "ctx.kit.paint",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "fill, textures clipped inside (hatch cross pencil stipple), ink outline"
+    },
+    {
+      "fn": "ctx.kit.paperSheet",
+      "kind": "function",
+      "params": [
+        "key",
+        "o"
+      ],
+      "doc": "warm ruled paper, full bleed"
+    },
+    {
+      "fn": "ctx.kit.pathLen",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "the length of a polyline"
+    },
+    {
+      "fn": "ctx.kit.pencil",
+      "kind": "function",
+      "params": [
+        "bb",
+        "t"
+      ],
+      "doc": "coloured-pencil strokes inside the clip"
+    },
+    {
+      "fn": "ctx.kit.pill",
+      "kind": "function",
+      "params": [
+        "label",
+        "arg",
+        "x",
+        "y",
+        "t",
+        "o"
+      ],
+      "doc": "a tool-call tag popping in at t; keep it true"
+    },
+    {
+      "fn": "ctx.kit.planInk",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "the plan: red pencil dashes, written on"
+    },
+    {
+      "fn": "ctx.kit.pointAt",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": "the point at frac along a polyline"
+    },
+    {
+      "fn": "ctx.kit.popS",
+      "kind": "function",
+      "params": [
+        "t"
+      ],
+      "doc": "a back-eased pop-in scale from t"
+    },
+    {
+      "fn": "ctx.kit.rainbow",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "rainbow contour strokes around a moving part"
+    },
+    {
+      "fn": "ctx.kit.resample",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "step"
+      ],
+      "doc": "a polyline resampled every step px"
+    },
+    {
+      "fn": "ctx.kit.rrectPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r",
+        "n"
+      ],
+      "doc": "points on a rounded rectangle"
+    },
+    {
+      "fn": "ctx.kit.ruler",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "o"
+      ],
+      "doc": "a ruler with ticks every step px, drawn on by frac"
+    },
+    {
+      "fn": "ctx.kit.screenBox",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "doc": "the screen box of a world rectangle under the current camera"
+    },
+    {
+      "fn": "ctx.kit.sparkBurst",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "o"
+      ],
+      "doc": "a glowing spark: an impact on navy"
+    },
+    {
+      "fn": "ctx.kit.star4",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "c"
+      ],
+      "doc": "a four-point star (stars on navy)"
+    },
+    {
+      "fn": "ctx.kit.stipple",
+      "kind": "function",
+      "params": [
+        "bb",
+        "t"
+      ],
+      "doc": "square stipple dots inside the clip"
+    },
+    {
+      "fn": "ctx.kit.stripedCloth",
+      "kind": "function",
+      "params": [
+        "key",
+        "o"
+      ],
+      "doc": "a cream cloth with hatched stripes"
+    },
+    {
+      "fn": "ctx.kit.subPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": "the first frac of a polyline (for a write-on)"
+    },
+    {
+      "fn": "ctx.kit.texture",
+      "kind": "function",
+      "params": [
+        "bb",
+        "t"
+      ],
+      "doc": "one texture (hatch, cross, pencil, stipple) inside the clip"
+    },
+    {
+      "fn": "ctx.kit.toScreen",
+      "kind": "function",
+      "params": [
+        "x",
+        "y"
+      ],
+      "doc": "a world point on screen"
+    },
+    {
+      "fn": "ctx.kit.trace",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed"
+      ],
+      "doc": "trace points as a smooth path, for your own fill or stroke"
+    },
+    {
+      "fn": "ctx.kit.wobble",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "amt",
+        "key",
+        "step"
+      ],
+      "doc": "the hand wobble, reseeded every boil step"
+    },
+    {
+      "fn": "ctx.kit.woodSurface",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "key",
+        "o"
+      ],
+      "doc": "a wooden desk with wandering grain"
+    },
+    {
+      "fn": "ctx.kit.xform",
+      "kind": "function",
+      "params": [
+        "P",
+        "tx",
+        "ty",
+        "rot",
+        "sx",
+        "sy"
+      ],
+      "doc": "move, turn and scale a list of points"
+    }
+  ]
+}

@@ -1,0 +1,453 @@
+{
+  "schema": "flpt.style/1",
+  "id": "ledger",
+  "version": "1.0.0",
+  "name": "Ledger",
+  "line": "Receipts print in, stamps thump, numbers count.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": true,
+  "tags": {
+    "mood": [
+      "warm",
+      "steady"
+    ],
+    "look": [
+      "paper",
+      "ink",
+      "receipts",
+      "desk"
+    ],
+    "pace": "measured"
+  },
+  "tokens": {
+    "paper": "#EFE2C4",
+    "inks": [
+      "#2A1D15",
+      "#B3311C",
+      "#6F879C",
+      "#353338"
+    ],
+    "accent": "#B3311C",
+    "type": {
+      "display": "Fraunces Display",
+      "hand": "Fraunces Italic",
+      "mono": "IBM Plex Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Fraunces Display",
+      "file": "fonts/fraunces-display-semibold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Fraunces Italic",
+      "file": "fonts/fraunces-italic.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "IBM Plex Mono",
+      "file": "fonts/IBMPlexMono-SemiBold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "write",
+      "print",
+      "count",
+      "tick",
+      "rule",
+      "stamp",
+      "push",
+      "reveal"
+    ],
+    "pace": "measured",
+    "easing": "spring:heavy"
+  },
+  "sound": {
+    "score": "drift-90",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 157
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "An FLPT original (the house look)",
+  "licence": "MIT",
+  "authors": [
+    "Bombadillo AI"
+  ],
+  "licenceFile": "LICENSE",
+  "api": [
+    {
+      "fn": "ctx.kit.COLS",
+      "kind": "value",
+      "params": [],
+      "doc": "the amount column, x from and to (world)"
+    },
+    {
+      "fn": "ctx.kit.FONT",
+      "kind": "value",
+      "params": [],
+      "doc": "the three faces: display, italic (the hand), mono"
+    },
+    {
+      "fn": "ctx.kit.MARGIN",
+      "kind": "value",
+      "params": [],
+      "doc": "the red margin, x (world); the bubble lives left of it"
+    },
+    {
+      "fn": "ctx.kit.PAGE",
+      "kind": "value",
+      "params": [],
+      "doc": "the right-hand page, x0 y0 x1 y1 (world)"
+    },
+    {
+      "fn": "ctx.kit.RULE",
+      "kind": "value",
+      "params": [],
+      "doc": "blue ruling pitch"
+    },
+    {
+      "fn": "ctx.kit.RULE0",
+      "kind": "value",
+      "params": [],
+      "doc": "the first ruled line, y (world)"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "the runtime calls it each frame"
+    },
+    {
+      "fn": "ctx.kit.book",
+      "kind": "function",
+      "params": [],
+      "doc": "make the book once (call in setup)"
+    },
+    {
+      "fn": "ctx.kit.depth",
+      "kind": "function",
+      "params": [
+        "g",
+        "k"
+      ],
+      "doc": "apply the camera for a layer k times nearer than the page"
+    },
+    {
+      "fn": "ctx.kit.desk",
+      "kind": "function",
+      "params": [
+        "g"
+      ],
+      "doc": "the desk (depth 0.9) and the open ledger; leaves depth 1 set"
+    },
+    {
+      "fn": "ctx.kit.fmt",
+      "kind": "function",
+      "params": [
+        "n"
+      ],
+      "doc": "14460 as 14,460"
+    },
+    {
+      "fn": "ctx.kit.fountain",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "rot",
+        "len",
+        "o"
+      ],
+      "doc": "the fountain pen lying on the page"
+    },
+    {
+      "fn": "ctx.kit.grain",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "film grain, last"
+    },
+    {
+      "fn": "ctx.kit.ink",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "iron-gall ink type, wet then dry, registered"
+    },
+    {
+      "fn": "ctx.kit.inkwell",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "an inkwell standing on the page, its shoulder nearer (it leans: parallax)"
+    },
+    {
+      "fn": "ctx.kit.leader",
+      "kind": "function",
+      "params": [
+        "g",
+        "x0",
+        "x1",
+        "y",
+        "o"
+      ],
+      "doc": "a dot leader between an item and its amount"
+    },
+    {
+      "fn": "ctx.kit.letters",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "letter stamps in turn; o.at is the first landing, then one every o.step s"
+    },
+    {
+      "fn": "ctx.kit.light",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "the lamp pool and falloff, before grain"
+    },
+    {
+      "fn": "ctx.kit.measure",
+      "kind": "function",
+      "params": [
+        "str",
+        "o"
+      ],
+      "doc": "width of a line of type"
+    },
+    {
+      "fn": "ctx.kit.motes",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "warm dust in the lamp light at three depths"
+    },
+    {
+      "fn": "ctx.kit.nib",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "the fountain pen held writing, its point at x y"
+    },
+    {
+      "fn": "ctx.kit.odometer",
+      "kind": "function",
+      "params": [
+        "g",
+        "v",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a number whose digits roll"
+    },
+    {
+      "fn": "ctx.kit.pen",
+      "kind": "function",
+      "params": [
+        "g",
+        "P",
+        "o"
+      ],
+      "doc": "a pressure stroke; frac writes it on"
+    },
+    {
+      "fn": "ctx.kit.press",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "t0",
+        "o"
+      ],
+      "doc": "a rubber stamp falls, lands on t0 and stays; returns the jolt"
+    },
+    {
+      "fn": "ctx.kit.receipt",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "thermal paper that feeds a line at a time"
+    },
+    {
+      "fn": "ctx.kit.rule",
+      "kind": "function",
+      "params": [
+        "g",
+        "x0",
+        "x1",
+        "y",
+        "o"
+      ],
+      "doc": "a single or double ink rule; frac writes it on"
+    },
+    {
+      "fn": "ctx.kit.slip",
+      "kind": "function",
+      "params": [
+        "q",
+        "w",
+        "o"
+      ],
+      "doc": "the standard receipt body: label, amount, barcode, tick"
+    },
+    {
+      "fn": "ctx.kit.stamp",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a stamp impression"
+    },
+    {
+      "fn": "ctx.kit.stampFace",
+      "kind": "function",
+      "params": [
+        "str",
+        "o"
+      ],
+      "doc": "make a stamp face once (call in setup)"
+    },
+    {
+      "fn": "ctx.kit.stampShadow",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a stamp shadow converging as it falls"
+    },
+    {
+      "fn": "ctx.kit.tape",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "w",
+        "h",
+        "rot",
+        "key"
+      ],
+      "doc": "a strip of paper tape"
+    },
+    {
+      "fn": "ctx.kit.tick",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a red check mark; frac writes it on"
+    },
+    {
+      "fn": "ctx.kit.tooth",
+      "kind": "function",
+      "params": [],
+      "doc": "the paper grain tile"
+    },
+    {
+      "fn": "ctx.kit.view",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "remember the scene camera { z, p, to }"
+    },
+    {
+      "fn": "ctx.kit.write",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "ink written on left to right; returns the nib point"
+    }
+  ],
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:5d7b6a07cbc0519df970c9dbdeba9a5af639ca1ece20c9fe8c63efeae0b011e5",
+    "STYLE.md": "sha256:fd9b00aa89e25159ecab313b8e6ea50d53ceb6c2dca4ff014f43124589687c60",
+    "starter/scene.js": "sha256:0de9a5dfe8f91167a9bb7b2a667b775ae52b1a3c9277cbe8b0488b3b57cb5fb2"
+  }
+}

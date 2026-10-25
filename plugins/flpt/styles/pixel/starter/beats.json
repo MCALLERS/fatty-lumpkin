@@ -1,0 +1,14 @@
+{
+  "style": "pixel",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "walk", "t": 0.4, "end": 2.0 },
+    { "name": "look", "t": 2.0, "end": 2.3 },
+    { "name": "bridge", "t": 2.2, "end": 2.8 },
+    { "name": "open", "t": 2.8, "end": 4.2 },
+    { "name": "morning", "t": 4.2, "end": 4.6 },
+    { "name": "word", "t": 4.9, "end": 5.6 }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "style": "ledger",
+  "placement": "duet",
+  "duration": 7,
+  "hold": 0.5,
+  "beats": [
+    { "name": "heading", "t": 0.25, "end": 1.0 },
+    { "name": "print", "t": 0.95, "end": 1.85 },
+    { "name": "amount", "t": 1.7, "end": 2.6 },
+    { "name": "line", "t": 3.0, "end": 3.5 },
+    { "name": "tick", "t": 3.95, "end": 4.2 },
+    { "name": "paid", "t": 4.6, "end": 4.9 }
+  ],
+  "words": []
+}

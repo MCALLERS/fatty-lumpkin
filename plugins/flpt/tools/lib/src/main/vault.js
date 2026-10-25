@@ -6,9 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 
-// The keys FLPT knows. Anything else is refused, so a renderer bug can't fill the vault with junk. Only the two the
-// app runs on are required: Anthropic (the crew) and HeyGen (narration and the avatar). The rest are for what comes
-// later or is optional, so Setup folds them away.
+// The keys FLPT knows. Anything else is refused, so a renderer bug can't fill the vault with junk. Only the ones the
+// app runs on are required: Anthropic (the crew), and the presenter's (requiredFor: HeyGen for the twin or a cartoon in
+// your HeyGen voice; ElevenLabs or Fish.audio for a cartoon in that voice; none for a cartoon on the Mac's voice). The
+// rest are for what comes later or is optional, so Setup folds them away.
 const KEYS = {
   ANTHROPIC_API_KEY: { label: 'Anthropic (Claude)', required: true, help: 'console.anthropic.com → API keys' },
   HEYGEN_API_KEY: { label: 'HeyGen', required: true, help: 'app.heygen.com → Settings → API' },
@@ -18,12 +19,24 @@ const KEYS = {
   OPENART_API_KEY: { label: 'OpenArt (optional "film quality")', required: false, help: 'openart.ai → API' },
   GEMINI_API_KEY: { label: 'Gemini (optional voice clone)', required: false, help: 'aistudio.google.com → API keys' },
   OPENAI_API_KEY: { label: 'OpenAI (optional slop cleanse)', required: false, help: 'platform.openai.com → API keys' },
-  FISH_API_KEY: { label: 'Fish Audio (optional stinger voices)', required: false, help: 'fish.audio → API' },
+  FISH_AUDIO_API_KEY: { label: 'Fish.audio (optional voice)', required: false, help: 'fish.audio → API keys' },
 };
+// The name 0.7.x stored Fish.audio's key under (never used for anything): read and imported as FISH_AUDIO_API_KEY.
+const ALIASES = { FISH_API_KEY: 'FISH_AUDIO_API_KEY' };
 
 // Names the original avatar-presentation keys.env may hold, for a one-click import on Michael's machines.
 const IMPORTABLE = ['ANTHROPIC_API_KEY', 'HEYGEN_API_KEY', 'ELEVENLABS_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY',
-  'KIE_API_KEY', 'FISH_API_KEY'];
+  'KIE_API_KEY', 'FISH_AUDIO_API_KEY', 'FISH_API_KEY'];
+
+/**
+ * The keys a setup needs (PLAN §2.12): Anthropic for the crew, and the presenter's: HeyGen for the twin (the default)
+ * or a cartoon in your HeyGen voice, ElevenLabs or Fish.audio for a cartoon in theirs, nothing more for a cartoon on the
+ * Mac's voice. `settings` is the app's settings (or just { presenter }).
+ */
+function requiredFor(settings) {
+  const p = require('./presenter').clean(settings && settings.presenter);
+  return ['ANTHROPIC_API_KEY', ...require('./presenter').requiredKeys(p)];
+}
 
 function hint(v) { return v && v.length > 8 ? `…${v.slice(-4)}` : '…'; }
 
@@ -64,20 +77,31 @@ function createVault({ dir, safeStorage }) {
   }
 
   function get(name) {
-    const item = load().items[name];
+    const item = load().items[name] || load().items[Object.keys(ALIASES).find((k) => ALIASES[k] === name)];
     if (!item) return null;
     try { return safeStorage.decryptString(Buffer.from(item.enc, 'base64')); } catch { return null; }
   }
 
   function remove(name) {
-    if (load().items[name]) { delete cache.items[name]; persist(); }
+    const names = [name, ...Object.keys(ALIASES).filter((k) => ALIASES[k] === name)].filter((n) => load().items[n]);
+    if (names.length) { for (const n of names) delete cache.items[n]; persist(); }
   }
 
-  function status() {
+  /**
+   * Each key: set or not, its last four, and whether this setup needs it (requiredFor the settings: given, else this
+   * profile's own settings.json beside the vault; without either, as 0.7.1 had it).
+   */
+  function status(settings) {
     const items = load().items;
+    let s = settings;
+    if (s === undefined) {
+      try { s = fs.existsSync(path.join(dir, 'settings.json')) ? require('./settings').createSettings({ dir }).read() : null; } catch { s = null; }
+    }
+    const need = s ? new Set(requiredFor(s)) : null;
     const out = {};
     for (const [name, meta] of Object.entries(KEYS)) {
-      out[name] = { name, ...meta, set: Boolean(items[name]), hint: items[name] ? items[name].hint : null };
+      const it = items[name] || items[Object.keys(ALIASES).find((k) => ALIASES[k] === name)];
+      out[name] = { name, ...meta, ...(need ? { required: need.has(name) } : {}), set: Boolean(it), hint: it ? it.hint : null };
     }
     return out;
   }
@@ -105,7 +129,8 @@ function createVault({ dir, safeStorage }) {
       if (!m || !IMPORTABLE.includes(m[1])) continue;
       const value = m[2].replace(/^(['"])(.*)\1$/, '$2');
       if (!value) continue;
-      try { set(m[1], value); imported.push(m[1]); } catch { /* skip malformed values */ }
+      const name = ALIASES[m[1]] || m[1];
+      try { set(name, value); if (!imported.includes(name)) imported.push(name); } catch { /* skip malformed values */ }
     }
     return imported;
   }
@@ -113,4 +138,4 @@ function createVault({ dir, safeStorage }) {
   return { set, get, remove, status, env, allValues, importKeysEnv, available, file };
 }
 
-module.exports = { createVault, KEYS };
+module.exports = { createVault, KEYS, ALIASES, requiredFor };

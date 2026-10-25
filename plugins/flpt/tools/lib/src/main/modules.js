@@ -1,60 +1,82 @@
 'use strict';
-// The seven deck modules: the repeatable pieces that make an FLPT talk land. They are the playbook's signature
-// elements (references/playbook.md, Part 1). The crew picks them slide by slide, and the user can make a "call" for
-// any of them: "animate the chart in this photo of my notebook", "make this short story a Cosmos cartoon".
+// The nine deck modules: the repeatable pieces that make an FLPT talk land.
+//
+//   Nine for mortal men, doomed to die.
+//
+// Seven are the playbook's signature elements (references/playbook.md, Part 1); two, Motion Solo and Motion Duet, are
+// the Live Motion family: scenes drawn live in code. The crew picks them slide by slide, and the user can make a
+// "call" for any of them: "animate the chart in this photo of my notebook", "make this short story a Cosmos cartoon".
+// A tenth, the Title card (`statement`), is always there and never counted.
 //
 // `now` says what the crew delivers in this version; motion, cartoons, insets and cut scenes are designed and
 // briefed now, and produced by later versions (generated pieces only after the user approves an estimate).
+// META says how each one is placed, presented and billed: the billing guards read it (motion.hiddenBubbleSlides).
+
+const FAMILY_LINE = 'Nine for mortal men, doomed to die.';
 
 const MODULES = [
   {
-    id: 'chart', name: 'Live charts',
+    id: 'chart', name: 'Live charts', tile: 'Chart',
     short: 'Real data, built bar by bar as you talk.',
     ask: 'Turn the chart in this screenshot into one that builds as I speak.',
     now: 'a chart that builds as it\'s narrated',
     crew: 'Real data from the bullets\' sources, or from the user\'s attached table or screenshot, transcribed exactly. Pick the form from the headline\'s verb (compare → bar, share → stacked bar, change over time → line). Start grey and earn back one accent colour; label directly, no legends; bars start at zero; a receipt lower-third in mono (source · date · figure) clear of the bubble. Read the playbook, Part 1 §2.',
   },
   {
-    id: 'sketch', name: 'Hand-drawn charts',
+    id: 'sketch', name: 'Hand-drawn charts', tile: 'Hand-drawn',
     short: 'Your notebook sketch, drawn stroke by stroke.',
     ask: 'Animate the chart in this photo of my notebook.',
     now: 'the drawing, which draws itself stroke by stroke as it\'s narrated (marked "animate", the animator crew draws it with the method\'s doodle kit and marker)',
     crew: 'The whiteboard look: a warm-white board (#FBFAF6), marker strokes as SVG paths (one continuous path per stroke, 6–10 px, round caps, a slight hand wobble), ink plus one or two accent inks, hand-lettered labels of 1–3 words in Caveat (add the Caveat face to deck.json), and an underline or circle on the punchline. Doodle concrete things, not boxes and arrows. When the user attaches a photo of their notebook, Read it and reproduce what it shows (the chart\'s shape, axes, labels, numbers, arrows and doodles) faithfully and cleanly; anything you can\'t read becomes [needs number] and goes in your report. It draws itself: a "draw" build with "pen": true for each stroke (or each doodle, with drawStagger), cued to its word, and labels written on with "wipe". Mark the talk\'s whiteboard sketch "animate" (see Output) so the animator crew draws it with the kit. Read the playbook, Part 1 §4.',
   },
   {
-    id: 'motion', name: 'Motion graphics',
+    id: 'motion', name: 'Motion graphics', tile: 'Motion gfx',
     short: 'Every slide builds, timed to the words.',
     ask: 'Make slide 5 build piece by piece as I talk through it.',
     now: 'the slide, building as it\'s narrated',
     crew: 'Nothing appears before it\'s said. Design the slide\'s final frame, then write its builds in reading order in modules.json (see Builds), each cued to the words that trigger it. Calm moves only (rise, fade, draw, wipe, grow, count-up, focus/dim); shown things stay and dim. Read the playbook, Part 1 §1, and references/hyperframes-slides.md.',
   },
   {
-    id: 'cosmos', name: 'Cosmos cartoons',
+    id: 'cosmos', name: 'Cosmos cartoons', tile: 'Cosmos',
     short: 'A backstory, told as a narrated cartoon.',
     ask: 'Make this short story a Cosmos cartoon and tie it to the main point.',
     now: 'the title card, the brief and the beats in modules.json (the app makes the cartoon from them in its Scenes step, each step priced and approved by the user)',
     crew: 'A narrated slide becomes a short painted documentary with the presenter\'s bubble hidden: 4–6 painted keyframes, each cued to a verbatim narration phrase, slow pushes, ink-wipes between beats, one beat animated, 40–70 s of narration. Write its brief to deck/project/briefs/<slide-id>.md (the story in a few lines, how it ties to the through line, the narration lines) and its beats in modules.json (see "cartoon"): each keyframe\'s picture and the words that cue it, one marked as the hero. The style is the series\' style frame if there is one; otherwise storybook limited animation: ink and teal shadows, amber light, one oxblood accent, no photoreal, no text in the art. People by role, never by name: no real or famous people and no look-alikes. The slide itself is the vignette\'s title card: a small CARTOON · TITLE label and one evocative line on a dark, painterly background. Read the playbook, Part 1 §5, and templates/hyperframes/examples/cartoon/BRIEF.md.',
   },
   {
-    id: 'inset', name: 'Video insets',
+    id: 'inset', name: 'Video insets', tile: 'Inset',
     short: 'A clip playing inside a slide.',
     ask: 'Play this clip inside slide 3 while I talk about the launch.',
     now: 'the slide with the clip playing in its frame, from its cue to its out point (muted unless the user wants its sound)',
     crew: 'Design the slide with a clear frame for the clip (about 40 % of the width, a thin rule or a monitor/TV drawn around it, clear of the bubble corner) and show the clip\'s poster frame inside it (an <img> through deck/asset_map.json): the slide shows it before and after the clip plays. Record the inset in modules.json (see "inset" under Output): the clip (its path), the frame\'s exact rectangle on the 1920×1080 slide, the in and out points, the sound ("muted" unless the user wants it "on"), and the cue: the narration\'s words when it starts. Never fetch or download video yourself: use only clips the user attached or picked from their Library.',
   },
   {
-    id: 'infographic', name: 'Infographics',
+    id: 'infographic', name: 'Infographics', tile: 'Infographic',
     short: 'One structure, explained.',
     ask: 'Turn these five steps into an infographic.',
     now: 'an infographic that builds piece by piece as it\'s narrated',
     crew: 'One structure per slide (a process, timeline, ladder, 2×2, before/after, hub and ring, map or anatomy), at most about six objects, labels touching what they name, the graphic taking 55–60 % of the frame with a small title up top. Illustrations need form: shading, weight and wobble, never flat clip art. Read the playbook, Part 1 §3.',
   },
   {
-    id: 'cutscene', name: 'Cut scenes',
+    id: 'cutscene', name: 'Cut scenes', tile: 'Cut scene',
     short: 'A cinematic beat between slides.',
     ask: 'After slide 6, cut to the negotiation room at 2 a.m.',
     now: 'its brief and its plan in modules.json (the app makes it from them in its Scenes step, each step priced and approved by the user)',
     crew: 'An 8–20 s cinematic payoff between two slides, with no slide of its own. Write its brief to deck/project/briefs/cutscene-<n>.md (the line it pays off, the look, the sound) and plan it in modules.json (see "cutscenes"): after which slide it plays, the place, and 2–4 shots of 4–8 s, each with its first frame and what happens in it. Anyone in it is an anonymous stranger; no text, signs or logos. Read references/cutscenes.md.',
+  },
+  {
+    id: 'motion-solo', name: 'Motion Solo', tile: 'Solo',
+    short: 'A scene drawn live in code, in your voice alone.',
+    ask: 'Make the flywheel spin up as I name each force, then crack.',
+    now: 'the slide as the scene\'s poster frame, and the scene\'s plan in modules.json (the Live Motion crew draws it in code, timed to the narration, with the bubble hidden)',
+    crew: 'A narrated scene drawn live in code, full frame, with the presenter\'s bubble hidden (billed as voice only): one idea that moves, told in 20–60 s of narration (a verb or a mechanism, not a data chart). Design the slide as the scene\'s poster frame: its key frame or a title card. Plan the scene in modules.json (see "scene"): the style, the idea in a line, and its beats, each cued to a verbatim narration phrase and saying what changes on screen, one marked as the hero. With no narration, between two slides (Solo ♪), it goes in "jsscenes" instead.',
+  },
+  {
+    id: 'motion-duet', name: 'Motion Duet', tile: 'Duet',
+    short: 'A scene drawn live in code, with you beside it.',
+    ask: 'Draw the three forces as I talk, with me beside them.',
+    now: 'the slide as the scene\'s poster frame, and the scene\'s plan in modules.json (the Live Motion crew draws it in code, timed to the narration, with the presenter in the corner)',
+    crew: 'A narrated scene drawn live in code with the presenter beside it (billed as any slide): the bubble stays, so nothing that matters goes in its corner (x < 380, below y 700). Calmer than a Motion Solo: the presenter carries the talk and the scene illustrates it. Design the slide as its poster frame and plan the scene in modules.json (see "scene") as for a Motion Solo.',
   },
 ];
 // What a call says when it starts from a file (the user can edit it before adding the call).
@@ -66,9 +88,89 @@ const WITH_FILE = {
   inset: 'Play this clip inside the slide where it fits.',
   infographic: 'Turn this into an infographic.',
   cutscene: 'Use this as the look for a short cut scene.',
+  'motion-solo': 'Draw this as a scene in code, timed to my words.',
+  'motion-duet': 'Draw this as a scene in code beside me as I talk.',
 };
 for (const m of MODULES) m.withFile = WITH_FILE[m.id];
 const IDS = MODULES.map((m) => m.id);
+
+// The Title card: a plain statement slide. Always there, never one of the nine, never a tile or a call.
+const TITLE_CARD = { id: 'statement', name: 'Title card', tile: 'Title card' };
+
+// The families (the strip's, ribbon's and badges' colours): Live Motion is the new one.
+const FAMILIES = { data: 'Data', hand: 'Hand', build: 'Build', story: 'Story', live: 'Live Motion' };
+
+/**
+ * How each module is placed, presented and billed. Read by the billing guards, so a module's id is matched exactly
+ * (never by prefix: `motion`, `motion-solo` and `motion-duet` are three different things).
+ *   family     FAMILIES key
+ *   placement  where it goes: 'slide' (it is a slide), 'between' (between two slides, no slide of its own)
+ *   bubble     the presenter's bubble: true (shown: an avatar clip, billed by the second), false (hidden: the
+ *              narration alone, voice only), null (no presenter at all: nothing narrated, nothing filmed)
+ *   live       drawn live in code by the Live Motion crew
+ *   paid       has a Generated form (make:'generate', priced and approved in the Scenes step); its other form is
+ *              drawn in code (make:'code'), free
+ *   needsClip  needs the user's own clip
+ *   hidden     not one of the nine: no tile, no call, never counted
+ *   isNew      new in 2.0
+ */
+const META = Object.freeze({
+  chart: { family: 'data', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: false, hidden: false, isNew: false },
+  sketch: { family: 'hand', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: false, hidden: false, isNew: false },
+  motion: { family: 'build', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: false, hidden: false, isNew: false },
+  cosmos: { family: 'story', placement: ['slide'], bubble: false, live: false, paid: true, needsClip: false, hidden: false, isNew: false },
+  inset: { family: 'story', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: true, hidden: false, isNew: false },
+  infographic: { family: 'data', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: false, hidden: false, isNew: false },
+  cutscene: { family: 'story', placement: ['between'], bubble: null, live: false, paid: true, needsClip: false, hidden: false, isNew: false },
+  'motion-solo': { family: 'live', placement: ['slide', 'between'], bubble: false, live: true, paid: false, needsClip: false, hidden: false, isNew: true },
+  'motion-duet': { family: 'live', placement: ['slide'], bubble: true, live: true, paid: false, needsClip: false, hidden: false, isNew: true },
+  statement: { family: 'build', placement: ['slide'], bubble: true, live: false, paid: false, needsClip: false, hidden: true, isNew: false },
+});
+for (const m of Object.values(META)) { Object.freeze(m.placement); Object.freeze(m); }
+
+/** A module's META by its exact id, or null. */
+const meta = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(META, id) ? META[id] : null);
+
+/** How a Cosmos or cut scene entry is made: 'code' (drawn in code, free) or 'generate' (the default: the Scenes step). */
+const makeOf = (entry) => (entry && typeof entry === 'object' && entry.make === 'code' ? 'code' : 'generate');
+
+/**
+ * Does this modules.json slide entry hide the presenter's bubble? Its module's META says so (Cosmos, Motion Solo), or
+ * the entry itself says "bubble": false. Either way the slide is narrated without the avatar: no clip, voice only.
+ */
+function hidesBubble(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (entry.bubble === false) return true;
+  const m = meta(entry.module);
+  return Boolean(m && m.bubble === false);
+}
+
+/**
+ * Is this modules.json slide entry a Live Motion scene (FLPT's `flpt-scene` media entries)? Motion Solo and Duet, and
+ * a Cosmos drawn in code. A generated Cosmos is a cartoon from the Scenes step, as before.
+ */
+function isScene(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  const m = meta(entry.module);
+  if (!m) return false;
+  return m.live || (entry.module === 'cosmos' && makeOf(entry) === 'code');
+}
+
+/**
+ * What's wrong with a modules.json slide or cut-scene entry's scene plan, as short lines (the validator; [] when it's
+ * fine). A `lead` (time before the narration starts, e.g. a music intro) moves the slide's padded narration, so it is
+ * refused wherever the avatar is filmed: on a bubble slide it would re-bill the avatar clip (T6).
+ */
+function sceneProblems(entry) {
+  const out = [];
+  if (!entry || typeof entry !== 'object') return out;
+  const scene = entry.scene && typeof entry.scene === 'object' ? entry.scene : {};
+  const lead = entry.lead != null ? entry.lead : scene.lead;
+  if (lead != null && !hidesBubble(entry)) out.push('a lead needs the bubble hidden (Motion Solo or Cosmos): on this slide it would re-film the avatar.');
+  if (entry.make != null && entry.make !== 'code' && entry.make !== 'generate') out.push(`"make": "${entry.make}" is "code" or "generate".`);
+  if (entry.make != null && entry.module != null && entry.module !== 'cosmos' && entry.module !== 'cutscene') out.push(`"make" is only for Cosmos and cut scenes, not "${entry.module}".`);
+  return out;
+}
 
 /** The likely module for files the user brings: a clip → video inset, a document → Cosmos cartoon (a story to tell),
  *  a phone photo → hand-drawn chart (a notebook page), any other picture → live chart (a screenshot). */
@@ -81,10 +183,14 @@ function guessFor(files) {
 }
 const byId = (id) => MODULES.find((m) => m.id === id) || null;
 
-/** The ids of the seven modules a deck doesn't use yet, from the crew's modules.json (cut scenes are listed apart). */
+/**
+ * The ids of the nine modules a deck doesn't use yet, from the crew's modules.json. A Cosmos or cut scene drawn in
+ * code counts as its module; an unnarrated scene between slides (jsscenes) counts as a Motion Solo.
+ */
 function missing(map) {
   const used = new Set(Object.values((map && map.slides) || {}).map((x) => x && x.module));
   if (map && Array.isArray(map.cutscenes) && map.cutscenes.length) used.add('cutscene');
+  if (map && Array.isArray(map.jsscenes) && map.jsscenes.length) used.add('motion-solo');
   return IDS.filter((id) => !used.has(id));
 }
 
@@ -105,4 +211,5 @@ function promptCalls(calls) {
   return `${lines.join('\n')}\n\nDo every call exactly as asked, and record each one in modules.json under its slide with \`"call": "<id>"\`. Open every attached file (Read shows you images). If a call can't be done as asked, do the closest honest version and say why in your report.`;
 }
 
-module.exports = { MODULES, IDS, byId, promptCatalog, promptCalls, missing, guessFor };
+module.exports = { MODULES, IDS, META, FAMILIES, FAMILY_LINE, TITLE_CARD, byId, meta, makeOf, hidesBubble, isScene, sceneProblems,
+  promptCatalog, promptCalls, missing, guessFor };

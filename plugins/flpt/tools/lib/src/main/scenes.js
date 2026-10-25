@@ -12,6 +12,12 @@
 // The state is presentation/scenes.json: every take of every still and shot (its file, its job, what it cost) and
 // the one the user approved. generate.js adds takes as jobs start and land; the flow approves them; motion.js puts the
 // finished clips in media.json. Nothing here spends anything or talks to a provider.
+//
+// Only the generated pieces are here. A Cosmos or cut scene the plan draws in code ("make": "code") is a Live Motion
+// scene: free, never priced or made in this step, and a code cut scene is spliced into the film afterwards, so it
+// never enters media.json and never moves its neighbours' timing (or re-bills their avatar clips). The unnarrated
+// scenes between slides ("jsscenes") are never read here at all. A generated piece can be drawn in code instead
+// (livemotion.drawInCode, the step's "Draw it in code"), free, once nothing of it is on its way (`drawable`).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -124,6 +130,8 @@ function shotsFromBrief(text) {
 }
 
 const str = (v, max) => (typeof v === 'string' ? clean(v, max) : '');
+// A Cosmos or cut scene drawn in code (a Live Motion scene), not generated here.
+const drawnInCode = (e) => Boolean(e && typeof e === 'object' && e.make === 'code');
 
 /**
  * The episode's cartoons and cut scenes, from modules.json (and the briefs): what can be made, in deck order.
@@ -132,6 +140,39 @@ const str = (v, max) => (typeof v === 'string' ? clean(v, max) : '');
  *                shots: [{ seconds, picture, action, continues }], source, problems }
  * `problems` are plain lines for the user (the crew's check is checkPlan).
  */
+/**
+ * Every cut scene's id, in modules.json's order (null for an entry that isn't one), each kind numbered on its own:
+ *   generated  as they always were, so their takes stay filed under them (T13): the brief's name (cutscene_2.md →
+ *              "2"), else its place in the list; a code cut scene next to it never takes its id. A place that is
+ *              taken too gets a count ("2-2"), never a second "2".
+ *   in code    (livemotion.js keys them between:C<id>) briefs first, then places, each unique: a piece drawn in code
+ *              later never takes the id of one already drawn, so a folder never passes to another piece.
+ * The Scenes step (cutscene:<id>) and Live Motion read the same ids from here.
+ */
+function cutIds(list) {
+  const arr = Array.isArray(list) ? list : [];
+  const ids = arr.map(() => null);
+  const briefOf = (e) => { const m = /cutscene[-_]?([A-Za-z0-9_-]{1,20})\.md$/i.exec(String(e.brief || '')); return m ? m[1] : null; };
+  const used = new Set();
+  const free = (x) => !used.has(x.toLowerCase());
+  const take = (i, want) => {
+    let id = want;
+    for (let k = 2; !free(id); k++) id = `${i + 1}-${k}`;
+    used.add(id.toLowerCase());
+    ids[i] = id;
+  };
+  arr.forEach((e, i) => {
+    if (!e || typeof e !== 'object' || drawnInCode(e)) return;
+    const b = briefOf(e);
+    take(i, b && free(b) ? b : String(i + 1));
+  });
+  used.clear();
+  const code = arr.map((e, i) => (drawnInCode(e) ? i : -1)).filter((i) => i >= 0);
+  for (const i of code) { const b = briefOf(arr[i]); if (b && free(b)) take(i, b); }
+  for (const i of code) if (ids[i] == null) take(i, String(i + 1));
+  return ids;
+}
+
 function plan(dir) {
   const { pres, project, order, modules } = deckOf(dir);
   const titles = slideTitles(pres);
@@ -139,7 +180,7 @@ function plan(dir) {
   const cartoons = [];
   order.forEach((id, i) => {
     const e = entries[id];
-    if (!e || e.module !== 'cosmos' || !SAFE_ID.test(id)) return;
+    if (!e || e.module !== 'cosmos' || drawnInCode(e) || !SAFE_ID.test(id)) return;
     const c = e.cartoon && typeof e.cartoon === 'object' && !Array.isArray(e.cartoon) ? e.cartoon : null;
     let beats = [];
     let style = '';
@@ -159,13 +200,11 @@ function plan(dir) {
     cartoons.push({ key: `cartoon:${id}`, kind: 'cartoon', id, n: i + 1, title: titles[i + 1] || id, style: style || STYLE, beats, hero, source, problems, blocked: problems.length > 0 });
   });
   const cutscenes = [];
-  const used = new Set();
-  (Array.isArray(modules.cutscenes) ? modules.cutscenes : []).forEach((e, i) => {
-    if (!e || typeof e !== 'object') return;
-    const m = /cutscene[-_]?([A-Za-z0-9_-]{1,20})\.md$/i.exec(String(e.brief || ''));
-    let id = m ? m[1] : String(i + 1);
-    if (used.has(id.toLowerCase())) id = String(i + 1);
-    used.add(id.toLowerCase());
+  const list = Array.isArray(modules.cutscenes) ? modules.cutscenes : [];
+  const ids = cutIds(list);
+  list.forEach((e, i) => {
+    if (!e || typeof e !== 'object' || drawnInCode(e)) return; // its place in the list (and its id) still numbers the others
+    const id = ids[i];
     const brief = readBrief(project, e.brief);
     let shots;
     let source = 'plan';
@@ -198,7 +237,7 @@ function checkPlan(dir) {
   const entries = (modules && modules.slides) || {};
   for (const id of order) {
     const e = entries[id];
-    if (!e || e.module !== 'cosmos') continue;
+    if (!e || e.module !== 'cosmos' || drawnInCode(e)) continue;
     const c = e.cartoon;
     if (!c || typeof c !== 'object' || !Array.isArray(c.beats)) { out.push(`${id}: a Cosmos cartoon needs its beats in modules.json ("cartoon": { "beats": [ … ] }).`); continue; }
     const n = c.beats.length;
@@ -214,6 +253,7 @@ function checkPlan(dir) {
   (Array.isArray(modules.cutscenes) ? modules.cutscenes : []).forEach((e, i) => {
     const name = `cut scene ${i + 1}`;
     if (!e || typeof e !== 'object') { out.push(`${name}: not an entry.`); return; }
+    if (drawnInCode(e)) return;
     if (e.after && !order.includes(e.after)) out.push(`${name}: "after": "${e.after}" isn't a slide in deck.json.`);
     if (!Array.isArray(e.shots)) { out.push(`${name}: its shots belong in modules.json ("shots": [ … ]).`); return; }
     if (e.shots.length < 2 || e.shots.length > 4) out.push(`${name}: ${e.shots.length} shot${e.shots.length === 1 ? '' : 's'}; a cut scene has 2–4.`);
@@ -552,6 +592,15 @@ function reconcile(dir) {
   });
 }
 
+/**
+ * Is a still or a shot of this piece on its way at the provider? Then it can't be drawn in code yet (livemotion's
+ * drawInCode refuses): the paid job would land on a piece that no longer wants it.
+ */
+function pieceWorking(dir, key) {
+  const p = readState(dir).pieces[key];
+  return Boolean(p && Object.values(p.slots || {}).some((s) => s && slotStatus({ takes: s.takes || [], approved: s.approved, final: s.final }) === 'working'));
+}
+
 /** Takes still on their way at the provider, for one episode. */
 function working(dir) {
   const st = readState(dir);
@@ -655,6 +704,8 @@ function view(dir, { routes = {}, keys = null } = {}) {
       key: piece.key, kind: piece.kind, id: piece.id, title: piece.title, n: piece.n, afterN: piece.afterN, source: piece.source, problems: piece.problems,
       total: piece.blocked ? null : whole.totalUsd, totalGuess: [routes.stills, routes.video].includes('higgsfield'),
       tiles, next: nextView, ready: Boolean(inputs), skipHero: Boolean((st.pieces[piece.key] || {}).skipHero), canSkip: piece.kind === 'cartoon' && piece.hero != null,
+      // the Scenes step's "Draw it in code" (livemotion.drawInCode, free): any piece with nothing on its way
+      drawable: !pieceWorking(dir, piece.key),
       clip: clipFile, clipAt: clipFile ? Math.round(fs.statSync(clipFile).mtimeMs) : null, outdated: Boolean(inputs && clip && clip.inputs !== inputs.key) || Boolean(inputs && !clipFile),
       error: (st.pieces[piece.key] || {}).error || null,
     };
@@ -688,7 +739,7 @@ function pieceOf(dir, key) {
 }
 
 module.exports = {
-  plan, checkPlan, readState, update, slotStatus, approvedTake, finalVideo, slotsOf, nextStep, isReady, jobsFor, priceOf, lineFor, recipe, startTake, landTake,
-  approve, skipHero, markClip, working, reconcile, inputsOf, cutsceneClips, readyCartoons, view, hasAny, rerollStep, pieceOf, clipRel, stateFile,
+  plan, cutIds, checkPlan, readState, update, slotStatus, approvedTake, finalVideo, slotsOf, nextStep, isReady, jobsFor, priceOf, lineFor, recipe, startTake, landTake,
+  approve, skipHero, markClip, working, pieceWorking, reconcile, inputsOf, cutsceneClips, readyCartoons, view, hasAny, rerollStep, pieceOf, clipRel, stateFile,
   stylePrompt, keyframePrompt, heroPrompt, platePrompt, startPrompt, shotPrompt, clean, STYLE, STYLE_KEY, LIMITS, NO_WORDS, NO_PEOPLE,
 };

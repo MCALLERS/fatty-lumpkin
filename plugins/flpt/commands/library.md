@@ -1,7 +1,7 @@
 ---
 description: Your FLPT Library, shared with the Mac app. Search it, add a file or a link, or open it as a wall of pictures
 argument-hint: "[search <words> | add <file-or-link> | open]"
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/tools/flpt-library.js":*)
 disable-model-invocation: true
 ---
 Library request: $ARGUMENTS

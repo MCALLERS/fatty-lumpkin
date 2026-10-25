@@ -9,7 +9,9 @@ const fs = require('fs');
 const path = require('path');
 const episode = require('./episode');
 
-const MODULE_NAMES = { chart: 'Live chart', sketch: 'Hand-drawn chart', motion: 'Motion graphic', cosmos: 'Cosmos cartoon', inset: 'Video inset', infographic: 'Infographic' };
+// By exact module id (`motion`, `motion-solo` and `motion-duet` are three modules). Title cards aren't kept.
+const MODULE_NAMES = { chart: 'Live chart', sketch: 'Hand-drawn chart', motion: 'Motion graphic', cosmos: 'Cosmos cartoon', inset: 'Video inset', infographic: 'Infographic',
+  'motion-solo': 'Motion Solo', 'motion-duet': 'Motion Duet' };
 
 function crewLibrary(lib, projectDir) {
   const pres = path.join(projectDir, 'presentation');
@@ -22,6 +24,10 @@ function crewLibrary(lib, projectDir) {
     },
     async use(id) {
       const it = lib.get(String(id));
+      // lib.get already refuses references; this holds even if a hand-edited index says otherwise.
+      const { assertNotReference } = require('./references');
+      assertNotReference(it.filePath);
+      assertNotReference(it.thumbPath);
       const rel = path.join('assets', 'library');
       fs.mkdirSync(path.join(pres, rel), { recursive: true });
       const out = { id: it.id, kind: it.kind, title: it.title, source: it.source || null, clip: it.clip || null };
@@ -69,7 +75,7 @@ async function keep(lib, projectDir, stageId, { finalVideo } = {}) {
     try { order = JSON.parse(fs.readFileSync(path.join(pres, 'deck', 'project', 'deck.json'), 'utf8')).order || []; } catch { /* none */ }
     for (const [i, id] of order.entries()) {
       const mod = map && map.slides && map.slides[id] && map.slides[id].module;
-      if (!MODULE_NAMES[mod]) continue; // statement slides aren't worth keeping on their own
+      if (typeof mod !== 'string' || !Object.prototype.hasOwnProperty.call(MODULE_NAMES, mod)) continue; // statement slides aren't worth keeping on their own
       const png = path.join(pres, 'slides', `slide_${String(i + 1).padStart(2, '0')}.png`);
       await add(png, { title: `${MODULE_NAMES[mod]}: ${st.title}, slide ${i + 1}`, tags: [MODULE_NAMES[mod], st.title], notes: `From "${st.title}" (${id}).` });
     }

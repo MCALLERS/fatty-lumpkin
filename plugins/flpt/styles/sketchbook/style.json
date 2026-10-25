@@ -1,0 +1,880 @@
+{
+  "schema": "flpt.style/1",
+  "id": "sketchbook",
+  "version": "1.0.0",
+  "name": "Sketchbook",
+  "line": "Pencilled in, inked over, coloured with one quick scribble.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "warm",
+      "playful",
+      "curious"
+    ],
+    "look": [
+      "pencil",
+      "graphite",
+      "ink",
+      "sketchbook",
+      "hand-lettered"
+    ],
+    "pace": "medium",
+    "use": [
+      "ideas",
+      "explainers",
+      "process"
+    ]
+  },
+  "tokens": {
+    "paper": "#F2EAD8",
+    "inks": [
+      "#2A2420",
+      "#6F6A63",
+      "#9A948B",
+      "#F7D64A",
+      "#E0483A",
+      "#4F9D5D"
+    ],
+    "accent": "#D97757",
+    "type": {
+      "hand": "Caveat",
+      "marker": "Caveat Bold"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-bold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "boil",
+      "pencil-in",
+      "ink-over",
+      "scribble",
+      "write-on",
+      "highlight",
+      "hop",
+      "push",
+      "pan",
+      "reveal",
+      "bridge"
+    ],
+    "pace": "medium",
+    "easing": "spring:playful"
+  },
+  "sound": {
+    "score": "pulse-112",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 27
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:fba54a573326391c9da2d36637b305599f3ae6c55a09d9f30ff218cf6e159515",
+    "STYLE.md": "sha256:b50cecc6e584ecd1f43a05d27006f97773e7e2012d402a319043858e9cba3675",
+    "starter/scene.js": "sha256:fb2e46ac743dc03e0d97be0bc4a86bf24b935b91dbebc0f9ea2e366f19f457c8"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.HAND",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for hand lettering (Caveat)"
+    },
+    {
+      "fn": "ctx.kit.MARKER",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for marker lettering (Caveat Bold)"
+    },
+    {
+      "fn": "ctx.kit.SK",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette; terracotta is the hero only, yellow the one word to read"
+    },
+    {
+      "fn": "ctx.kit.ant",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "key"
+      ],
+      "doc": "a tiny ant walking a line, legs on twos"
+    },
+    {
+      "fn": "ctx.kit.arcPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "a0",
+        "a1",
+        "n",
+        "sy"
+      ],
+      "doc": "points along an arc"
+    },
+    {
+      "fn": "ctx.kit.arrowPencil",
+      "kind": "function",
+      "params": [
+        "P",
+        "part",
+        "o"
+      ],
+      "doc": "a graphite arrow written on; the head flicks in last"
+    },
+    {
+      "fn": "ctx.kit.bare",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "the bare page in screen space, where a bridge happens"
+    },
+    {
+      "fn": "ctx.kit.bbox",
+      "kind": "function",
+      "params": [
+        "P",
+        "pad"
+      ],
+      "doc": "bounding box of points"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "binds the kit to the frame (the runtime calls it)"
+    },
+    {
+      "fn": "ctx.kit.blob",
+      "kind": "function",
+      "params": [
+        "P",
+        "c",
+        "key"
+      ],
+      "doc": "the shape mid-morph: a colour scribble in a graphite outline"
+    },
+    {
+      "fn": "ctx.kit.bulbPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r"
+      ],
+      "doc": "a lightbulb outline as one closed loop"
+    },
+    {
+      "fn": "ctx.kit.checkMark",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "part",
+        "col",
+        "key"
+      ],
+      "doc": "a green check written on"
+    },
+    {
+      "fn": "ctx.kit.circleIt",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "part",
+        "o"
+      ],
+      "doc": "an ink loop drawn round something, written on"
+    },
+    {
+      "fn": "ctx.kit.closeP",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "a polyline closed back to its start"
+    },
+    {
+      "fn": "ctx.kit.cloudPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s"
+      ],
+      "doc": "a cloud outline"
+    },
+    {
+      "fn": "ctx.kit.crossOut",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "part",
+        "o"
+      ],
+      "doc": "two strokes crossing something out, graphite or ink"
+    },
+    {
+      "fn": "ctx.kit.crumbs",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "k",
+        "key"
+      ],
+      "doc": "eraser crumbs on the page"
+    },
+    {
+      "fn": "ctx.kit.dashed",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "a dashed graphite path (a route, a trail), written on"
+    },
+    {
+      "fn": "ctx.kit.desk",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "key"
+      ],
+      "doc": "the dark desk the sketchbook lies on"
+    },
+    {
+      "fn": "ctx.kit.dist",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "distance between two points"
+    },
+    {
+      "fn": "ctx.kit.doodleBird",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "flap",
+        "key"
+      ],
+      "doc": "a two-arc v bird that flaps"
+    },
+    {
+      "fn": "ctx.kit.doodleCloud",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "key",
+        "part"
+      ],
+      "doc": "a graphite cloud written on"
+    },
+    {
+      "fn": "ctx.kit.doodleHero",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "the hero: a terracotta dot with a face, arms and legs"
+    },
+    {
+      "fn": "ctx.kit.doodleHouse",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "part",
+        "key"
+      ],
+      "doc": "a house written on; smoke from the chimney once done"
+    },
+    {
+      "fn": "ctx.kit.doodleStar",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "key",
+        "o"
+      ],
+      "doc": "a five-point margin star in one stroke"
+    },
+    {
+      "fn": "ctx.kit.doodleSun",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "a highlighter sun, inked, rays written on and turning"
+    },
+    {
+      "fn": "ctx.kit.doodleTree",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "part",
+        "key"
+      ],
+      "doc": "a tree written on, its hatched crown swaying"
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n"
+      ],
+      "doc": "points around an ellipse"
+    },
+    {
+      "fn": "ctx.kit.eraserTool",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "ang",
+        "s"
+      ],
+      "doc": "the eraser prop"
+    },
+    {
+      "fn": "ctx.kit.flag",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "part",
+        "key",
+        "col"
+      ],
+      "doc": "a pennant on a pole, written on, fluttering"
+    },
+    {
+      "fn": "ctx.kit.gclip",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "clip to a hand-drawn outline"
+    },
+    {
+      "fn": "ctx.kit.gfill",
+      "kind": "function",
+      "params": [
+        "P",
+        "col",
+        "o"
+      ],
+      "doc": "flat colour laid a few px off the ink"
+    },
+    {
+      "fn": "ctx.kit.ghatch",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "o"
+      ],
+      "doc": "parallel hatching inside a clip"
+    },
+    {
+      "fn": "ctx.kit.gline",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "the ink line: a confident stroke and a thin second pass"
+    },
+    {
+      "fn": "ctx.kit.gpencil",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "the graphite line: two light passes, the second looser"
+    },
+    {
+      "fn": "ctx.kit.grain",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the boiling grain over the frame; call last"
+    },
+    {
+      "fn": "ctx.kit.graphiteScribble",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "w",
+        "h",
+        "key",
+        "o"
+      ],
+      "doc": "a scribble ball of graphite: the mess"
+    },
+    {
+      "fn": "ctx.kit.gwob",
+      "kind": "function",
+      "params": [
+        "P",
+        "key",
+        "amp"
+      ],
+      "doc": "the hand wobble that boils on twos"
+    },
+    {
+      "fn": "ctx.kit.handLetter",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "hand lettering from glyph outlines; letters write on one by one"
+    },
+    {
+      "fn": "ctx.kit.heroPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r"
+      ],
+      "doc": "the hero outline, for a window or a morph"
+    },
+    {
+      "fn": "ctx.kit.highlight",
+      "kind": "function",
+      "params": [
+        "x0",
+        "x1",
+        "y",
+        "h",
+        "part",
+        "o"
+      ],
+      "doc": "a highlighter swipe behind a word"
+    },
+    {
+      "fn": "ctx.kit.hop",
+      "kind": "function",
+      "params": [
+        "t",
+        "d"
+      ],
+      "doc": "0 to 1 to 0 over a hop"
+    },
+    {
+      "fn": "ctx.kit.inkStamp",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "s",
+        "rot",
+        "a",
+        "key"
+      ],
+      "doc": "a worn red rubber stamp"
+    },
+    {
+      "fn": "ctx.kit.letterW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "face",
+        "weight"
+      ],
+      "doc": "width of a lettered string"
+    },
+    {
+      "fn": "ctx.kit.litHatch",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "hatching that leaves a lit circle top left"
+    },
+    {
+      "fn": "ctx.kit.loopPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "over",
+        "a0",
+        "n"
+      ],
+      "doc": "a hand-drawn loop that overshoots its start"
+    },
+    {
+      "fn": "ctx.kit.noteCard",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "rot",
+        "s",
+        "lines",
+        "key",
+        "col"
+      ],
+      "doc": "an index card whose lines write on"
+    },
+    {
+      "fn": "ctx.kit.pageCaption",
+      "kind": "function",
+      "params": [
+        "lines",
+        "hi",
+        "o"
+      ],
+      "doc": "one or two lettered lines that narrate, written on (screen or world)"
+    },
+    {
+      "fn": "ctx.kit.pageTag",
+      "kind": "function",
+      "params": [
+        "str",
+        "o"
+      ],
+      "doc": "a marker label on masking tape, top left"
+    },
+    {
+      "fn": "ctx.kit.pageTex",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the page texture, built once and cached (ghosts, coffee: optional marks)"
+    },
+    {
+      "fn": "ctx.kit.paperPlane",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "ang",
+        "s",
+        "key"
+      ],
+      "doc": "a folded paper plane"
+    },
+    {
+      "fn": "ctx.kit.pathLen",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "length of a polyline"
+    },
+    {
+      "fn": "ctx.kit.pencilTool",
+      "kind": "function",
+      "params": [
+        "tx",
+        "ty",
+        "ang",
+        "s"
+      ],
+      "doc": "the pencil prop, its tip on what is being drawn"
+    },
+    {
+      "fn": "ctx.kit.popS",
+      "kind": "function",
+      "params": [
+        "t"
+      ],
+      "doc": "a back-eased pop-in scale from t"
+    },
+    {
+      "fn": "ctx.kit.register",
+      "kind": "function",
+      "params": [
+        "id",
+        "str",
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "doc": "register a text box for the text checks"
+    },
+    {
+      "fn": "ctx.kit.resample",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "step"
+      ],
+      "doc": "points every step px along a polyline"
+    },
+    {
+      "fn": "ctx.kit.scrap",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "rot",
+        "s",
+        "key"
+      ],
+      "doc": "a torn scrap of page"
+    },
+    {
+      "fn": "ctx.kit.scribbleFill",
+      "kind": "function",
+      "params": [
+        "P",
+        "col",
+        "o"
+      ],
+      "doc": "a back-and-forth colour scribble that shades a shape"
+    },
+    {
+      "fn": "ctx.kit.sketchBox",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r",
+        "over"
+      ],
+      "doc": "a box drawn in one go, closed, the pen running a little past the start"
+    },
+    {
+      "fn": "ctx.kit.sketchPage",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the page: dot grid, tooth, smudges, binding; optionally a big sheet on a desk"
+    },
+    {
+      "fn": "ctx.kit.smudge",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "rx",
+        "ry",
+        "a",
+        "rot"
+      ],
+      "doc": "a soft graphite smudge"
+    },
+    {
+      "fn": "ctx.kit.sparkle",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "k",
+        "key",
+        "col"
+      ],
+      "doc": "four ink ticks that open and close"
+    },
+    {
+      "fn": "ctx.kit.subPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": "the first part of a polyline by length"
+    },
+    {
+      "fn": "ctx.kit.sweat",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "k",
+        "key"
+      ],
+      "doc": "a pencil drop that slides off and fades"
+    },
+    {
+      "fn": "ctx.kit.tapeStrip",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "rot",
+        "key",
+        "h"
+      ],
+      "doc": "a strip of masking tape"
+    },
+    {
+      "fn": "ctx.kit.trace",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed"
+      ],
+      "doc": "trace a polyline as the current path"
+    },
+    {
+      "fn": "ctx.kit.underline",
+      "kind": "function",
+      "params": [
+        "x0",
+        "x1",
+        "y",
+        "o"
+      ],
+      "doc": "a quick bowed underline, written on"
+    },
+    {
+      "fn": "ctx.kit.windowFrame",
+      "kind": "function",
+      "params": [
+        "P",
+        "key",
+        "inside",
+        "o"
+      ],
+      "doc": "a world seen through a graphite outline with a smudge shadow"
+    },
+    {
+      "fn": "ctx.kit.writeEnd",
+      "kind": "function",
+      "params": [
+        "P",
+        "part"
+      ],
+      "doc": "where the pen is on a stroke written part way"
+    },
+    {
+      "fn": "ctx.kit.writeOn",
+      "kind": "function",
+      "params": [
+        "P",
+        "part"
+      ],
+      "doc": "the first part of a polyline, for a write-on"
+    },
+    {
+      "fn": "ctx.kit.xform",
+      "kind": "function",
+      "params": [
+        "P",
+        "tx",
+        "ty",
+        "rot",
+        "sx",
+        "sy"
+      ],
+      "doc": "move, turn and scale points"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<title>Lantern</title>
+<defs><filter id="ink" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="11" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+<style>.i{fill:none;stroke:#1C1A15;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.t{stroke-width:1.5}.g{fill:#A97A1E}.gw{fill:#A97A1E;opacity:.16}@media (prefers-color-scheme:dark){.i{stroke:#EEE8DA}.g,.gw{fill:#D9AE5A}}</style>
+<g filter="url(#ink)">
+<circle class="gw" cx="100" cy="108" r="30"/>
+<path class="g" d="M100 95c5 7 6 13 4 17-1 3-3 4-4 4s-3-1-4-4c-2-4-1-10 4-17z"/>
+<g class="i">
+<path d="M100 22c-9 0-14 7-12 14 1 5 6 8 12 8s11-3 12-8c2-7-3-14-12-14zM100 44v6"/>
+<path d="M78 66c3-10 12-16 22-16s19 6 22 16M70 66h60l-2 8H72z"/>
+<path d="M75 74l-3 66M125 74l3 66M88 74l-1 66M112 74l1 66"/>
+<path class="t" d="M74 92h52M73 124h54"/>
+<path d="M66 140h68l-3 10H69zM74 150l-2 7M126 150l2 7"/>
+<path d="M100 90c7 9 9 18 6 24-2 4-4 6-6 6s-4-2-6-6c-3-6-1-15 6-24z"/>
+<path class="t" d="M95 120h10v8H95z"/>
+<path class="t" d="M58 104l-12-3M58 118l-12 3M142 104l12-3M142 118l12 3M62 86l-9-7M138 86l9-7"/>
+</g>
+</g>
+</svg>

@@ -355,7 +355,10 @@ Michael's own layer grew from 19 % to 52 % of each episode. **It's half the show
 4. **Copyright:**
    - Link, don't copy, paid sources.
    - Never download from YouTube.
-   - Copyrighted clips become clip slots the user fills.
+   - Copyrighted clips become clip slots the user fills, unless the user hands over their own file. Then drop it in:
+     check its first and last frames for flash frames, conform it, level it (dialogue about −16.6 LUFS), and credit it
+     in the player's `media_note` as for internal viewing. Rubio, Downton, Hedberg and "More Cowbell" were done this way
+     (2026-10-13/14).
    - Never bundle copyrighted clips, celebrity likenesses or sound-alike voices.
 5. **Consent:** only the user's own likeness, people who've consented in writing, or original characters.
 6. **Disclosure** on every player page.

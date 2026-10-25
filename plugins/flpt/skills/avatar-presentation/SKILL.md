@@ -7,6 +7,8 @@ description: The user's signature workflow for making an "avatar presentation", 
 
 This is the user's signature format: a deck that shows off (motion graphics, photos in motion, a real chart, an infographic, a live HyperFrames animation, a hand-drawn whiteboard sketch, 1–2 cinematic cut scenes), presented by their own HeyGen avatar in a bottom-left bubble, in a voice that sounds like them riffing live. Every video repeats the same signature elements, so over time the style becomes recognizably theirs.
 
+**Start here in a new project:** the `video-studio-handbook` skill (2026-10-15), if you have it. It covers the user's standing rules and taste, the crew model, the newest recipes, benchmarks and the back catalogue with links.
+
 **The whole method on one page:** `references/playbook.md` (added 2026-10-12). It has the core principles, the workstreams, the episode wrapper, delivery and costs.
 
 **How to work:**

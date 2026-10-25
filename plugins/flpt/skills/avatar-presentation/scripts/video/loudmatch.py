@@ -200,6 +200,14 @@ def main():
                     oI, otp = measure(dst)
                 except RuntimeError as e:
                     print(f"{dst_name[:52]:52s}  second pass failed: {e}")
+            # FLPT_EXTRAS_TP_V1: a lossy encoder that put the true peak back over the ceiling: once more, the limiter's
+            # ceiling lowered by the overshoot (ffmpeg's own AAC on Linux; Apple's stays inside the 0.3 dB margin)
+            if lossy and otp is not None and otp > a.tp:
+                try:
+                    level(src, dst, gain, a.tp - (otp - a.tp) - 0.1, lossy)
+                    oI, otp = measure(dst)
+                except RuntimeError as e:
+                    print(f"{dst_name[:52]:52s}  true-peak pass failed: {e}")
             fmt = lambda v: f"{v:6.1f}" if v is not None else "   n/a"
             print(f"{dst_name[:52]:52s} {I:8.1f} {fmt(tp)} {gain:+7.1f} -> {fmt(oI):>8s} {fmt(otp)}{warn}")
     print(f"\nLevelled copies are in {out}. The limiter can only pull peaks down, so a very dynamic clip may land a little under target.")

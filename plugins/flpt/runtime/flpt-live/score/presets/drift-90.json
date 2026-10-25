@@ -1,0 +1,34 @@
+{
+  "id": "drift-90",
+  "name": "Drift 90",
+  "about": "E minor, Em9-Cmaj7-G6-Dadd9 two bars each, 90 BPM, half-time: a beat is 20 frames, an 8th is 10 frames at 30 fps.",
+  "bpm": 90,
+  "beatsPerBar": 4,
+  "offset": 0,
+  "barsPerChord": 2,
+  "progression": [
+    { "name": "Em9", "root": 40, "pad": [55, 59, 62, 66], "arp": [64, 67, 71, 74] },
+    { "name": "Cmaj7", "root": 36, "pad": [55, 59, 60, 64], "arp": [60, 64, 67, 71] },
+    { "name": "G6", "root": 43, "pad": [55, 59, 62, 64], "arp": [62, 67, 71, 76] },
+    { "name": "Dadd9", "root": 38, "pad": [54, 57, 62, 64], "arp": [62, 66, 69, 76] }
+  ],
+  "sections": [
+    { "name": "intro", "bars": 2, "layers": ["pad", "pluckSparse"] },
+    { "name": "a", "bars": 4, "layers": ["pad", "pluckSparse", "bass", "kickHalf", "hats"] },
+    { "name": "b", "bars": 4, "layers": ["pad", "pluck", "bass", "kickHalf", "hats", "snare"] },
+    { "name": "outro", "bars": 2, "layers": ["pad", "pluckSparse"] }
+  ],
+  "instruments": {
+    "pad": { "gainDb": -13, "attack": 1.0, "release": 2.0, "cutoff": 900, "q": 0.7, "detune": 0.09, "lfo": 0.08, "lfoDepth": 0.5, "send": 0.45 },
+    "pluck": {
+      "gainDb": -11, "t60": 1.6, "bright": 0.4, "dur": 1.2, "octave": 0, "spread": 0.3, "send": 0.4, "sparse": 0.4,
+      "patterns": [[0, -1, 2, -1, 1, -1, 3, -1], [0, -1, -1, 2, -1, 1, -1, -1], [0, 2, -1, 1, -1, 3, -1, -1]]
+    },
+    "bass": { "gainDb": -13, "drive": 1.8, "decay": 0.35, "cutoff": 380, "pattern": [1, 0, 0, 1, 0, 0, 1, 0] },
+    "hats": { "gainDb": -27, "freq": 7000, "dec": 0.03, "ghost": 0.2, "pan": -0.2, "send": 0.15 },
+    "kick": { "gainDb": -11, "f0": 110, "f1": 45, "fdec": 0.04, "adec": 0.2 },
+    "snare": { "gainDb": -20, "freq": 1700, "dec": 0.12, "send": 0.4 }
+  },
+  "reverb": { "room": 0.85, "damp": 0.55, "wet": 0.38, "width": 1, "predelay": 0.025 },
+  "master": { "rmsDb": -20, "peakDb": -3 }
+}

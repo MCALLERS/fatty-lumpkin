@@ -1,0 +1,1055 @@
+{
+  "schema": "flpt.style/1",
+  "id": "isometric",
+  "version": "1.0.0",
+  "name": "Isometric",
+  "line": "Calm product drawings in hairlines: white faces, one dark accent, springs.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": true,
+  "tags": {
+    "mood": [
+      "calm",
+      "precise"
+    ],
+    "look": [
+      "isometric",
+      "line art",
+      "white",
+      "product"
+    ],
+    "pace": "measured",
+    "use": [
+      "tech",
+      "product",
+      "systems",
+      "data"
+    ]
+  },
+  "tokens": {
+    "paper": "#FFFFFF",
+    "inks": [
+      "#A4A4AC",
+      "#E0E0E4",
+      "#5C5C64",
+      "#9A9AA2",
+      "#232327"
+    ],
+    "accent": "#232327",
+    "type": {
+      "display": "IBM Plex Sans",
+      "text": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "IBM Plex Sans",
+      "file": "fonts/IBMPlexSans-Light.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexSans.txt"
+    },
+    {
+      "family": "IBM Plex Sans",
+      "file": "fonts/IBMPlexSans-Regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexSans.txt"
+    },
+    {
+      "family": "IBM Plex Mono",
+      "file": "fonts/IBMPlexMono-Regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "drop",
+      "rise",
+      "wave",
+      "slide",
+      "hinge",
+      "hop",
+      "push",
+      "pull-back",
+      "morph",
+      "type-on"
+    ],
+    "pace": "measured",
+    "easing": "spring:settle"
+  },
+  "sound": {
+    "score": "drift-90",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 30
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.HAIR",
+      "kind": "value",
+      "params": [],
+      "doc": "the hairline width in px on the 1920x1080 frame (2.4), at any zoom"
+    },
+    {
+      "fn": "ctx.kit.ISO_VIEW",
+      "kind": "value",
+      "params": [],
+      "doc": "unit vector from the scene toward the viewer"
+    },
+    {
+      "fn": "ctx.kit.MONO",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for labels and tags (IBM Plex Mono)"
+    },
+    {
+      "fn": "ctx.kit.PAL",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette: paper, face, edge, inner, accent (one per frame), text, textD"
+    },
+    {
+      "fn": "ctx.kit.SANS",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for captions and display lines (IBM Plex Sans)"
+    },
+    {
+      "fn": "ctx.kit.ZK",
+      "kind": "value",
+      "params": [],
+      "doc": "z foreshortening relative to u (1.2247)"
+    },
+    {
+      "fn": "ctx.kit.accentDot",
+      "kind": "function",
+      "params": [
+        "fp",
+        "u",
+        "v",
+        "r"
+      ],
+      "doc": "the frame's one dark accent: a small dot on a face"
+    },
+    {
+      "fn": "ctx.kit.along",
+      "kind": "function",
+      "params": [
+        "P3",
+        "u"
+      ],
+      "doc": "the point at fraction u along a 3D polyline"
+    },
+    {
+      "fn": "ctx.kit.bars",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "vals",
+        "o"
+      ],
+      "doc": "a bar chart of columns rising in a wave; labels on the floor, accent on top"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "called by the runtime each frame (resets the palette and projection)"
+    },
+    {
+      "fn": "ctx.kit.blinkOn",
+      "kind": "function",
+      "params": [
+        "t",
+        "period",
+        "phase"
+      ],
+      "doc": "a lamp that toggles every half period"
+    },
+    {
+      "fn": "ctx.kit.blob",
+      "kind": "function",
+      "params": [
+        "P",
+        "c",
+        "o"
+      ],
+      "doc": "the morphing shape: a hairline slab filled from accent-dark to white"
+    },
+    {
+      "fn": "ctx.kit.block",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "nx",
+        "ny",
+        "nz",
+        "s",
+        "o"
+      ],
+      "doc": "a base-ten block: unit cubes as one solid with the grid on its faces"
+    },
+    {
+      "fn": "ctx.kit.boxFront",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "h"
+      ],
+      "doc": "the +y face of a box (u along x, v down)"
+    },
+    {
+      "fn": "ctx.kit.boxSide",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "h"
+      ],
+      "doc": "the +x face of a box (u along y, v down)"
+    },
+    {
+      "fn": "ctx.kit.boxTop",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "h"
+      ],
+      "doc": "the top face of a box (u along x, v along y)"
+    },
+    {
+      "fn": "ctx.kit.bridge",
+      "kind": "function",
+      "params": [
+        "A",
+        "B",
+        "u",
+        "ca",
+        "cb",
+        "o"
+      ],
+      "doc": "outline A becomes outline B as u goes 0 to 1"
+    },
+    {
+      "fn": "ctx.kit.bridgeAt",
+      "kind": "function",
+      "params": [
+        "tc",
+        "A",
+        "B",
+        "drawA",
+        "drawB",
+        "o"
+      ],
+      "doc": "the morph renderer at one bridge: shrink, morph, grow between two worlds"
+    },
+    {
+      "fn": "ctx.kit.caption",
+      "kind": "function",
+      "params": [
+        "str",
+        "o"
+      ],
+      "doc": "a centred sans line with a short rule above (screen space)"
+    },
+    {
+      "fn": "ctx.kit.card",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "o"
+      ],
+      "doc": "a card lying flat with hairline lines of text"
+    },
+    {
+      "fn": "ctx.kit.cubeBot",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "s",
+        "o"
+      ],
+      "doc": "the hero: a rounded cube-bot with dark eyes, an antenna, bob and hop"
+    },
+    {
+      "fn": "ctx.kit.curve3",
+      "kind": "function",
+      "params": [
+        "P3",
+        "steps"
+      ],
+      "doc": "a smooth 3D curve through control points"
+    },
+    {
+      "fn": "ctx.kit.drop",
+      "kind": "function",
+      "params": [
+        "t0",
+        "h",
+        "o"
+      ],
+      "doc": "the height still to fall at this frame (props drop in on a spring)"
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n",
+        "a0",
+        "a1"
+      ],
+      "doc": "points on an ellipse"
+    },
+    {
+      "fn": "ctx.kit.faceEll",
+      "kind": "function",
+      "params": [
+        "fp",
+        "u",
+        "v",
+        "rx",
+        "ry",
+        "o"
+      ],
+      "doc": "an ellipse on a face"
+    },
+    {
+      "fn": "ctx.kit.faceLine",
+      "kind": "function",
+      "params": [
+        "fp",
+        "P2",
+        "color",
+        "w"
+      ],
+      "doc": "a hairline on a face"
+    },
+    {
+      "fn": "ctx.kit.faceOf",
+      "kind": "function",
+      "params": [
+        "o",
+        "a",
+        "b"
+      ],
+      "doc": "a face: origin, right and down vectors; fp(u, v) gives a world point"
+    },
+    {
+      "fn": "ctx.kit.facePath",
+      "kind": "function",
+      "params": [
+        "fp",
+        "P2",
+        "closed"
+      ],
+      "doc": "a path of face points, projected"
+    },
+    {
+      "fn": "ctx.kit.facePts",
+      "kind": "function",
+      "params": [
+        "fp",
+        "P2"
+      ],
+      "doc": "a face outline projected to the screen (for bridges)"
+    },
+    {
+      "fn": "ctx.kit.faceRR",
+      "kind": "function",
+      "params": [
+        "fp",
+        "x",
+        "y",
+        "w",
+        "h",
+        "r",
+        "o"
+      ],
+      "doc": "a rounded rectangle on a face"
+    },
+    {
+      "fn": "ctx.kit.faceSlab",
+      "kind": "function",
+      "params": [
+        "fp",
+        "x",
+        "y",
+        "w",
+        "h",
+        "t",
+        "o"
+      ],
+      "doc": "a raised pill, key or button on a face"
+    },
+    {
+      "fn": "ctx.kit.getIso",
+      "kind": "function",
+      "params": [],
+      "doc": "the current projection"
+    },
+    {
+      "fn": "ctx.kit.ground",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "fill the frame with the ground colour; dark: true for the dark theme"
+    },
+    {
+      "fn": "ctx.kit.hair",
+      "kind": "function",
+      "params": [
+        "color",
+        "w"
+      ],
+      "doc": "set a hairline stroke: constant px whatever the camera zoom"
+    },
+    {
+      "fn": "ctx.kit.heroPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "s"
+      ],
+      "doc": "the cube-bot's silhouette, for bridges"
+    },
+    {
+      "fn": "ctx.kit.hull2",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "the convex hull of 2D points"
+    },
+    {
+      "fn": "ctx.kit.iso",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z"
+      ],
+      "doc": "project a world point (x right-down, y left-down, z up)"
+    },
+    {
+      "fn": "ctx.kit.isoBox",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "h",
+        "o"
+      ],
+      "doc": "a rounded box on the ground plane"
+    },
+    {
+      "fn": "ctx.kit.isoCable",
+      "kind": "function",
+      "params": [
+        "P3",
+        "o"
+      ],
+      "doc": "a cable: two hairlines with white between, through 3D points"
+    },
+    {
+      "fn": "ctx.kit.isoCyl",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "r",
+        "h",
+        "o"
+      ],
+      "doc": "an upright cylinder"
+    },
+    {
+      "fn": "ctx.kit.isoGrid",
+      "kind": "function",
+      "params": [
+        "nx",
+        "ny",
+        "fn"
+      ],
+      "doc": "walk a grid back to front (painter's order)"
+    },
+    {
+      "fn": "ctx.kit.isoMug",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "r",
+        "h",
+        "o"
+      ],
+      "doc": "a mug with a handle and steam"
+    },
+    {
+      "fn": "ctx.kit.isoP",
+      "kind": "function",
+      "params": [
+        "p"
+      ],
+      "doc": "project a world point given as an array"
+    },
+    {
+      "fn": "ctx.kit.isoPanelX",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "d",
+        "ht",
+        "t",
+        "o"
+      ],
+      "doc": "a panel standing in the y-z plane, facing lower right"
+    },
+    {
+      "fn": "ctx.kit.isoPanelY",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "ht",
+        "t",
+        "o"
+      ],
+      "doc": "a panel standing in the x-z plane, facing lower left"
+    },
+    {
+      "fn": "ctx.kit.isoPlant",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "s",
+        "o"
+      ],
+      "doc": "a potted plant with swaying leaves"
+    },
+    {
+      "fn": "ctx.kit.isoPlates",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "layers",
+        "o"
+      ],
+      "doc": "stacked plates, bottom up (a plinth); returns the top z"
+    },
+    {
+      "fn": "ctx.kit.isoSlab",
+      "kind": "function",
+      "params": [
+        "o",
+        "a",
+        "b",
+        "n",
+        "w",
+        "d",
+        "h",
+        "opt"
+      ],
+      "doc": "the one solid: a rounded rectangle extruded, white faces, hairline edges"
+    },
+    {
+      "fn": "ctx.kit.isoText",
+      "kind": "function",
+      "params": [
+        "fp",
+        "str",
+        "u",
+        "v",
+        "size",
+        "o"
+      ],
+      "doc": "text set into a face, skewed into its plane"
+    },
+    {
+      "fn": "ctx.kit.kCover",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "how far an outline must grow to cover the frame"
+    },
+    {
+      "fn": "ctx.kit.kick",
+      "kind": "function",
+      "params": [
+        "t",
+        "t0",
+        "o"
+      ],
+      "doc": "a damped kick from 0 (squash and sway)"
+    },
+    {
+      "fn": "ctx.kit.label",
+      "kind": "function",
+      "params": [
+        "p3",
+        "str",
+        "o"
+      ],
+      "doc": "a callout: a ring, a hairline leader and a mono label"
+    },
+    {
+      "fn": "ctx.kit.lamp",
+      "kind": "function",
+      "params": [
+        "fp",
+        "u",
+        "v",
+        "r",
+        "lit"
+      ],
+      "doc": "a small round lamp on a face: lit grey or an outline"
+    },
+    {
+      "fn": "ctx.kit.lane",
+      "kind": "function",
+      "params": [
+        "P3",
+        "o"
+      ],
+      "doc": "a light hairline route on the ground"
+    },
+    {
+      "fn": "ctx.kit.laptop",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "o"
+      ],
+      "doc": "a laptop: keys rising in a wave, a lid on a hinge, a screen callback"
+    },
+    {
+      "fn": "ctx.kit.laptopFaces",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "o"
+      ],
+      "doc": "the laptop's lid and deck faces without drawing it"
+    },
+    {
+      "fn": "ctx.kit.line",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "one line of type in the current coordinates; registers its box"
+    },
+    {
+      "fn": "ctx.kit.line3",
+      "kind": "function",
+      "params": [
+        "P3",
+        "color",
+        "w"
+      ],
+      "doc": "a hairline through 3D points"
+    },
+    {
+      "fn": "ctx.kit.lod",
+      "kind": "function",
+      "params": [
+        "px",
+        "a",
+        "b"
+      ],
+      "doc": "detail visibility 0..1 from a length on screen in px"
+    },
+    {
+      "fn": "ctx.kit.mark",
+      "kind": "function",
+      "params": [
+        "p3",
+        "o"
+      ],
+      "doc": "a focus ring round a world point"
+    },
+    {
+      "fn": "ctx.kit.mixHex",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "u"
+      ],
+      "doc": "mix two hex colours"
+    },
+    {
+      "fn": "ctx.kit.packet",
+      "kind": "function",
+      "params": [
+        "P3",
+        "u",
+        "s",
+        "o"
+      ],
+      "doc": "a small rounded cube at fraction u along a path"
+    },
+    {
+      "fn": "ctx.kit.phone",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "o"
+      ],
+      "doc": "a phone standing upright with a screen callback"
+    },
+    {
+      "fn": "ctx.kit.polyPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed"
+      ],
+      "doc": "a polyline path"
+    },
+    {
+      "fn": "ctx.kit.rack",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "o"
+      ],
+      "doc": "a server rack: blades that slide, glow and blink; its LED kept visible when far"
+    },
+    {
+      "fn": "ctx.kit.rackFaces",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "o"
+      ],
+      "doc": "a rack's blade faces without drawing it"
+    },
+    {
+      "fn": "ctx.kit.rrectPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r",
+        "n"
+      ],
+      "doc": "a rounded rectangle outline"
+    },
+    {
+      "fn": "ctx.kit.screenPts",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "points in the current coordinates, on screen"
+    },
+    {
+      "fn": "ctx.kit.seen",
+      "kind": "function",
+      "params": [
+        "len"
+      ],
+      "doc": "a world length in px on screen at the current zoom"
+    },
+    {
+      "fn": "ctx.kit.setIso",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "set the projection: origin ox, oy and u px per unit"
+    },
+    {
+      "fn": "ctx.kit.slabFace",
+      "kind": "function",
+      "params": [
+        "S",
+        "flipV"
+      ],
+      "doc": "the front face of a slab (v down)"
+    },
+    {
+      "fn": "ctx.kit.soft",
+      "kind": "function",
+      "params": [
+        "c",
+        "v"
+      ],
+      "doc": "a colour faded toward white by v (detail that thins)"
+    },
+    {
+      "fn": "ctx.kit.spring",
+      "kind": "function",
+      "params": [
+        "t",
+        "t0",
+        "o"
+      ],
+      "doc": "a closed-form spring from 0 to 1 starting at t0"
+    },
+    {
+      "fn": "ctx.kit.springTo",
+      "kind": "function",
+      "params": [
+        "t",
+        "t0",
+        "a",
+        "b",
+        "o"
+      ],
+      "doc": "a spring from a to b"
+    },
+    {
+      "fn": "ctx.kit.subIso",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "k"
+      ],
+      "doc": "a sub-world: a point becomes the origin at k units per sub-unit"
+    },
+    {
+      "fn": "ctx.kit.tag",
+      "kind": "function",
+      "params": [
+        "num",
+        "label",
+        "o"
+      ],
+      "doc": "a figure tag in mono at the top left: number, rule, label"
+    },
+    {
+      "fn": "ctx.kit.textW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "o"
+      ],
+      "doc": "the width of a line of type"
+    },
+    {
+      "fn": "ctx.kit.theme",
+      "kind": "function",
+      "params": [
+        "name"
+      ],
+      "doc": "the light or dark palette for this frame"
+    },
+    {
+      "fn": "ctx.kit.through",
+      "kind": "function",
+      "params": [
+        "P",
+        "k",
+        "draw"
+      ],
+      "doc": "a world seen through a grown outline (a window)"
+    },
+    {
+      "fn": "ctx.kit.title",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a display line in screen space, rising on a spring"
+    },
+    {
+      "fn": "ctx.kit.toScreen",
+      "kind": "function",
+      "params": [
+        "x",
+        "y"
+      ],
+      "doc": "where a point in the current coordinates lands on screen"
+    },
+    {
+      "fn": "ctx.kit.tower",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "z",
+        "w",
+        "d",
+        "h",
+        "o"
+      ],
+      "doc": "a tower: lamp windows on its visible faces, a roof (step, tank or mast)"
+    },
+    {
+      "fn": "ctx.kit.vadd",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "vector add"
+    },
+    {
+      "fn": "ctx.kit.vcross",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "vector cross product"
+    },
+    {
+      "fn": "ctx.kit.vdot",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "vector dot product"
+    },
+    {
+      "fn": "ctx.kit.vsc",
+      "kind": "function",
+      "params": [
+        "a",
+        "k"
+      ],
+      "doc": "vector scale"
+    },
+    {
+      "fn": "ctx.kit.vsub",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "vector subtract"
+    },
+    {
+      "fn": "ctx.kit.wave",
+      "kind": "function",
+      "params": [
+        "t0",
+        "i",
+        "j",
+        "step"
+      ],
+      "doc": "the start time of part (i, j) in a diagonal wave"
+    },
+    {
+      "fn": "ctx.kit.zoomNow",
+      "kind": "function",
+      "params": [],
+      "doc": "the camera's current zoom (the preview scale excluded)"
+    }
+  ],
+  "hashes": {
+    "kit.js": "sha256:ce90242d76122f24a935b98c143182b1f9ab4441476ff20d5e6d1ecc93c2c791",
+    "STYLE.md": "sha256:39914252407265c2da9eeec772829adcb580cdda080d51f2e2e9afcf74f50da2",
+    "starter/scene.js": "sha256:245e1871c02f5f713a112a33a23b5172e63904a27b48fc5b54e5f3f7c9d517e5"
+  }
+}

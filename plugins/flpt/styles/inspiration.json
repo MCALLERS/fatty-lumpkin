@@ -1,0 +1,66 @@
+{
+  "schema": "flpt.inspiration/1",
+  "checked": "2026-10-22",
+  "links": [
+    {
+      "id": "gsap-demos",
+      "name": "GSAP Demo Hub",
+      "url": "https://demos.gsap.com/",
+      "blurb": "Text, SVG and scroll moves, each with its code.",
+      "detail": "Splits, draws, morphs and scroll effects from the GSAP team. Free.",
+      "tags": ["code", "technique"],
+      "access": "free",
+      "capture": true
+    },
+    {
+      "id": "codrops",
+      "name": "Codrops Creative Hub",
+      "url": "https://tympanus.net/codrops/hub/",
+      "blurb": "1,000+ open-source WebGL, shader and type demos.",
+      "detail": "The Creative Hub, Motion Highlights roundups and tutorials. Free.",
+      "tags": ["code", "webgl", "type"],
+      "access": "free",
+      "capture": false
+    },
+    {
+      "id": "hyperframes-launches",
+      "name": "HyperFrames launch films",
+      "url": "https://github.com/heygen-com/hyperframes-launches",
+      "blurb": "Launch videos built in HTML, on our render engine.",
+      "detail": "HeyGen's own films, open source: every look here is within reach.",
+      "tags": ["code", "films"],
+      "access": "free",
+      "capture": true
+    },
+    {
+      "id": "skillry-video",
+      "name": "Skillry video skills",
+      "url": "https://skillry.dev/skills/output/video",
+      "blurb": "Named motion styles as agent skills.",
+      "detail": "Launch films and stings, mostly HyperFrames. Previews free; skills mostly paid.",
+      "tags": ["styles", "films"],
+      "access": "freemium",
+      "capture": true
+    },
+    {
+      "id": "recent-launch-videos",
+      "name": "Recent launch videos",
+      "url": "https://recent.design/launch-videos",
+      "blurb": "The best-paced launch films, hand-picked.",
+      "detail": "Claude, Cursor, Ramp, Apple and more. Formerly Godly. Free.",
+      "tags": ["films", "pacing"],
+      "access": "free",
+      "capture": true
+    },
+    {
+      "id": "savee",
+      "name": "Savee",
+      "url": "https://savee.com/",
+      "blurb": "Designer-picked stills and clips, by colour or tag.",
+      "detail": "Palette, type and layout references. Free to join; more with Pro.",
+      "tags": ["stills", "palette", "taste"],
+      "access": "freemium",
+      "capture": false
+    }
+  ]
+}

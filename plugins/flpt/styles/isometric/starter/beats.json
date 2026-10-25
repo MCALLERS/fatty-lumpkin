@@ -1,0 +1,14 @@
+{
+  "style": "isometric",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "arrive", "t": 0.6, "end": 1.0 },
+    { "name": "rise", "t": 1.0, "end": 2.2 },
+    { "name": "card", "t": 1.9, "end": 2.4 },
+    { "name": "peak", "t": 3.1, "end": 3.8 },
+    { "name": "focus", "t": 5.0, "end": 5.9 },
+    { "name": "hop", "t": 6.3, "end": 6.7 }
+  ]
+}

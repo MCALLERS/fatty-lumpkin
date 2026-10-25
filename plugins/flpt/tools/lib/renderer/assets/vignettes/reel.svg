@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<title>Reel</title>
+<defs><filter id="ink" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="3" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+<style>.i{fill:none;stroke:#1C1A15;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.t{stroke-width:1.5}.w{fill:#1C1A15;opacity:.1}@media (prefers-color-scheme:dark){.i{stroke:#EEE8DA}.w{fill:#EEE8DA}}</style>
+<g filter="url(#ink)">
+<path class="w" d="M138 128l46 30-10 16-46-30z"/>
+<g class="i">
+<circle cx="86" cy="88" r="58"/>
+<circle class="t" cx="86" cy="88" r="52"/>
+<circle cx="86" cy="88" r="9"/>
+<circle cx="86" cy="56" r="13"/><circle cx="116" cy="78" r="13"/><circle cx="105" cy="114" r="13"/><circle cx="67" cy="114" r="13"/><circle cx="56" cy="78" r="13"/>
+<path d="M133 122l53 34M124 137l52 34"/>
+<path class="t" d="M136 130l-4 6M146 136l-4 6M156 143l-4 6M166 149l-4 6M176 156l-4 6"/>
+</g>
+</g>
+</svg>

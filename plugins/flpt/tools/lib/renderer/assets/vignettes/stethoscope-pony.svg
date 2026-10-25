@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<title>Stethoscope pony</title>
+<defs>
+<filter id="ink" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="19" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G"/></filter>
+<path id="head" d="M126 42C146 60 160 90 166 124S172 162 172 186H120C118 166 116 146 114 128S112 112 116 104C106 120 92 132 78 138S62 138 58 134 54 124 58 118C66 104 74 90 82 76S100 52 110 46z"/>
+</defs>
+<style>.i{fill:none;stroke:#1C1A15;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.t{stroke-width:1.5}.w{fill:#1C1A15;opacity:.1}.f{fill:#1C1A15}@media (prefers-color-scheme:dark){.i{stroke:#EEE8DA}.w,.f{fill:#EEE8DA}}</style>
+<g filter="url(#ink)">
+<use href="#head" class="w"/>
+<g class="i">
+<path d="M126 42C146 60 160 90 166 124S172 162 172 186M120 186C118 166 116 146 114 128S112 112 116 104C106 120 92 132 78 138S62 138 58 134 54 124 58 118C66 104 74 90 82 76S100 52 110 46"/>
+<path d="M110 46c-4-10-4-20-2-30 8 6 14 14 18 26M120 38l4-16 6 14"/>
+<path class="t" d="M116 104c-12-6-18-18-12-30"/>
+<path class="t" d="M90 70c3-4 9-4 12 0-3 3-9 3-12 0z"/>
+<path class="t" d="M62 120c3-4 8-3 8 2M60 131c4 3 9 3 13 0"/>
+<path d="M118 44c-6 6-14 10-22 10 4-4 6-8 6-12M122 46c-4 8-10 14-18 16"/>
+<path class="t" d="M130 48c8 10 12 22 14 36M136 62c6 12 10 24 12 38M142 80c6 12 10 26 12 40M148 102c4 12 8 26 10 40"/>
+<path d="M171 116c-12 18-32 32-55 38"/>
+<path d="M171 116c4-4 8-4 12-2M183 114c3 6 4 12 3 18M183 114c-1 6-2 12-4 18"/>
+<path d="M116 154c-8 4-12 12-10 20"/>
+<path d="M107 174c-6 0-10 4-10 9s4 9 10 9 10-4 10-9-4-9-10-9z"/>
+</g>
+<circle class="f" cx="96" cy="70" r="2"/>
+<circle class="f" cx="186" cy="134" r="2.6"/><circle class="f" cx="179" cy="134" r="2.6"/>
+<circle class="f" cx="107" cy="183" r="3.4"/>
+</g>
+</svg>

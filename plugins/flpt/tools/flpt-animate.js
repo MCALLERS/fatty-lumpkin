@@ -10,10 +10,14 @@
 //   render    the preview, checked
 //   compare   the last frame beside the approved slide picture
 //   done      the animation is finished: rendered if need be, compared, and recorded as the crew's
+// On a Mac every command runs inside macOS's sandbox (Seatbelt, as the app's animators do: no network, writes only in
+// the slide's folder and the temporary folders, keys.env unreadable), on the pinned HyperFrames (the Mac app's, else
+// HyperFrames 0.8.80 fetched once by npx outside the sandbox). Elsewhere there's no sandbox, and each answer says so.
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const { ROOT, app, places, tools, episodeDir, toolEnv, cli, usageError, main, say } = require('./common');
+const { ROOT, app, places, tools, episodeDir, cli, usageError, main, say, pluginHome } = require('./common');
+const { liveEnv, hyperframes, fetchHyperframes, HF_VERSION } = require('./flpt-scene');
 
 const USAGE = `
 Usage: flpt-animate <command> [<episode>] --slide <n> [options]
@@ -45,20 +49,27 @@ main(async () => {
   const pythonFor = path.join(dir, 'presentation', 'video', '.venv', 'bin', 'python');
   const probe = (file) => new Promise((resolve, reject) => execFile(t.ffprobe || 'ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', file],
     { timeout: 30000, maxBuffer: 8 << 20 }, (err, out) => (err ? reject(err) : resolve(JSON.parse(String(out))))));
-  const env = { ...toolEnv(), HOME: process.env.HOME, USER: process.env.USER, LANG: 'en_US.UTF-8', TMPDIR: process.env.TMPDIR, DO_NOT_TRACK: '1', HYPERFRAMES_NO_TELEMETRY: '1' };
+  const sandboxed = app('sandbox').available();
+  // inside the sandbox nothing reaches the network, so the commands that render use the pinned copy (fetched once,
+  // outside, if need be)
+  const renders = ['snapshot', 'render', 'done'].includes(cmd);
+  const hf = renders && sandboxed ? fetchHyperframes() : hyperframes();
+  if (sandboxed && renders && !hf) throw new Error(`HyperFrames ${HF_VERSION} isn't on this Mac and couldn't be fetched: try again online, or open the Mac app's Setup once.`);
+  const env = liveEnv();
   const kit = animators.makeTools(dir, slide, ROOT, {
-    exec: animators.createExec({ env, sandboxed: false }), probe, node: process.execPath, ffmpeg: t.ffmpeg || 'ffmpeg',
-    python: fs.existsSync(pythonFor) ? pythonFor : t.python, hyperframes: ['npx', '-y', 'hyperframes@0.8.80'],
-    fontCacheDir: path.join(places().config, 'deck-fonts'),
+    exec: animators.createExec({ env, hidden: [places().config], sandboxed }), probe, node: process.execPath, ffmpeg: t.ffmpeg || 'ffmpeg',
+    python: fs.existsSync(pythonFor) ? pythonFor : t.python, hyperframes: hf ? hf.cli : ['npx', '-y', 'hyperframes@0.8.80'],
+    fontCacheDir: path.join(pluginHome(), 'deck-fonts'),
   });
+  const note = sandboxed ? '' : '\n(Not sandboxed: macOS\'s sandbox isn\'t available here.)';
   const at = String(values.at || '').split(',').filter(Boolean).map(Number);
-  if (cmd === 'start') say(await kit.start({ from: values.from || 'deck', fresh: Boolean(values.fresh) }));
-  if (cmd === 'picture') say(await kit.usePicture({ path: picture }));
-  if (cmd === 'timing') say(await kit.timing());
-  if (cmd === 'align') say(await kit.align());
-  if (cmd === 'snapshot') say(await kit.snapshot({ at }));
-  if (cmd === 'render') say(await kit.render({ at }));
-  if (cmd === 'compare') say(await kit.compare());
+  if (cmd === 'start') say(await kit.start({ from: values.from || 'deck', fresh: Boolean(values.fresh) }) + note);
+  if (cmd === 'picture') say(await kit.usePicture({ path: picture }) + note);
+  if (cmd === 'timing') say(await kit.timing() + note);
+  if (cmd === 'align') say(await kit.align() + note);
+  if (cmd === 'snapshot') say(await kit.snapshot({ at }) + note);
+  if (cmd === 'render') say(await kit.render({ at }) + note);
+  if (cmd === 'compare') say(await kit.compare() + note);
   if (cmd === 'done') {
     const r = await animators.finish(dir, slide, { ok: true }, kit, probe);
     if (!r.ok) throw new Error(r.error);

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: flpt:; media-src flpt:; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none';">
+<title>Fatty Lumpkin Clippy</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="clippy.css">
+<script src="fx-boot.js"></script>
+</head>
+<body class="clippy">
+<div class="titlebar" aria-hidden="true"></div>
+
+<header class="cl-head">
+  <img class="brand-mark" src="assets/pony-mark.png" alt="" width="40" height="40">
+  <h1 class="brand-name">Fatty Lumpkin <em>Clippy</em></h1>
+</header>
+
+<main class="cl-main">
+  <form id="clip-form" novalidate autocomplete="off">
+    <label class="cl-field">Link
+      <input id="f-url" type="url" placeholder="https://www.youtube.com/watch?v=…" spellcheck="false" maxlength="2000">
+      <span class="cl-err" id="e-url"></span>
+    </label>
+    <label class="cl-field">Title
+      <input id="f-title" type="text" placeholder="More cowbell" maxlength="300">
+    </label>
+    <div class="cl-times">
+      <label class="cl-field">Start
+        <input id="f-start" type="text" placeholder="1:51" inputmode="decimal" spellcheck="false" maxlength="24">
+        <span class="cl-err" id="e-start"></span>
+      </label>
+      <label class="cl-field">End
+        <input id="f-end" type="text" placeholder="2:09" inputmode="decimal" spellcheck="false" maxlength="24">
+        <span class="cl-err" id="e-end"></span>
+      </label>
+      <span class="cl-len" id="f-len" aria-live="polite"></span>
+    </div>
+    <p class="cl-warn" id="f-warn" hidden></p>
+
+    <details class="cl-more" id="cl-more">
+      <summary>More</summary>
+      <label class="cl-field">Tags
+        <input id="f-tags" type="text" placeholder="snl, cowbell" maxlength="1000" spellcheck="false">
+      </label>
+      <label class="cl-field">Notes
+        <textarea id="f-notes" rows="2" maxlength="20000"></textarea>
+      </label>
+      <label class="cl-check"><input id="f-wav" type="checkbox"> Also save the sound as WAV</label>
+      <p class="cl-tool" id="cl-tool"></p>
+    </details>
+
+    <p class="cl-error" id="cl-error" role="alert" hidden></p>
+
+    <div class="cl-go" id="cl-go">
+      <button class="primary" id="clip-btn" type="submit">Clip it</button>
+    </div>
+
+    <div class="cl-progress" id="cl-progress" hidden>
+      <div class="cl-progress-row"><span id="cl-step">Reading the video…</span><button type="button" class="linkish" id="cl-stop">Stop</button></div>
+      <progress id="cl-bar" max="100"></progress>
+    </div>
+
+    <div class="cl-missing" id="cl-missing" hidden>
+      <p><strong>Clippy needs yt-dlp.</strong></p>
+      <div class="cl-missing-actions">
+        <button type="button" class="primary" id="m-install">Install it</button>
+        <button type="button" id="m-choose">Choose…</button>
+      </div>
+      <p class="muted" id="m-note">Or in Terminal: <code>brew install yt-dlp</code></p>
+    </div>
+
+    <p class="cl-rights">Brief moments only, credited to their source.</p>
+    <p class="cl-details"><button type="button" class="linkish" id="cl-log-btn" aria-expanded="false" aria-controls="cl-log" hidden>Details</button></p>
+    <pre class="cl-log" id="cl-log" hidden></pre>
+  </form>
+
+  <section class="cl-result" id="cl-result" hidden aria-live="polite">
+    <div class="cl-r-thumb"><img id="r-thumb" alt=""></div>
+    <p class="cl-r-title" id="r-title"></p>
+    <p class="cl-r-meta" id="r-meta"></p>
+    <div class="cl-r-actions">
+      <button type="button" class="primary" id="r-show">Show in Library</button>
+      <button type="button" id="r-again">Clip another</button>
+    </div>
+  </section>
+</main>
+
+<script src="clippy.js"></script>
+</body>
+</html>

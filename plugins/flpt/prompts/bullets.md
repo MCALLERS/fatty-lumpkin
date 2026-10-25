@@ -22,7 +22,7 @@ You shape the user's idea, notes or script into the **bullets** for a {{minutes}
    - what could be
    - why it matters to this audience
    - what to do
-4. **Plan a module for each slide** (playbook Part 1). The seven modules are:
+4. **Plan a module for each slide** (playbook Part 1). The nine modules are:
    - live charts
    - hand-drawn charts and figures (the whiteboard sketch)
    - motion graphics
@@ -30,15 +30,19 @@ You shape the user's idea, notes or script into the **bullets** for a {{minutes}
    - video insets
    - infographics
    - cinematic cut scenes
+   - **Motion Solo** (new, Live Motion): one idea that moves, drawn live in code full frame, in the presenter's voice alone (the bubble hidden)
+   - **Motion Duet** (new, Live Motion): the same, calmer, with the presenter beside it
 
-   **By default, use all seven at least once.** It shows what FLPT can do. Skip a module only when the brief or the user's notes say so, or when the talk is too short to fit all seven (then use as many as fit). Across the talk:
+   **By default, use all nine at least once.** It shows what FLPT can do. Skip a module only when the brief or the user's notes say so, or when the talk is too short to fit them all (then use as many as fit). The storyboard after the fact-check turns these slides into shots and balances the plan, so name the module you mean on each slide's `Module:` line. Across the talk:
    - **A live chart:** real data, with its source.
    - **A hand-drawn chart or figure:** a concrete everyday metaphor for the most abstract idea.
    - **A motion-graphics build.**
    - **A Cosmos cartoon:** find the backstory worth telling (a person, a moment in history, an origin) and make it a vignette.
    - **A video inset:** a film or TV moment, or the user's own clip, that lands a point. The user supplies the clip.
    - **An infographic.**
-   - **A cut scene:** a script line worth a short cinematic beat.
+   - **A cut scene:** a script line worth a short cinematic beat. It plays between two slides: name it on the `Module:` line of the slide it follows ("then a cut scene: …").
+   - **A Motion Solo:** a mechanism, a loop, a split, a crack, something that grows or flows, told in 20–60 s. Never a data chart.
+   - **A Motion Duet:** the same kind of idea, with the presenter beside it.
    - **At least one statement slide.**
 
 ## Write `bullets.md` exactly like this
@@ -51,7 +55,7 @@ You shape the user's idea, notes or script into the **bullets** for a {{minutes}
 ## Slide 1 — <title that says something (a claim or a sharp phrase), not a label>
 - <bullet: one idea the presenter would say; 8–18 words>
 - <2–5 bullets per slide>
-Module: <one of the seven, and what it shows, e.g. "Live chart: bar, adoption by year, source X 2025">
+Module: <one of the nine, and what it shows, e.g. "Live chart: bar, adoption by year, source X 2025" or "Motion Solo: the flywheel spins up, then cracks">
 
 ## Slide 2 — …
 

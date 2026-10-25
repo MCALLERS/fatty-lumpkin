@@ -1,0 +1,19 @@
+{
+  "style": "math",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "eq", "t": 0.2 },
+    { "name": "sides", "t": 0.5 },
+    { "name": "squares", "t": 1.0 },
+    { "name": "cells", "t": 1.6 },
+    { "name": "sum", "t": 1.9 },
+    { "name": "flash", "t": 2.5 },
+    { "name": "morph", "t": 3.2 },
+    { "name": "transform", "t": 4.4 },
+    { "name": "live", "t": 4.9 },
+    { "name": "sweep", "t": 5.2 },
+    { "name": "flash2", "t": 6.8 }
+  ]
+}

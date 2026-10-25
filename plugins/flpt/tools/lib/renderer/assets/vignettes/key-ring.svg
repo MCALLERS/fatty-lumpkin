@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<title>Key ring</title>
+<defs>
+<filter id="ink" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="5" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/></filter>
+<g id="key"><path d="M0 0c-8 0-13 6-13 13s5 13 13 13 13-6 13-13S8 0 0 0z"/><path class="t" d="M0 6c-4 0-7 3-7 7s3 7 7 7 7-3 7-7-3-7-7-7z"/><path d="M0 26v66M0 70h10v6H5v5h6v7H0"/><path class="t" d="M-3 32h6M-3 37h6"/></g>
+</defs>
+<style>.i{fill:none;stroke:#1C1A15;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}.t{stroke-width:1.5}@media (prefers-color-scheme:dark){.i{stroke:#EEE8DA}}</style>
+<g filter="url(#ink)" class="i">
+<circle cx="100" cy="48" r="28"/>
+<path class="t" d="M78 33c7-8 17-11 27-9"/>
+<use href="#key" transform="translate(88 64) rotate(38) scale(.86)"/>
+<use href="#key" transform="translate(100 67)"/>
+<use href="#key" transform="translate(113 63) rotate(-40) scale(.8)"/>
+</g>
+</svg>

@@ -1,0 +1,45 @@
+/* The renderer shell (W1-05): the top bar's right-hand group (views, the topbar slot, Pause motion), the slots that
+   live outside every rebuild (ribbon, the anchored Stage), Setup's About step and the ⚑ trust lines. On tokens.css. */
+
+/* ── the top bar: views · topbar slot (other screens' buttons) · Pause motion ── */
+.topbar-end { display: flex; align-items: center; gap: 10px; }
+.topbar-end .slot, .motion-toggle { -webkit-app-region: no-drag; }
+.slot[data-slot="topbar"] { display: flex; align-items: center; gap: 4px; }
+/* the slot's own buttons (the Gallery's ◱) wear Pause motion's shape: one quiet row of round icons */
+.slot[data-slot="topbar"] > button { width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid transparent; background: transparent; color: var(--ink-2); font-size: var(--fs-body); line-height: 1; }
+.slot[data-slot="topbar"] > button:hover:not(:disabled) { color: var(--ink); border-color: var(--rule); background: transparent; }
+.slot[data-slot="topbar"]:empty { display: none; }
+.motion-toggle {
+  width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid transparent; background: transparent;
+  color: var(--ink-2); font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: 0; cursor: pointer;
+  transition: background var(--d-2) var(--ease), color var(--d-2) var(--ease), border-color var(--d-2) var(--ease);
+}
+.motion-toggle:hover { color: var(--ink); border-color: var(--rule); }
+.motion-toggle[aria-pressed="true"] { color: var(--ink); background: var(--paper-2); border-color: var(--rule); }
+.motion-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.motion-note { font-size: var(--fs-small); max-width: 28ch; }
+.motion-note:empty { display: none; }
+
+/* ── the episode view: the ribbon slot above the panel, outside #episode-main ── */
+.episode-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.episode-col > main { flex: 1 1 auto; min-height: 0; }
+.slot[data-slot="ribbon"]:empty { display: none; }
+
+/* ── anchored slots (the Stage): over their anchor, never inside a panel ──
+   Stacking, low to high: the panels · the slot layer (5) · the job log (6) · the Library's menus (20) and drop
+   zone (30) · dialogs (the top layer). A native view drawn over the window (the Mac's Stage, W1-14) sits above all of
+   these, so it hides or clips itself where the log or a dialog overlaps it. */
+.slot-layer { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+.log { z-index: 6; }
+.slot-layer > .slot { position: absolute; pointer-events: auto; overflow: hidden; }
+.slot-anchor { display: block; width: 100%; aspect-ratio: 16 / 9; }
+
+/* ── Setup ── */
+.steps .extra .dot { visibility: hidden; }
+.screen[data-name="about"] .cc-note { margin-top: 16px; }
+
+/* ── ⚑ trust lines ── */
+.trust { color: var(--ink-2); margin: 0 0 20px; }
+
+/* ── Pause motion: the running-stage spinner holds, as it does under reduced motion ── */
+html.fx-paused .st-running .dot { animation: none; border-top-color: var(--navy); }

@@ -1,0 +1,59 @@
+/* Fatty Lumpkin Clippy: a small, quiet window. Builds on styles.css (tokens, buttons, dark mode). */
+body.clippy { overflow-y: auto; }
+.cl-head { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 38px 24px 6px; -webkit-app-region: drag; }
+.cl-head .brand-mark { border-radius: 50%; box-shadow: 0 0 0 2px var(--gold); }
+.cl-head h1.brand-name { font: 600 var(--fs-lead)/1.2 var(--font-display); margin: 0; }
+main.cl-main { max-width: 460px; margin: 0 auto; padding: 18px 32px 28px; overflow: visible; }
+
+.cl-field { display: grid; gap: 5px; margin: 0 0 14px; font-size: var(--fs-small); font-weight: 600; color: var(--ink-2); }
+.clippy input[type="url"], .clippy input[type="text"], .clippy textarea {
+  font: var(--fs-body) var(--font-ui); width: 100%; padding: 9px 11px; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--card); color: var(--ink); }
+.clippy textarea { resize: vertical; line-height: 1.45; }
+.clippy input:focus-visible, .clippy textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.clippy input[aria-invalid="true"] { border-color: var(--red); }
+.clippy input:disabled, .clippy textarea:disabled { opacity: .6; }
+.cl-err { color: var(--red); font-weight: 500; font-size: var(--fs-small); }
+.cl-err:empty { display: none; }
+
+.cl-times { display: grid; grid-template-columns: 1fr 1fr 52px; gap: 12px; align-items: start; }
+.cl-times .cl-field { margin-bottom: 10px; }
+.cl-len { padding-top: 30px; font-size: var(--fs-small); color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; }
+.cl-warn { margin: 0 0 12px; font-size: var(--fs-small); color: var(--gold-ink); }
+
+details.cl-more { margin: 4px 0 16px; }
+details.cl-more summary { cursor: pointer; width: max-content; font-size: var(--fs-small); color: var(--ink-2); padding: 2px 0; list-style: none; }
+details.cl-more summary::-webkit-details-marker { display: none; }
+details.cl-more summary::before { content: '›'; display: inline-block; width: 14px; transition: transform var(--d-1); }
+details.cl-more[open] summary::before { transform: rotate(90deg); }
+details.cl-more[open] summary { margin-bottom: 12px; }
+.cl-check { display: flex; gap: 8px; align-items: center; font-size: var(--fs-small); color: var(--ink); margin: 0 0 6px; }
+.cl-tool { margin: 10px 0 0; font-size: var(--fs-small); color: var(--ink-2); }
+.cl-tool:empty { display: none; }
+
+.cl-error { margin: 0 0 12px; font-size: var(--fs-small); color: var(--red); }
+.cl-go button { width: 100%; padding: 11px 16px; font-size: var(--fs-body); }
+.cl-progress { padding: 4px 0 2px; }
+.cl-progress-row { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-small); color: var(--ink-2); margin-bottom: 9px; }
+.cl-progress progress { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 3px; border: 0; border-radius: 2px; overflow: hidden; background: var(--rule); }
+.cl-progress progress::-webkit-progress-bar { background: var(--rule); }
+.cl-progress progress::-webkit-progress-value { background: var(--navy); transition: width var(--d-2) var(--ease); }
+.cl-progress progress:indeterminate { background: linear-gradient(90deg, var(--rule) 0 30%, var(--navy) 50%, var(--rule) 70% 100%); background-size: 300% 100%; animation: cl-slide var(--d-5) linear infinite; }
+.cl-progress progress:indeterminate::-webkit-progress-bar { background: transparent; }
+@keyframes cl-slide { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .cl-progress progress:indeterminate { animation: none; } }
+
+.cl-missing { border: 1px solid var(--gold); border-radius: var(--r-2); padding: 12px 16px; background: var(--card); }
+.cl-missing p { margin: 0 0 10px; }
+.cl-missing p:last-child { margin: 10px 0 0; }
+.cl-missing-actions { display: flex; gap: 8px; }
+
+.cl-rights { margin: 14px 0 0; text-align: center; font-size: var(--fs-small); color: var(--ink-2); }
+.cl-details { margin: 6px 0 0; text-align: center; font-size: var(--fs-small); }
+.cl-details .linkish { color: var(--ink-2); font-size: var(--fs-small); }
+.cl-log { margin: 8px 0 0; max-height: 170px; overflow: auto; padding: 8px 10px; border-radius: var(--r-2); background: var(--paper-2); color: var(--ink-2); font: var(--fs-small)/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.cl-result { text-align: center; padding-top: 4px; }
+.cl-r-thumb img { max-width: 100%; max-height: 230px; border-radius: var(--r-2); display: block; margin: 0 auto; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.cl-r-title { font: 600 var(--fs-lead)/1.25 var(--font-display); margin: 16px 0 4px; }
+.cl-r-meta { margin: 0 0 18px; font-size: var(--fs-small); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cl-r-actions { display: flex; gap: 10px; justify-content: center; }

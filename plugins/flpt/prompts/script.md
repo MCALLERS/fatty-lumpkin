@@ -4,7 +4,7 @@ You write the narration for "{{title}}". The presenter's AI avatar will speak it
 
 **Read first:**
 - `brief.md` and `bullets.md`
-- the deck: `deck/project/deck.json`, the slide files (titles and what each slide shows), and `deck/project/modules.json` (each slide's module, its builds, and the briefs in `deck/project/briefs/`)
+- the deck: `deck/project/deck.json`, the slide files (titles and what each slide shows), and `deck/project/modules.json` (each slide's module, its builds, its scene plan, and the briefs in `deck/project/briefs/`)
 - `{{unscripted}}/SKILL.md`: the voice. Use natural mode at roughness 3 unless the brief asks otherwise.
 - `{{skill}}/references/tts-tags.md`: delivery tags
 - `{{skill}}/references/3-deck-and-script.md`: script format
@@ -24,6 +24,12 @@ You write the narration for "{{title}}". The presenter's AI avatar will speak it
 ## SLIDE 2 — …
 ```
 - One `## SLIDE n — Title` per deck slide, in deck order, with the slide's exact title. Lines starting with `>` are never spoken.
+- Scenes between slides (a Solo ♪ in `jsscenes`, a cut scene) have no narration and no heading: the slide before one ends on a complete thought.
+
+## The plan
+The storyboard's seconds per shot are where each slide's length starts (≈ 150 words a minute); a Live Motion scene's narration is what sets its length.
+
+{{storyboard}}
 
 ## The voice
 **Write from the bullets' facts, not from polished prose.** Riff each slide as if talking to three colleagues while looking at it. The texture:
@@ -55,9 +61,11 @@ At most one memorable line per slide, said plainly.
 
 **Length:** about {{words}} words in total, about 100–115 words for a 35–40 s slide. Dense data slides run shorter, story slides longer.
 
-**Modules:** a slide's stage note names its module. Write the narration to fit it:
+**Modules:** a slide's stage note names its module. Write the narration to fit it, and **say every cue word for word, in order**: each change on screen lands on its words.
 - **Motion slides:** say the words its builds are cued on, in that order.
-- **A Cosmos cartoon:** its narration is the vignette's (40–70 s, the bubble hidden). Say each beat's `cue` from its `cartoon` in modules.json, word for word, in order: each keyframe appears on its words. The stage note says `> Cosmos-style cartoon, narrated, bubble hidden.`
+- **A Motion Solo:** the scene carries the talk, full frame, the bubble hidden (the voice alone). 20–60 s of narration, one idea told as it moves. Say each beat's `cue` from its `scene` in modules.json, in order, and leave a beat of air after the hero's. The stage note says `> Motion Solo, narrated, bubble hidden.`
+- **A Motion Duet:** the presenter talks beside the scene, calmer than a Solo. Say each beat's `cue` from its `scene`, in order. The stage note says `> Motion Duet.`
+- **A Cosmos cartoon:** its narration is the vignette's (40–70 s, the bubble hidden). Say each beat's `cue` from its `cartoon` in modules.json (or its `scene`, when it's drawn in code), word for word, in order: each keyframe appears on its words. The stage note says `> Cosmos-style cartoon, narrated, bubble hidden.`
 - **A video inset:** leave room for the clip, and say its cue (the inset's `cue` in modules.json), word for word: the clip starts on those words.
 
 **Punctuation:** if a slide has a clip slot, B-roll payoff or interruption, mark it in a stage note:

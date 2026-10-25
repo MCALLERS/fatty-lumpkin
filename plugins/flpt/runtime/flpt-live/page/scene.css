@@ -1,0 +1,5 @@
+html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+#slide { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+#stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: block; }
+#dom { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; }
+#dom > * { position: absolute; }

@@ -6,6 +6,10 @@
 // ledger. Spending past the cap needs a new approval. Paid work so far: the optional setup sample, filming, the crew's
 // planning budget, generated media (generate.js: B-roll on Kie.ai or Higgsfield, one approval per job), and Scribe's
 // transcription for cutting laughs (Refine's tightening, flow.js).
+//
+// A hard cap (T21): a capped call reserves its whole cap first and is settled to its real cost after, and a cost above
+// the reservation is booked too (never dropped), so spending can pass the cap only by one call's overshoot, and then no
+// new reservation starts. A Claude session runs at sessionCap() of what it reserved (the SDK checks between turns).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -57,6 +61,22 @@ function estimate(items) {
   return { lines, byProvider, totalUsd: +lines.reduce((a, l) => a + (l.usd || 0), 0).toFixed(2) };
 }
 
+/**
+ * US dollars rounded down to the cent, never below zero: what's left is never shown (or carried over) as more than
+ * there is. Spending is booked to the ten-thousandth, so a remainder like 3.9979 is 3.99, not 4.00.
+ */
+const downToCent = (n) => Math.max(0, Math.floor((Number(n) || 0) * 100 + 1e-6) / 100);
+
+const SESSION_SHARE = 0.85;
+/**
+ * What a Claude session may spend of the reservation it holds: 0.85 of it, rounded down to the cent. The SDK checks
+ * its budget between turns, so a session can end a turn past it; the margin keeps that inside the reservation.
+ */
+function sessionCap(usd) {
+  const n = Number(usd);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n * SESSION_SHARE * 100 + 1e-6) / 100 : 0;
+}
+
 function createBroker({ dir, now = () => new Date() }) {
   fs.mkdirSync(dir, { recursive: true });
   const budgetsFile = path.join(dir, 'budgets.json');
@@ -77,8 +97,11 @@ function createBroker({ dir, now = () => new Date() }) {
     fs.appendFileSync(ledgerFile, JSON.stringify({ at: now().toISOString(), ...entry }) + '\n', { mode: 0o600 });
   }
 
-  /** A human said yes to this estimate: mint one budget per provider in it. Returns {provider: token}. */
-  function approve(est, { project = null, stage = null, approvedBy = 'user', marginPct = 15 } = {}) {
+  /**
+   * A human said yes to this estimate: mint one budget per provider in it. Returns {provider: token}. `topUpOf` names
+   * the budget this one replaces (a planning top-up: the old one is closed and what was left of it carries over).
+   */
+  function approve(est, { project = null, stage = null, approvedBy = 'user', marginPct = 15, topUpOf = null } = {}) {
     load();
     const tokens = {};
     for (const [provider, amt] of Object.entries(est.byProvider)) {
@@ -86,9 +109,9 @@ function createBroker({ dir, now = () => new Date() }) {
       const k = 1 + marginPct / 100; // a small margin for re-rolls, stated in the approval dialog
       budgets[token] = { token, provider, project, stage, approvedBy, createdAt: now().toISOString(),
         capUsd: amt.usd ? +(amt.usd * k).toFixed(2) : 0, capCredits: amt.credits ? Math.ceil(amt.credits * k) : 0,
-        spentUsd: 0, spentCredits: 0, closed: false };
+        spentUsd: 0, spentCredits: 0, closed: false, ...(topUpOf ? { topUpOf } : {}) };
       tokens[provider] = token;
-      log({ kind: 'approve', token, provider, project, stage, capUsd: budgets[token].capUsd, capCredits: budgets[token].capCredits });
+      log({ kind: 'approve', token, provider, project, stage, capUsd: budgets[token].capUsd, capCredits: budgets[token].capCredits, ...(topUpOf ? { topUpOf } : {}) });
     }
     save();
     return tokens;
@@ -100,6 +123,10 @@ function createBroker({ dir, now = () => new Date() }) {
     if (!b) throw new Error('No approved budget for this spend. Ask the user to approve an estimate first.');
     if (b.closed) throw new Error('That budget is closed. A new approval is needed.');
     if (b.provider !== provider) throw new Error(`That budget is for ${b.provider}, not ${provider}.`);
+    // Spending reached the cap (an overshoot booked at settle can take it there): nothing new starts on it (T21).
+    if ((b.capUsd && b.spentUsd >= b.capUsd - 1e-9) || (b.capCredits && b.spentCredits >= b.capCredits)) {
+      throw new Error(`That budget is used up (${b.capUsd ? `${b.spentUsd} of ${b.capUsd} US dollars` : `${b.spentCredits} of ${b.capCredits} credits`}). A new approval is needed.`);
+    }
     if (b.capUsd && b.spentUsd + usd > b.capUsd + 1e-9) throw new Error(`Over budget: ${b.spentUsd + usd} of ${b.capUsd} US dollars. A new approval is needed.`);
     if (b.capCredits && b.spentCredits + credits > b.capCredits) throw new Error(`Over budget: ${b.spentCredits + credits} of ${b.capCredits} credits. A new approval is needed.`);
     if (!b.capUsd && !b.capCredits) throw new Error('That budget has no cap.');
@@ -107,23 +134,28 @@ function createBroker({ dir, now = () => new Date() }) {
     b.spentCredits += credits;
     save();
     log({ kind: 'authorize', token, provider, usd, credits, what });
-    return { remainingUsd: b.capUsd ? +(b.capUsd - b.spentUsd).toFixed(2) : null, remainingCredits: b.capCredits ? b.capCredits - b.spentCredits : null };
+    return { remainingUsd: b.capUsd ? downToCent(b.capUsd - b.spentUsd) : null, remainingCredits: b.capCredits ? b.capCredits - b.spentCredits : null };
   }
 
   /**
-   * After a capped call whose real cost is known: give back the unused part of what authorize() reserved, the way a
-   * card pre-authorisation is settled. Never raises spending above what was authorised.
+   * After a capped call whose real cost is known: spending moves from what authorize() reserved to what the call really
+   * cost, the way a card pre-authorisation is settled. The unused part goes back; a cost above the reservation (a
+   * session that ended a turn past its budget) is booked too, and logged as an overshoot (T21). A token that's already
+   * closed still settles, so nothing is lost.
    */
   function settle(token, { authorizedUsd = 0, actualUsd = 0, authorizedCredits = null, actualCredits = null, what = '' } = {}) {
     const b = load()[token];
     if (!b) return;
-    const released = Math.max(0, Number(authorizedUsd) - Math.max(0, Number(actualUsd) || 0));
-    b.spentUsd = Math.max(0, +(b.spentUsd - released).toFixed(4));
-    const entry = { kind: 'settle', token, provider: b.provider, authorizedUsd, actualUsd, releasedUsd: +released.toFixed(4), what };
+    const delta = Math.max(0, Number(actualUsd) || 0) - Math.max(0, Number(authorizedUsd) || 0);
+    b.spentUsd = Math.max(0, +(b.spentUsd + delta).toFixed(4));
+    const entry = { kind: 'settle', token, provider: b.provider, authorizedUsd, actualUsd, releasedUsd: +Math.max(0, -delta).toFixed(4), what };
+    if (delta > 1e-9) entry.overshootUsd = +delta.toFixed(4);
     if (authorizedCredits != null) { // a provider that bills in credits (Kie.ai) reports what it really took
-      const releasedCredits = Math.max(0, Math.floor(Number(authorizedCredits) - Math.max(0, Number(actualCredits) || 0)));
-      b.spentCredits = Math.max(0, b.spentCredits - releasedCredits);
-      Object.assign(entry, { authorizedCredits, actualCredits, releasedCredits });
+      const dc = Math.max(0, Number(actualCredits) || 0) - Math.max(0, Number(authorizedCredits) || 0);
+      const releasedCredits = Math.max(0, Math.floor(-dc));
+      const overshootCredits = Math.max(0, Math.ceil(dc));
+      b.spentCredits = Math.max(0, b.spentCredits - releasedCredits + overshootCredits);
+      Object.assign(entry, { authorizedCredits, actualCredits, releasedCredits }, overshootCredits ? { overshootCredits } : {});
     }
     save();
     log(entry);
@@ -133,8 +165,17 @@ function createBroker({ dir, now = () => new Date() }) {
   function close(token) { const b = load()[token]; if (b) { b.closed = true; save(); log({ kind: 'close', token }); } }
   function isLive(token, provider) { const b = load()[token]; return Boolean(b && !b.closed && b.provider === provider); }
   function list() { return Object.values(load()); }
+  /**
+   * What's left on a budget: { usd, credits, capUsd, spentUsd }, or null for one that isn't there. `usd` is rounded
+   * down to the cent and never below zero; whether a reservation fits is capUsd − spentUsd, the sum authorize() checks.
+   */
+  function remaining(token) {
+    const b = load()[token];
+    if (!b) return null;
+    return { usd: downToCent(b.capUsd - b.spentUsd), credits: Math.max(0, b.capCredits - b.spentCredits), capUsd: b.capUsd, spentUsd: b.spentUsd };
+  }
 
-  return { approve, authorize, settle, record, close, isLive, list, ledgerFile };
+  return { approve, authorize, settle, record, close, isLive, list, remaining, sessionCap, ledgerFile };
 }
 
-module.exports = { createBroker, estimate, RATES };
+module.exports = { createBroker, estimate, sessionCap, RATES, SESSION_SHARE };

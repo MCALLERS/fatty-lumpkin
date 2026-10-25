@@ -1,0 +1,41 @@
+{
+  "id": "march-128",
+  "name": "March 128",
+  "about": "D minor, Dm-Bb-F-C, 128 BPM, four on the floor under a field-drum figure: a beat is 14.0625 frames at 30 fps.",
+  "bpm": 128,
+  "beatsPerBar": 4,
+  "offset": 0,
+  "barsPerChord": 1,
+  "progression": [
+    { "name": "Dm", "root": 38, "pad": [57, 62, 65, 69], "arp": [62, 65, 69, 74] },
+    { "name": "Bb", "root": 34, "pad": [58, 62, 65, 70], "arp": [62, 65, 70, 74] },
+    { "name": "F", "root": 41, "pad": [57, 60, 65, 69], "arp": [60, 65, 69, 72] },
+    { "name": "C", "root": 36, "pad": [55, 60, 64, 67], "arp": [60, 64, 67, 72] }
+  ],
+  "sections": [
+    { "name": "intro", "bars": 2, "layers": ["kickHalf", "snareMarch"] },
+    { "name": "a", "bars": 4, "layers": ["pad", "bass", "kick", "snareMarch", "hats"] },
+    { "name": "build", "bars": 2, "layers": ["pad", "bass", "kick", "snareMarch", "riser"] },
+    { "name": "b", "bars": 4, "layers": ["pad", "pluck", "bass", "kick", "snareMarch", "hats", "subDrop"] },
+    { "name": "outro", "bars": 2, "layers": ["pad", "kickHalf", "snareMarch"] }
+  ],
+  "instruments": {
+    "pad": { "gainDb": -15, "attack": 0.3, "release": 0.8, "cutoff": 1400, "q": 0.9, "detune": 0.12, "lfo": 0.15, "send": 0.25 },
+    "pluck": {
+      "gainDb": -12, "t60": 0.7, "bright": 0.6, "dur": 0.5, "octave": 0, "spread": 0.45, "send": 0.2,
+      "patterns": [[0, 1, 2, 1, 0, 1, 2, 3], [0, 2, 1, 2, 0, 2, 1, 3]]
+    },
+    "bass": { "gainDb": -11, "drive": 2.8, "decay": 0.12, "cutoff": 600, "pattern": [1, 0, 1, 1, 1, 0, 1, 2] },
+    "hats": { "gainDb": -26, "freq": 8200, "dec": 0.025, "ghost": 0.25, "pan": 0.25, "send": 0.06 },
+    "kick": { "gainDb": -9, "f0": 140, "f1": 50, "fdec": 0.03, "adec": 0.14 },
+    "snareMarch": {
+      "gainDb": -16, "freq": 2100, "dec": 0.06, "bodyHz": 210, "pan": -0.1, "send": 0.2,
+      "pattern": [0.25, 0, 0.25, 0, 1, 0, 0.3, 0.3, 0.25, 0, 0.25, 0, 1, 0.3, 0.5, 0.7],
+      "fill": [1, 0.5, 0.6, 0.7, 1, 0.6, 0.7, 0.8, 1, 0.7, 0.8, 0.9, 1, 0.9, 1, 1]
+    },
+    "riser": { "gainDb": -19, "bars": 2, "from": 300, "to": 8000, "saw": 0.25, "send": 0.4 },
+    "subDrop": { "gainDb": -9 }
+  },
+  "reverb": { "room": 0.6, "damp": 0.5, "wet": 0.22, "width": 1, "predelay": 0.012 },
+  "master": { "rmsDb": -19, "peakDb": -3 }
+}

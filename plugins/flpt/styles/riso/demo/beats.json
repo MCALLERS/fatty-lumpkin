@@ -1,0 +1,12 @@
+{
+  "style": "riso",
+  "placement": "solo",
+  "duration": 7.2,
+  "hold": 0.5,
+  "beats": [
+    { "name": "iris", "t": 0.4 },
+    { "name": "boat", "t": 1.7 },
+    { "name": "sun", "t": 3.0 },
+    { "name": "flag", "t": 4.3 }
+  ]
+}

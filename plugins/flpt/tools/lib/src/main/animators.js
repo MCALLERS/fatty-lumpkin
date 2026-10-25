@@ -14,13 +14,19 @@
 // inside macOS's sandbox (sandbox.js): no network, and writes only in its slide folder. Its folder carries
 // flpt-animator.json, never the engine's marker, so the engine renders it as a bespoke slide and times it to the voice
 // like its own: the Mac's in the free draft, the real one after filming. Claude is paid: every session draws on the
-// episode's approved planning budget, capped at PER_SLIDE_USD.
+// episode's approved planning budget, capped at PER_SLIDE_USD, and runs at the broker's sessionCap of it (T21).
+//
+// The crew runner (runCrew) is shared with the Live Motion scene crew (scenecrew.js): one session with its own
+// in-process `flpt` tools, the crew's session options (agents.sessionOptions: no shell, the CLI's own deny rules, the
+// key-free environment), at sessionCap of its reservation, through one pool of PARALLEL sessions that animators and
+// scene crews share: however many each caller starts, no more than PARALLEL run at once.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const agents = require('./agents');
 const motion = require('./motion');
 const sandbox = require('./sandbox');
+const broker = require('./broker');
 const { version } = require('../../package.json');
 
 const MARK = 'flpt-animator.json'; // in every folder the crew makes (the engine's own is motion.MARKER)
@@ -28,6 +34,10 @@ const PER_SLIDE_USD = 4;
 const MAX_TURNS = 60;
 const PARALLEL = 3; // sessions at a time (each is a 1 GB process); their renders take turns
 const HOLD = 1.5;
+// a last frame against its slide's picture: both through the same light blur first (σ 1.5 px), as parity measures the
+// hold on every platform (parity/thresholds.json → hold.blur; the lead's ruling 3: the paper's grain through the encode)
+const HOLD_BLUR = 1.5;
+const VS_PICTURE = `[0:v]format=rgb24,gblur=sigma=${HOLD_BLUR}[a];[1:v]format=rgb24,scale=1920:1080,gblur=sigma=${HOLD_BLUR}[b];[a][b]psnr`;
 const STARTERS = ['deck', 'whiteboard-sketch', 'possible-worlds', 'live-slide'];
 const TOOLS = ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'Skill', 'TodoWrite']; // the crew's, without the web
 const PICTURE = /\.(png|jpe?g|gif|webp|svg)$/i;
@@ -334,9 +344,11 @@ function makeTools(dir, slide, engineRoot, ctx) {
     fs.mkdirSync(at('assets', 'fonts'), { recursive: true });
     // the marker first: a folder without it would be the user's own
     writeJson(markFile, { made: 'Fatty Lumpkin Presentation Tool: the animator crew', slide: slide.id, from, slideSha: slideSha(dir, slide.id), at: new Date().toISOString(), ok: false, previous });
-    // engine 1.1 (the pen, four-way wipes, upward grow) for every starter, GSAP, hand.js, and the method's local fonts
+    // engine 1.1 (the pen, four-way wipes, upward grow) for every starter, FLPT's tween engine (in place of GSAP),
+    // hand.js, and the method's local fonts
     const wb = path.join(T, 'examples', 'whiteboard-sketch');
-    for (const f of ['live-slide.js', 'gsap.min.js', 'hand.js']) fs.copyFileSync(path.join(wb, 'assets', f), at('assets', f));
+    for (const f of ['live-slide.js', 'hand.js']) fs.copyFileSync(path.join(wb, 'assets', f), at('assets', f));
+    fs.copyFileSync(motion.tweenFile(engineRoot), at('assets', 'flpt-tween.js'));
     for (const d of [path.join(T, 'live-slide', 'assets', 'fonts'), path.join(wb, 'assets', 'fonts')]) {
       for (const f of fs.readdirSync(d)) fs.copyFileSync(path.join(d, f), at('assets', 'fonts', f));
     }
@@ -364,7 +376,7 @@ function makeTools(dir, slide, engineRoot, ctx) {
     writeJson(at('beats.json'), bj);
     fs.writeFileSync(at('beats.js'), `window.__SLIDE__ = ${JSON.stringify(bj)};\n`);
     const kit = from === 'whiteboard-sketch' ? `\nIts SCENE is the doodle kit sheet: keep the doodles you need, delete the rest. How: ${path.join(wb, 'README.md')}.` : '';
-    return [`Set up hyperframes/slide_${nn} from the ${from === 'deck' ? 'approved deck slide' : `${from} starter`}: index.html, beats.json (${beats.length ? `${beats.length} beats from the deck's builds` : 'no beats yet'}, duration ${duration} s for now), assets/ (engine 1.1, GSAP, hand.js, the method's fonts${from === 'deck' ? ', the deck\'s own fonts and pictures' : ''}).${kit}`,
+    return [`Set up hyperframes/slide_${nn} from the ${from === 'deck' ? 'approved deck slide' : `${from} starter`}: index.html, beats.json (${beats.length ? `${beats.length} beats from the deck's builds` : 'no beats yet'}, duration ${duration} s for now), assets/ (engine 1.1, flpt-tween, hand.js, the method's fonts${from === 'deck' ? ', the deck\'s own fonts and pictures' : ''}).${kit}`,
       ...notes.map((p) => `! ${p}`)].join('\n');
   }
 
@@ -375,6 +387,7 @@ function makeTools(dir, slide, engineRoot, ctx) {
     try { file = fs.realpathSync(path.resolve(pres, String(p || ''))); } catch { return `${p} isn't there.`; }
     const root = fs.realpathSync(pres);
     if (!file.startsWith(root + path.sep) || !fs.statSync(file).isFile()) return `${p} isn't a file inside this episode.`;
+    if (require('./references').isReference(file)) return 'References stay private: they never go into a slide.';
     if (!PICTURE.test(file)) return 'Pictures only: PNG, JPEG, GIF, WebP or SVG.';
     if (fs.statSync(file).size > 50 * 1024 * 1024) return 'That picture is over 50 MB.';
     if (file.startsWith(fs.realpathSync(folder) + path.sep)) return 'That picture is already in your folder.';
@@ -447,15 +460,18 @@ function makeTools(dir, slide, engineRoot, ctx) {
     if (!hf) return 'Stills need HyperFrames: use render_preview with "at" instead.';
     const out = at('snapshots');
     fs.rmSync(out, { recursive: true, force: true });
+    let flagged = []; // what the sync names that the slide can't do (a move outside flpt-tween's subset, W3-12)
     const r = await queued(async () => {
       const s = await run(ctx.node, [path.join(T, 'render.mjs'), folder, '--sync'], { timeoutMs: 60000 });
       if (s.code !== 0) return s;
+      flagged = s.out.split('\n').filter((l) => /^✗ /.test(l)).map((l) => l.slice(2));
       return run(hf[0], [...hf.slice(1), 'snapshot', folder, '-o', out, '--at', ts.join(','), '--no-end', '--describe', 'false'], { timeoutMs: 5 * 60000 });
     });
+    const problems = flagged.length ? ['', `Problems:\n- ${flagged.join('\n- ')}`] : [];
     const pngs = (() => { try { return fs.readdirSync(out).filter((f) => f.endsWith('.png')).sort().map((f) => path.join(out, f)); } catch { return []; } })();
-    if (!pngs.length) return `No stills (exit ${r.code}):\n${tail(r.out, 20)}`;
+    if (!pngs.length) return [`No stills (exit ${r.code}):\n${tail(r.out, 20)}`, ...problems].join('\n');
     const warn = r.out.split('\n').filter((l) => /^\s*[!✗]|warn|error/i.test(l)).slice(0, 10);
-    return [`Stills at ${ts.join(', ')} s (open them with Read):`, ...pngs, ...(warn.length ? ['', ...warn] : [])].join('\n');
+    return [`Stills at ${ts.join(', ')} s (open them with Read):`, ...pngs, ...(warn.length ? ['', ...warn] : []), ...problems].join('\n');
   }
 
   /** The folder rendered to renders/preview.mp4 and checked, with frames to look at. */
@@ -490,7 +506,7 @@ function makeTools(dir, slide, engineRoot, ctx) {
     fs.mkdirSync(at('check'), { recursive: true });
     await run(ctx.ffmpeg, ['-v', 'error', '-y', '-sseof', '-0.2', '-i', preview, '-update', '1', '-q:v', '1', last], { timeoutMs: 60000 });
     if (!exists(last)) return 'Couldn\'t read the preview\'s last frame. Render it again.';
-    const p = await run(ctx.ffmpeg, ['-v', 'info', '-i', last, '-i', picture, '-lavfi', '[0:v]format=rgb24[a];[1:v]format=rgb24,scale=1920:1080[b];[a][b]psnr', '-f', 'null', '-'], { timeoutMs: 60000 });
+    const p = await run(ctx.ffmpeg, ['-v', 'info', '-i', last, '-i', picture, '-lavfi', VS_PICTURE, '-f', 'null', '-'], { timeoutMs: 60000 });
     const m = p.out.match(/average:(inf|[\d.]+)/);
     const db = m ? (m[1] === 'inf' ? 99 : round(parseFloat(m[1]), 1)) : null;
     const side = at('check', 'compare.png');
@@ -499,7 +515,7 @@ function makeTools(dir, slide, engineRoot, ctx) {
     await run(ctx.ffmpeg, ['-v', 'error', '-y', '-i', picture, '-i', last, '-filter_complex', '[0:v]format=rgb24,scale=1920:1080[a];[1:v]format=rgb24[b];[a][b]blend=all_mode=difference,format=gray,eq=contrast=4,scale=960:540', '-frames:v', '1', diff], { timeoutMs: 60000 });
     if (db != null) remember({ check: { lastDb: db } });
     const stale = mtime(preview) < Math.max(mtime(at('index.html')), mtime(at('beats.json')));
-    return [db == null ? 'Couldn\'t measure the difference.' : `Last frame against the approved picture: ${db === 99 ? 'identical' : `${db} dB PSNR`}. About 30 dB or more is the same picture (video compression accounts for the rest); much lower means something differs.`,
+    return [db == null ? 'Couldn\'t measure the difference.' : `Last frame against the approved picture, both lightly blurred first so paper grain doesn't count: ${db === 99 ? 'identical' : `${db} dB PSNR`}. About 30 dB or more is the same picture (video compression accounts for the rest); much lower means something differs.`,
       stale ? '(Your files changed after this preview: render again to compare what you have now.)' : null,
       `Side by side (left: the deck's picture, right: your last frame): ${side}`,
       exists(diff) ? `The difference (bright where they differ): ${diff}` : null].filter(Boolean).join('\n');
@@ -530,7 +546,7 @@ function writesInside(p, cwd, folder) {
 function policy({ presDir, engineRoot, folder }) {
   const allow = (input) => ({ behavior: 'allow', updatedInput: input });
   const deny = (message) => ({ behavior: 'deny', message });
-  const records = new Set([MARK, motion.MARKER]);
+  const records = new Set([MARK, motion.MARKER, motion.SCENE_FILE]); // a Live Motion scene's record too (its rendered.sha)
   return async (toolName, input) => {
     if (agents.READS.has(toolName)) {
       const p = input.file_path || input.path || presDir;
@@ -577,48 +593,108 @@ function promptVars(dir, slide, title) {
   };
 }
 
+// ── the crew runner, and the pool every crew session shares ─────────────────────────────────────────────────────
+
+const pool = { running: 0, waiting: [] };
+/** How many crew sessions run now, and how many wait (for tests and the log). */
+const poolState = () => ({ running: pool.running, waiting: pool.waiting.length, size: PARALLEL });
+/**
+ * Run fn in the shared pool: at most PARALLEL at once across every animator and scene crew. A caller whose signal
+ * aborts while it waits leaves the queue without running (→ `stopped()`).
+ */
+function inPool(fn, { signal, stopped } = {}) {
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      pool.running += 1;
+      Promise.resolve().then(fn).then(resolve, reject).finally(() => {
+        pool.running -= 1;
+        const next = pool.waiting.shift();
+        if (next) next();
+      });
+    };
+    if (signal && signal.aborted) { resolve(stopped ? stopped() : undefined); return; }
+    if (pool.running < PARALLEL) { start(); return; }
+    const entry = () => { if (signal) signal.removeEventListener('abort', leave); start(); };
+    const leave = () => {
+      const i = pool.waiting.indexOf(entry);
+      if (i >= 0) { pool.waiting.splice(i, 1); resolve(stopped ? stopped() : undefined); }
+    };
+    pool.waiting.push(entry);
+    if (signal) signal.addEventListener('abort', leave, { once: true });
+  });
+}
+
+/** An in-process tool's answer as the SDK wants it: its text, or what went wrong (never a throw). */
+async function toolText(fn) {
+  let out;
+  try { out = await fn(); } catch (e) { out = `That didn't work: ${String(e && e.message ? e.message : e).slice(0, 400)}`; }
+  return { content: [{ type: 'text', text: String(out) }] };
+}
+
+/**
+ * One crew session (an animator's, a scene crew's): its in-process `flpt` tools (`defs`, made with deps.sdk.tool),
+ * the crew's session options narrowed to `tools` and `disallowed`, its policy (canUseTool, wrapped by agents in the
+ * global rules) and read denials, `maxTurns`, and a spending cap of broker.sessionCap(`reservedUsd`) (T21: the SDK
+ * checks between turns, so the reservation covers one turn's overshoot). `patch` replaces session options for a crew
+ * that needs less (the scene crew: no plugin, no skills). It runs in the shared pool. → agents.runSession's answer
+ * ({ ok, costUsd, costKnown, turns, sessionId, report, error })
+ */
+async function runCrew({ presDir, engineRoot, prompt, house, defs, tools, disallowed = [], canUseTool, readDeny = [], model = 'opus', maxTurns, reservedUsd,
+  signal, onEvent = () => {}, patch = {} }, deps) {
+  const { sdk } = deps;
+  const flpt = sdk.createSdkMcpServer({ name: 'flpt', version, tools: defs });
+  const abort = new AbortController();
+  if (signal && signal.aborted) abort.abort();
+  else if (signal) signal.addEventListener('abort', () => abort.abort(), { once: true });
+  const options = {
+    ...agents.sessionOptions({ presDir, engineRoot, model, tools, disallowed, canUseTool, readDeny, mcpServers: { flpt }, house, maxTurns,
+      budgetUsd: broker.sessionCap(reservedUsd), abort }, deps),
+    ...patch,
+  };
+  const ep = path.dirname(path.resolve(presDir));
+  active.set(ep, (active.get(ep) || 0) + 1);
+  try {
+    return await inPool(() => agents.runSession({ sdk, prompt, options, abort, onEvent }),
+      { signal: abort.signal, stopped: () => ({ ok: false, costUsd: 0, costKnown: true, turns: 0, sessionId: null, report: '', error: 'Stopped.' }) });
+  } finally {
+    const n = (active.get(ep) || 1) - 1;
+    if (n > 0) active.set(ep, n); else active.delete(ep);
+  }
+}
+const active = new Map(); // episode folder → crew sessions (animators' and scene crews') waiting or running in this process
+/** How many crew sessions (an animator's, a scene crew's) this process has waiting or running for an episode. */
+const crewsAt = (dir) => active.get(path.resolve(dir)) || 0;
+
 /**
  * Run one animator. Returns what agents.runSession returns ({ ok, costUsd, costKnown, turns, sessionId, report,
- * error }). deps: { sdk, z, apiKey, toolEnvPath, configDir, executable, tools (makeTools for this slide) }.
+ * error }). `budgetUsd` is what the flow reserved for it; the session runs at the broker's sessionCap of that.
+ * deps: { sdk, z, apiKey, toolEnvPath, configDir, executable, tools (makeTools for this slide) }.
  */
 async function runAnimator({ slide, projectDir, engineRoot, title, feedback = '', onEvent = () => {}, signal, model = 'opus', budgetUsd = PER_SLIDE_USD }, deps) {
   const { sdk, z, tools: t } = deps;
   const presDir = path.join(projectDir, 'presentation');
   const folder = motion.hfDir(projectDir, slide.n);
   const { prompt, house } = agents.stagePrompt({ stageId: 'animate', engineRoot, vars: promptVars(projectDir, slide, title), feedback });
-  const text = async (fn) => {
-    let out;
-    try { out = await fn(); } catch (e) { out = `That didn't work: ${String(e && e.message ? e.message : e).slice(0, 400)}`; }
-    return { content: [{ type: 'text', text: String(out) }] };
-  };
+  const text = toolText;
   const seconds = z.array(z.number());
-  const flpt = sdk.createSdkMcpServer({
-    name: 'flpt',
-    version,
-    tools: [
-      sdk.tool('start_slide', `Set up your slide folder (${path.relative(presDir, folder)}/) from a starter: "deck" (the approved slide exactly as designed, with the deck's fonts and pictures and its builds as first beats: its last frame matches the picture), "whiteboard-sketch" (the board, the marker pen, Caveat, hand.js and the doodle kit), "possible-worlds" (a worked diagram) or "live-slide" (blank). Every starter gets engine 1.1, GSAP, hand.js and the method's local fonts. fresh: true starts again.`,
-        { from: z.enum(STARTERS).optional(), fresh: z.boolean().optional() }, (a) => text(() => t.start(a))),
-      sdk.tool('use_picture', 'Copy a picture from this episode (a path inside presentation/, such as assets/calls/c1-photo.jpg or a Library item in assets/library/) into your folder\'s assets/pictures/. Pictures only.',
-        { path: z.string() }, (a) => text(() => t.usePicture(a))),
-      sdk.tool('narration_timing', 'The slide\'s narration with the time of every word, and how long the slide is on screen: from the voice when there is one, else estimated at the voice\'s pace. Writes words.json and timing.json for align_beats.',
-        {}, () => text(() => t.timing())),
-      sdk.tool('align_beats', 'Time every beat that has a cue to its words (0.2 s ahead; beats with "after" follow the one before) and set the slide\'s duration. Reports any cue the narration doesn\'t say, missing ids, and motion running into the hold.',
-        {}, () => text(() => t.align())),
-      sdk.tool('snapshot', 'Quick stills of your slide at these times (seconds), without a full render: for checking layout. Returns PNG paths to open with Read.',
-        { at: seconds }, (a) => text(() => t.snapshot(a))),
-      sdk.tool('render_preview', 'Render your folder to a silent 1920x1080, 30 fps preview and check it: lint, size, frame count, the hold test. Returns frames to open with Read (20, 45 and 70 % and the last, or the times you give).',
-        { at: seconds.optional() }, (a) => text(() => t.render(a))),
-      sdk.tool('compare_with_slide', 'Your preview\'s last frame beside the approved slide picture: the PSNR, a side-by-side PNG and a difference PNG to open with Read.',
-        {}, () => text(() => t.compare())),
-    ],
-  });
-  const abort = new AbortController();
-  if (signal) signal.addEventListener('abort', () => abort.abort(), { once: true });
-  const options = agents.sessionOptions({
-    presDir, engineRoot, model, tools: TOOLS, disallowed: ['WebSearch', 'WebFetch'], canUseTool: policy({ presDir, engineRoot, folder }),
-    mcpServers: { flpt }, house, maxTurns: MAX_TURNS, budgetUsd, abort,
-  }, deps);
-  return agents.runSession({ sdk, prompt, options, abort, onEvent });
+  const defs = [
+    sdk.tool('start_slide', `Set up your slide folder (${path.relative(presDir, folder)}/) from a starter: "deck" (the approved slide exactly as designed, with the deck's fonts and pictures and its builds as first beats: its last frame matches the picture), "whiteboard-sketch" (the board, the marker pen, Caveat, hand.js and the doodle kit), "possible-worlds" (a worked diagram) or "live-slide" (blank). Every starter gets engine 1.1, flpt-tween (FLPT's tween engine, a subset of GSAP's), hand.js and the method's local fonts. fresh: true starts again.`,
+      { from: z.enum(STARTERS).optional(), fresh: z.boolean().optional() }, (a) => text(() => t.start(a))),
+    sdk.tool('use_picture', 'Copy a picture from this episode (a path inside presentation/, such as assets/calls/c1-photo.jpg or a Library item in assets/library/) into your folder\'s assets/pictures/. Pictures only.',
+      { path: z.string() }, (a) => text(() => t.usePicture(a))),
+    sdk.tool('narration_timing', 'The slide\'s narration with the time of every word, and how long the slide is on screen: from the voice when there is one, else estimated at the voice\'s pace. Writes words.json and timing.json for align_beats.',
+      {}, () => text(() => t.timing())),
+    sdk.tool('align_beats', 'Time every beat that has a cue to its words (0.2 s ahead; beats with "after" follow the one before) and set the slide\'s duration. Reports any cue the narration doesn\'t say, missing ids, and motion running into the hold.',
+      {}, () => text(() => t.align())),
+    sdk.tool('snapshot', 'Quick stills of your slide at these times (seconds), without a full render: for checking layout. Returns PNG paths to open with Read.',
+      { at: seconds }, (a) => text(() => t.snapshot(a))),
+    sdk.tool('render_preview', 'Render your folder to a silent 1920x1080, 30 fps preview and check it: lint, size, frame count, the hold test. Returns frames to open with Read (20, 45 and 70 % and the last, or the times you give).',
+      { at: seconds.optional() }, (a) => text(() => t.render(a))),
+    sdk.tool('compare_with_slide', 'Your preview\'s last frame beside the approved slide picture: the PSNR (both lightly blurred first), a side-by-side PNG and a difference PNG to open with Read.',
+      {}, () => text(() => t.compare())),
+  ];
+  return runCrew({ presDir, engineRoot, prompt, house, defs, tools: TOOLS, disallowed: ['WebSearch', 'WebFetch'], canUseTool: policy({ presDir, engineRoot, folder }),
+    model, maxTurns: MAX_TURNS, reservedUsd: budgetUsd, signal, onEvent }, deps);
 }
 
 /**
@@ -652,4 +728,4 @@ async function finish(dir, slide, res, t, probe) {
 }
 
 module.exports = { marked, view, sync, noteClips, owner, crewFolders, checkMarks, makeTools, createExec, runAnimator, finish, policy, promptVars,
-  leadOf, estimatedWords, slideSha, MARK, PER_SLIDE_USD, PARALLEL, STARTERS, TOOLS };
+  leadOf, estimatedWords, estimatedDuration, slideSha, runCrew, crewsAt, inPool, poolState, toolText, queued, MARK, PER_SLIDE_USD, MAX_TURNS, PARALLEL, STARTERS, TOOLS, HOLD_BLUR, VS_PICTURE };

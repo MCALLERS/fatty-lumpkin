@@ -1,0 +1,741 @@
+{
+  "schema": "flpt.style/1",
+  "id": "math",
+  "version": "1.0.0",
+  "name": "Math",
+  "line": "Equations written on, terms that transform, graphs that sweep in.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": true,
+  "tags": {
+    "mood": [
+      "calm",
+      "precise"
+    ],
+    "look": [
+      "vector",
+      "dark",
+      "serif",
+      "graph",
+      "colour-coded"
+    ],
+    "pace": "measured",
+    "use": [
+      "maths",
+      "explainer",
+      "data"
+    ]
+  },
+  "tokens": {
+    "paper": "#0E0E10",
+    "inks": [
+      "#FFFFFF",
+      "#FC6255",
+      "#83C167",
+      "#F7D96F",
+      "#58C4DD",
+      "#BBBBBB",
+      "#29ABCA",
+      "#2E86AB"
+    ],
+    "accent": "#F7D96F",
+    "type": {
+      "display": "STIX Two Text",
+      "text": "STIX Two Text"
+    }
+  },
+  "fonts": [
+    {
+      "family": "STIX Two Text",
+      "file": "fonts/STIXTwoText.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-STIXTwo.txt"
+    },
+    {
+      "family": "STIX Two Text",
+      "file": "fonts/STIXTwoText-Italic.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-STIXTwo.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "write",
+      "show-creation",
+      "transform",
+      "track",
+      "flash",
+      "indicate",
+      "push",
+      "zoom"
+    ],
+    "pace": "measured",
+    "easing": "smooth"
+  },
+  "sound": {
+    "score": "hush",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 10
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "from": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:7e1e59e049948e8a41ab0e74de3a54ce42f5975735a8b9d03042ea635d52bdfa",
+    "STYLE.md": "sha256:ea09760d287fda9b00b31a2becdd48a93b65b9c9c1e8668015ea89c5cddbf283",
+    "starter/scene.js": "sha256:d3c96e9190a21a3ccae207e115a663062e2611d97f62645a1827b3d1d1b42f85"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.MC",
+      "kind": "value",
+      "params": [],
+      "doc": "manim's palette: bg, white, greys, blueD (plane), red, green, yellow, blue, more"
+    },
+    {
+      "fn": "ctx.kit.SERIF",
+      "kind": "value",
+      "params": [],
+      "doc": "the serif stack (STIX Two Text), for your own ctx.text"
+    },
+    {
+      "fn": "ctx.kit.angleArc",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "a0",
+        "a1",
+        "c",
+        "p",
+        "w"
+      ],
+      "doc": "an angle arc at (x, y) from screen angle a0 to a1, drawn on with p"
+    },
+    {
+      "fn": "ctx.kit.arcPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "a0",
+        "a1",
+        "n"
+      ],
+      "doc": "points on an arc from screen angle a0 to a1"
+    },
+    {
+      "fn": "ctx.kit.axes2",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "axes swept on (lines, ticks, labels); o as plane plus step, ystep, labels"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "runtime-internal: the runtime binds the frame; never call it"
+    },
+    {
+      "fn": "ctx.kit.blob",
+      "kind": "function",
+      "params": [
+        "P",
+        "c",
+        "o"
+      ],
+      "doc": "a shape mid-Transform: coloured stroke over a translucent fill"
+    },
+    {
+      "fn": "ctx.kit.caption",
+      "kind": "function",
+      "params": [
+        "segs",
+        "t",
+        "o"
+      ],
+      "doc": "a caption Written on a black BackgroundRectangle, bottom centre, from t"
+    },
+    {
+      "fn": "ctx.kit.cellGrid",
+      "kind": "function",
+      "params": [
+        "Q",
+        "n",
+        "c",
+        "al",
+        "w"
+      ],
+      "doc": "the n x n unit cells inside a quad from squareOn"
+    },
+    {
+      "fn": "ctx.kit.centroid",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "the centre of a list of points"
+    },
+    {
+      "fn": "ctx.kit.circumscribe",
+      "kind": "function",
+      "params": [
+        "b",
+        "u",
+        "o"
+      ],
+      "doc": "manim Circumscribe: a box runs round a term or line and is gone; u 0..1"
+    },
+    {
+      "fn": "ctx.kit.dropLines",
+      "kind": "function",
+      "params": [
+        "A",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "dashed drop lines from a point on a plane to its axes"
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n",
+        "a0",
+        "a1"
+      ],
+      "doc": "points on an ellipse (a full turn by default; a1 -TAU turns the other way)"
+    },
+    {
+      "fn": "ctx.kit.fillAll",
+      "kind": "function",
+      "params": [
+        "color"
+      ],
+      "doc": "fill the whole frame with a colour (screen space)"
+    },
+    {
+      "fn": "ctx.kit.flashAt",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "u",
+        "c",
+        "r",
+        "w"
+      ],
+      "doc": "manim Flash at a point or lone glyph: 12 lines burst out; u 0..1 over 0.45 s"
+    },
+    {
+      "fn": "ctx.kit.fmtNum",
+      "kind": "function",
+      "params": [
+        "v",
+        "d"
+      ],
+      "doc": "a number at d decimals with a true minus sign"
+    },
+    {
+      "fn": "ctx.kit.glowAt",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c",
+        "a"
+      ],
+      "doc": "a soft halo (the tracking dot only)"
+    },
+    {
+      "fn": "ctx.kit.graphM",
+      "kind": "function",
+      "params": [
+        "A",
+        "f",
+        "x0",
+        "x1",
+        "p",
+        "o"
+      ],
+      "doc": "the graph of f on a plane, drawn on with p; o: c, w, n, area"
+    },
+    {
+      "fn": "ctx.kit.heading",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "t",
+        "o"
+      ],
+      "doc": "a grey italic name with an underline, Written from t; place it by its thing"
+    },
+    {
+      "fn": "ctx.kit.indicateS",
+      "kind": "function",
+      "params": [
+        "u",
+        "k"
+      ],
+      "doc": "manim Indicate: a there-and-back scale for a term"
+    },
+    {
+      "fn": "ctx.kit.keysM",
+      "kind": "function",
+      "params": [
+        "ks",
+        "t"
+      ],
+      "doc": "a smooth keyed value [[t, v], ...] at time t"
+    },
+    {
+      "fn": "ctx.kit.lagged",
+      "kind": "function",
+      "params": [
+        "p",
+        "i",
+        "n",
+        "lag"
+      ],
+      "doc": "LaggedStart: the progress of item i of n when the group is at p"
+    },
+    {
+      "fn": "ctx.kit.mArrow",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "c",
+        "w",
+        "p",
+        "al"
+      ],
+      "doc": "an arrow drawn on: the shaft grows, the tip rides its end"
+    },
+    {
+      "fn": "ctx.kit.mBrace",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "o"
+      ],
+      "doc": "a curly brace beside a segment, growing from the middle, with a label"
+    },
+    {
+      "fn": "ctx.kit.mDot",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c",
+        "al"
+      ],
+      "doc": "a filled dot"
+    },
+    {
+      "fn": "ctx.kit.mText",
+      "kind": "function",
+      "params": [
+        "segs",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "text already written (no Write)"
+    },
+    {
+      "fn": "ctx.kit.mathCard",
+      "kind": "function",
+      "params": [
+        "segs",
+        "x",
+        "y",
+        "size",
+        "p",
+        "o"
+      ],
+      "doc": "serif text on a black BackgroundRectangle at (x, y)"
+    },
+    {
+      "fn": "ctx.kit.mixHex",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "u"
+      ],
+      "doc": "blend two hex colours"
+    },
+    {
+      "fn": "ctx.kit.mn",
+      "kind": "function",
+      "params": [
+        "s",
+        "c",
+        "o"
+      ],
+      "doc": "an upright formula token: digits, function names, units"
+    },
+    {
+      "fn": "ctx.kit.mv",
+      "kind": "function",
+      "params": [
+        "s",
+        "c",
+        "o"
+      ],
+      "doc": "an italic formula token (a variable); o: sup, sub, id, supId"
+    },
+    {
+      "fn": "ctx.kit.niceStep",
+      "kind": "function",
+      "params": [
+        "pxPerUnit",
+        "minPx"
+      ],
+      "doc": "the smallest 1-2-5 step at least minPx apart on screen"
+    },
+    {
+      "fn": "ctx.kit.numberPlane",
+      "kind": "function",
+      "params": [
+        "A",
+        "o"
+      ],
+      "doc": "manim's NumberPlane on a plane mapper; finer lines come up as you zoom"
+    },
+    {
+      "fn": "ctx.kit.pathLen",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "the length of a polyline"
+    },
+    {
+      "fn": "ctx.kit.piHero",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "the pi hero, feet at (x, y); o: look, mood calm | wow | happy, hop"
+    },
+    {
+      "fn": "ctx.kit.plane",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "a math-to-screen mapper; o: at, u, ux, uy, cam { z, p, to }, x, y"
+    },
+    {
+      "fn": "ctx.kit.polyPath",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "a straight-edged closed path (corners kept)"
+    },
+    {
+      "fn": "ctx.kit.readout",
+      "kind": "function",
+      "params": [
+        "label",
+        "v",
+        "d",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "label = value, re-typeset every frame from the tracker"
+    },
+    {
+      "fn": "ctx.kit.rgbaM",
+      "kind": "function",
+      "params": [
+        "hex",
+        "a"
+      ],
+      "doc": "a hex colour with alpha"
+    },
+    {
+      "fn": "ctx.kit.rightAngle",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "d1",
+        "d2",
+        "s",
+        "c",
+        "al"
+      ],
+      "doc": "the little square marking a right angle at a corner"
+    },
+    {
+      "fn": "ctx.kit.runS",
+      "kind": "function",
+      "params": [
+        "t0",
+        "d"
+      ],
+      "doc": "the smooth progress of a play that starts at t0 and runs d seconds"
+    },
+    {
+      "fn": "ctx.kit.screenBox",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "doc": "the screen box of a rectangle under the current transform"
+    },
+    {
+      "fn": "ctx.kit.segLine",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "c",
+        "w",
+        "p",
+        "al"
+      ],
+      "doc": "a line drawn on from its first end; p 0..1"
+    },
+    {
+      "fn": "ctx.kit.showCreation",
+      "kind": "function",
+      "params": [
+        "P",
+        "p",
+        "o"
+      ],
+      "doc": "ShowCreation of an outline; with fill the fill fades up after"
+    },
+    {
+      "fn": "ctx.kit.slopeOf",
+      "kind": "function",
+      "params": [
+        "f",
+        "x",
+        "h"
+      ],
+      "doc": "the slope of f at x (a central difference)"
+    },
+    {
+      "fn": "ctx.kit.smoothM",
+      "kind": "function",
+      "params": [
+        "u"
+      ],
+      "doc": "manim's smooth rate function (a sigmoid), 0..1"
+    },
+    {
+      "fn": "ctx.kit.squareOn",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "side"
+      ],
+      "doc": "a square standing on a segment, on its left (side -1: its right)"
+    },
+    {
+      "fn": "ctx.kit.subPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": "the first part of a polyline (a sweep)"
+    },
+    {
+      "fn": "ctx.kit.surround",
+      "kind": "function",
+      "params": [
+        "b",
+        "p",
+        "o"
+      ],
+      "doc": "manim SurroundingRectangle, drawn on around a box from texBox"
+    },
+    {
+      "fn": "ctx.kit.tangent",
+      "kind": "function",
+      "params": [
+        "A",
+        "f",
+        "x",
+        "len",
+        "p",
+        "o"
+      ],
+      "doc": "the tangent to f at x on a plane, len px long on screen"
+    },
+    {
+      "fn": "ctx.kit.texBox",
+      "kind": "function",
+      "params": [
+        "lay",
+        "id"
+      ],
+      "doc": "the box of the terms with an id in a layout from writeTex"
+    },
+    {
+      "fn": "ctx.kit.texW",
+      "kind": "function",
+      "params": [
+        "toks",
+        "size"
+      ],
+      "doc": "the width of a formula at a size"
+    },
+    {
+      "fn": "ctx.kit.textW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "o"
+      ],
+      "doc": "the width of a string at a size"
+    },
+    {
+      "fn": "ctx.kit.thereBack",
+      "kind": "function",
+      "params": [
+        "u"
+      ],
+      "doc": "manim's there_and_back: up and down again over 0..1"
+    },
+    {
+      "fn": "ctx.kit.toScreen",
+      "kind": "function",
+      "params": [
+        "x",
+        "y"
+      ],
+      "doc": "a world point on screen through the current transform"
+    },
+    {
+      "fn": "ctx.kit.trackDot",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "c",
+        "o"
+      ],
+      "doc": "the tracking dot, with a small halo"
+    },
+    {
+      "fn": "ctx.kit.transformTex",
+      "kind": "function",
+      "params": [
+        "A",
+        "B",
+        "x",
+        "y",
+        "size",
+        "u",
+        "o"
+      ],
+      "doc": "Transform one formula into another by matching ids; o: lift"
+    },
+    {
+      "fn": "ctx.kit.writeTex",
+      "kind": "function",
+      "params": [
+        "toks",
+        "x",
+        "y",
+        "size",
+        "p",
+        "o"
+      ],
+      "doc": "Write a formula (tokens) at its baseline; returns the screen layout"
+    },
+    {
+      "fn": "ctx.kit.writeText",
+      "kind": "function",
+      "params": [
+        "segs",
+        "x",
+        "y",
+        "size",
+        "p",
+        "o"
+      ],
+      "doc": "manim Write of a line of text: outline, then fill, glyph by glyph"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const presenterLib = require('./presenter'); // the cartoon presenter's choices (W3-05)
 
 const VIDEO_ROUTES = ['kie', 'higgsfield'];
 
@@ -14,12 +15,13 @@ function defaults() {
     toolchainMode: 'pinned', // 'pinned' (the app's own tools) | 'system' (tools already on this Mac)
     projectsDir: path.join(os.homedir(), 'Documents', 'FLPT'),
     deliverablesDir: path.join(os.homedir(), 'Desktop'),
-    presenter: null, // { lookId, lookName, voiceId, voiceName, engine, bubble: {...} }
+    presenter: null, // { lookId, lookName, voiceId, voiceName, engine, characterType, kind?, rig?, voice? } (presenter.js)
     // OpenArt only when filmQuality. Stills moved to Kie.ai on 2026-10-14 (Michael): Higgsfield's API has no Nano Banana
     // Pro and no cut-outs. `v` marks settings saved since then.
     providers: { video: 'kie', stills: 'kie', filmQuality: false, v: 2 },
     libraryDir: '', // the Asset Library; '' = <projectsDir>/Library (see libraryDirOf), else an absolute folder
     ytDlpPath: '', // Clippy's yt-dlp; '' = FLPT's pinned copy, then PATH and the usual places (toolchain.findYtDlp)
+    ui: { motion: 'on' }, // the screens' own preferences. Pause motion: 'on' | 'paused' (the page mirrors it to localStorage)
   };
 }
 
@@ -36,19 +38,32 @@ function addonsDirOf(s) {
 const str = (v, max = 512) => (typeof v === 'string' ? v.slice(0, max) : '');
 const id = (v) => (typeof v === 'string' && /^[A-Za-z0-9_\-.:]{1,128}$/.test(v) ? v : '');
 
+const MOTION = ['on', 'paused'];
+
 const SCHEMA = {
   seenWelcome: (v) => v === true,
   setupComplete: (v) => v === true,
   toolchainMode: (v) => (v === 'system' ? 'system' : 'pinned'),
   projectsDir: (v, d) => (typeof v === 'string' && path.isAbsolute(v) ? v : d.projectsDir),
   deliverablesDir: (v, d) => (typeof v === 'string' && path.isAbsolute(v) ? v : d.deliverablesDir),
+  // The HeyGen twin's look and voice (lookId…), and since 2.0 who presents (kind: 'heygen' | 'cartoon'; PLAN §2.12) and
+  // the cartoon's rig and voice (presenter.js), kept while the twin presents so a switch back finds them.
   presenter: (v) => {
     if (!v || typeof v !== 'object') return null;
     const lookId = id(v.lookId);
-    if (!lookId) return null;
-    const engine = ['elevenlabs_v3', 'starfish', 'orca', 'elevenlabs'].includes(v.engine) ? v.engine : 'elevenlabs_v3';
-    return { lookId, lookName: str(v.lookName, 120), voiceId: id(v.voiceId), voiceName: str(v.voiceName, 120), engine,
-      characterType: v.characterType === 'avatar' ? 'avatar' : 'talking_photo' };
+    const kind = ['heygen', 'cartoon'].includes(v.kind) ? v.kind : null;
+    const cartoon = presenterLib.clean({ ...v, kind: 'cartoon' });
+    const hasCartoon = kind === 'cartoon' || Boolean(v.rig || v.voice);
+    if (!lookId && !hasCartoon) return null;
+    const out = {};
+    if (lookId) {
+      const engine = ['elevenlabs_v3', 'starfish', 'orca', 'elevenlabs'].includes(v.engine) ? v.engine : 'elevenlabs_v3';
+      Object.assign(out, { lookId, lookName: str(v.lookName, 120), voiceId: id(v.voiceId), voiceName: str(v.voiceName, 120), engine,
+        characterType: v.characterType === 'avatar' ? 'avatar' : 'talking_photo' });
+    }
+    if (kind) out.kind = kind;
+    if (hasCartoon) Object.assign(out, { rig: cartoon.rig, voice: cartoon.voice });
+    return out;
   },
   providers: (v, d) => {
     const p = v && typeof v === 'object' ? v : {};
@@ -62,6 +77,7 @@ const SCHEMA = {
   },
   libraryDir: (v) => (typeof v === 'string' && path.isAbsolute(v) ? path.resolve(v) : ''),
   ytDlpPath: (v) => (typeof v === 'string' && path.isAbsolute(v) ? path.resolve(v) : ''),
+  ui: (v, d) => ({ motion: v && MOTION.includes(v.motion) ? v.motion : d.ui.motion }),
 };
 
 function createSettings({ dir }) {
@@ -104,4 +120,4 @@ function createSettings({ dir }) {
   return { read, write, persisted: () => lastPersisted, file };
 }
 
-module.exports = { createSettings, defaults, libraryDirOf, addonsDirOf };
+module.exports = { createSettings, defaults, libraryDirOf, addonsDirOf, MOTION };

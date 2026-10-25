@@ -1,0 +1,23 @@
+{
+  "style": "whiteboard",
+  "placement": "solo",
+  "duration": 9,
+  "hold": 0.5,
+  "beats": [
+    {
+      "name": "idea",
+      "t": 0.35,
+      "end": 1.0
+    },
+    {
+      "name": "ship",
+      "t": 2.95,
+      "end": 3.5
+    },
+    {
+      "name": "loop",
+      "t": 4.45,
+      "end": 5.1
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "style": "night-shift",
+  "placement": "interstitial",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "t": 0.533333, "name": "tick", "at": "beat 2", "fx": "pop", "sfx": "pop" },
+    { "t": 1.066667, "name": "title", "at": "beat 3", "fx": "set-in", "sfx": "swish" },
+    { "t": 2.133333, "name": "turn", "at": "bar 2", "fx": "cascade", "sfx": "tick" },
+    { "t": 4.266667, "name": "hit", "at": "bar 3", "fx": "roll", "sfx": "thump" },
+    { "t": 6.4, "name": "bars", "at": "bar 4", "fx": "letterbox", "sfx": "whoosh" }
+  ]
+}

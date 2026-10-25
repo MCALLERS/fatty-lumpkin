@@ -1,0 +1,107 @@
+/* ui-studio.css · the Live Motion wall (ui-livemotion.js) and the Studio (ui-studio.js), W2-05. Theater only, on
+   tokens.css. Gold is Live Motion's: the crew at work, the pressed toggle, the playhead. Four type sizes (hud, small,
+   body, lead). Nothing moves under Pause motion or reduced motion but what the user starts (the Stage on ▶). */
+
+/* ── the wall ── */
+.lm-wall-view { display: grid; gap: 18px; }
+.lm-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lm-gap { flex: 1; }
+.lm-count { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
+.lm-count.live { color: var(--gold); }
+.lm-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: lm-pulse var(--d-5) var(--ease) infinite; }
+@keyframes lm-pulse { 50% { opacity: .3; } }
+html.fx-paused .lm-dot { animation: none; }
+@media (prefers-reduced-motion: reduce) { .lm-dot { animation: none; } }
+
+.lm-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 18px; }
+.lm-card { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.lm-open {
+  position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--r-2); overflow: hidden;
+  background: var(--surface); cursor: pointer; transition: transform var(--d-2) var(--ease), border-color var(--d-2) var(--ease);
+}
+.lm-open:disabled { cursor: default; opacity: 1; }
+.lm-open:not(:disabled):hover, .lm-open:not(:disabled):focus-visible { transform: translateY(calc(-1 * var(--lift))); border-color: var(--text-2); }
+html.fx-paused .lm-open:hover, html.fx-paused .lm-open:focus-visible { transform: none; }
+@media (prefers-reduced-motion: reduce) { .lm-open:hover, .lm-open:focus-visible { transform: none; } }
+.lm-card.live .lm-open { border-color: var(--gold); }
+.lm-media { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; background: var(--surface-2); }
+.lm-poster, .lm-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.lm-card[data-status="todo"] .lm-poster { opacity: .5; filter: grayscale(.5); }
+.lm-ph { padding: 12px; color: var(--text-2); font: 600 var(--fs-lead)/1.2 var(--font-display); text-align: center; }
+.lm-writing {
+  position: absolute; left: 8px; top: 8px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+  border-radius: var(--r-pill); background: rgba(0, 0, 0, .62); color: var(--gold);
+}
+.lm-chip { position: absolute; left: 8px; bottom: 8px; z-index: 1; background: rgba(0, 0, 0, .62); border-color: transparent; font-size: var(--fs-hud); }
+.lm-chip.st-review { color: var(--gold); } .lm-chip.st-approved { color: var(--moss); } .lm-chip.st-error { color: var(--red); } .lm-chip.st-stale { color: var(--gold); border: 1px dashed var(--gold); }
+.lm-card .lm-anchor { position: absolute; inset: 0; width: 100%; }
+.lm-meta { display: grid; gap: 3px; min-width: 0; }
+.lm-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-line.bad { color: var(--red); }
+.lm-acts { display: flex; gap: 6px; }
+.lm-cost { margin: 0; }
+
+/* ── the Studio: full-bleed over the window, under the Stage's slot (5) and the job log (6) ── */
+.studio {
+  position: fixed; inset: 0; z-index: 4; display: flex; flex-direction: column; gap: 10px; padding: 10px 22px 16px;
+  background: var(--bg); color: var(--text); font: var(--fs-body) var(--font-ui);
+}
+.studio button { color: var(--text); border-color: var(--line); background: transparent; }
+.studio button.primary { background: var(--navy); border-color: var(--navy); color: var(--on-navy); }
+.studio button[aria-pressed="true"] { color: var(--bg); background: var(--gold); border-color: var(--gold); }
+.studio button:not(:disabled):hover { border-color: var(--text-2); }
+.studio-head { display: flex; align-items: center; gap: 12px; min-height: 40px; padding-left: 68px; -webkit-app-region: drag; }
+.studio-head > * { -webkit-app-region: no-drag; }
+.studio-title { color: var(--text-2); }
+.studio-gap { flex: 1; -webkit-app-region: drag; }
+.studio-chip { font-size: var(--fs-hud); background: transparent; }
+.studio-compare, .studio-seg, .studio-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.studio-body { flex: 1; min-height: 0; display: flex; gap: 16px; }
+.studio-stage { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center; container-type: size; }
+.studio .studio-anchor, .studio-clip { width: min(100cqw, calc(100cqh * 16 / 9)); height: auto; aspect-ratio: 16 / 9; background: #000; border-radius: var(--r-1); }
+.studio-clip { object-fit: contain; }
+.studio-empty { position: absolute; margin: 0; max-width: 46ch; text-align: center; }
+.studio-more {
+  flex: none; width: 300px; display: grid; gap: 12px; align-content: start; overflow: auto; padding: 14px;
+  border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface);
+}
+.studio-picker:empty { display: none; }
+.studio-slot:empty { display: none; }
+.studio-slot { display: grid; gap: 8px; }
+
+.studio-transport { display: flex; align-items: center; gap: 14px; }
+.studio-play { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: var(--fs-body); line-height: 1; }
+.studio-track { position: relative; flex: 1; min-width: 0; padding-bottom: 10px; }
+.studio-scrub { display: block; width: 100%; margin: 0; font: inherit; accent-color: var(--gold); }
+.studio-ticks { position: absolute; left: 8px; right: 8px; bottom: 0; height: 8px; pointer-events: none; }
+.studio-tick { position: absolute; top: 0; width: 1px; height: 8px; margin-left: -.5px; background: var(--text-2); pointer-events: auto; }
+.studio-time { flex: none; min-width: 19ch; text-align: right; color: var(--text-2); }
+
+.studio-line { display: flex; align-items: baseline; gap: 10px; margin: 0; min-height: 18px; font-size: var(--fs-small); color: var(--text-2); }
+.studio-line > [data-content] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-line.bad { color: var(--red); }
+.studio-writing { flex: none; color: var(--gold); }
+
+.studio-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.studio-takes { display: inline-flex; gap: 4px; }
+.studio-take { font-family: var(--font-mono); font-size: var(--fs-hud); letter-spacing: .06em; }
+.studio-take.unfinished { border-style: dashed; }
+.studio-askbox { flex: 1; min-width: 200px; display: flex; gap: 6px; }
+.studio-ask {
+  flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-2);
+  background: var(--surface); color: var(--text); font: inherit;
+}
+.studio-ask:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.studio-dots { width: 40px; padding-left: 0; padding-right: 0; margin-left: auto; } /* at the end, Ask or not */
+
+/* the words on screen that aren't in the script or the deck, before an approval */
+.studio-words { max-width: 520px; padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--bg); color: var(--text); }
+.studio-words::backdrop { background: var(--scrim); }
+.studio-words .hud { margin: 0 0 12px; color: var(--text-2); }
+.studio-word-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.studio-word-list .chip { background: transparent; color: var(--text); border-color: var(--line); }
+.studio-words .actions { justify-content: flex-end; margin: 18px 0 0; }
+.studio-words button { color: var(--text); border-color: var(--line); background: transparent; }
+.studio-words button.primary { background: var(--navy); border-color: var(--navy); color: var(--on-navy); }

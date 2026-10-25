@@ -1,0 +1,243 @@
+/* ui-storyboard.css · W2-04's screens, on tokens.css (in either realm): the nine-module picker (.mp), the Storyboard
+   (.sb: the totals line, the strip, the two ways, the cards, the inspector), the ribbon (.rb), and what the Deck, the
+   Script and the Bullets gain around the plan (family badges, Solo/Duet posters, scenes between slides, the crew's
+   module changes, cue chips, module chips). Gold is Live Motion; oxblood only ever money. Nothing moves under Pause
+   motion or reduced motion: no re-deal, no shimmer, posters. */
+
+/* ── the nine-module picker ── */
+.mp { display: grid; gap: 10px; color: var(--text); }
+.mp-grid, .mp-extras { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.mp-livegroup { grid-column: 2 / span 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
+.mp-eyebrow { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: var(--gold-ink); }
+.mp-eyebrow::after { content: ''; flex: 1; height: 1px; background: var(--gold); opacity: .7; }
+.mp-tile { position: relative; display: grid; gap: 6px; padding: 0; border: 0; background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.mp-media { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-2); background: var(--theater-bg);
+  box-shadow: 0 0 0 1px var(--line); transition: transform var(--d-2) var(--ease), box-shadow var(--d-2) var(--ease); }
+.mp-media video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mp-media::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--fam); }
+.mp-tile:hover:not(:disabled) .mp-media, .mp-tile:focus-visible .mp-media { transform: translateY(-2px); }
+.mp-tile[aria-checked="true"] .mp-media { box-shadow: 0 0 0 2px var(--navy); }
+.mp-tile:focus-visible { outline: none; }
+.mp-tile:focus-visible .mp-media { box-shadow: 0 0 0 2px var(--focus), 0 0 0 4px var(--bg); }
+.mp-tile:disabled { opacity: .35; cursor: default; }
+.mp-label { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-small); line-height: 1.3; min-width: 0; }
+.mp-n { color: var(--text-2); }
+.mp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-live-tile .mp-media { box-shadow: 0 0 0 1px var(--gold); }
+.mp-live-tile[aria-checked="true"] .mp-media { box-shadow: 0 0 0 2px var(--gold); }
+.mp-new { position: absolute; top: 6px; right: 6px; padding: 1px 7px; border-radius: var(--r-pill); color: var(--theater-gold);
+  background: rgba(17, 17, 14, .9); border: 1px solid var(--theater-gold); } /* .9: AA over a light poster by day */
+.mp-card { display: grid; place-items: center; background: var(--surface-2); }
+.mp-card-text, .sb-card-text { font: 600 var(--fs-title) var(--font-display); color: var(--text-2); }
+.mp-dashed { display: grid; place-items: center; background: transparent; box-shadow: none; border: 1.5px dashed var(--line); }
+.mp-dashed::after { display: none; }
+.mp-q { font: 600 var(--fs-title) var(--font-display); color: var(--text-2); }
+.mp-footer { margin: 2px 0 0; color: var(--text-2); }
+.mp-compact .mp-grid, .mp-compact .mp-extras { gap: 8px; }
+.mp-compact .mp-label { gap: 6px; }
+.mp-compact .mp-new { top: 4px; right: 4px; padding: 0 5px; }
+.module-picker-host { max-width: 640px; margin: 0 0 4px; }
+
+/* ── the Storyboard ── */
+.sb { display: grid; gap: 14px; }
+.sb-top { display: grid; gap: 4px; }
+.sb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sb-totals { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sb-line { margin: 0; color: var(--text); cursor: default; }
+.sb-mode { padding: 2px 9px; border-radius: var(--r-pill); color: var(--gold-ink); border: 1px solid var(--gold); }
+.sb-undo { display: flex; gap: 6px; }
+.sb-status { margin: 0; color: var(--text-2); }
+.sb-removed { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-small); color: var(--text-2); }
+.sb-err { margin: 0; color: var(--red); font-size: var(--fs-small); }
+.sb-err:empty { display: none; }
+
+.sb-replan { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--gold); border-left-width: 4px; border-radius: var(--r-2); background: var(--surface); }
+.sb-replan .muted { margin-right: auto; }
+
+/* the strip: one segment per shot, its width its seconds */
+.sb-strip { position: relative; display: flex; align-items: stretch; height: 58px; padding: 4px 0; user-select: none; touch-action: none; }
+.sb-seg { position: relative; flex: 1 1 0; min-width: 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 2px;
+  padding: 5px 8px 7px; margin: 0 1px; border: 0; border-radius: var(--r-1); border-bottom: 3px solid var(--fam);
+  background: color-mix(in srgb, var(--fam) 13%, var(--surface)); color: var(--text); text-align: left; font-size: var(--fs-small);
+  line-height: 1.2; overflow: hidden; cursor: grab; transition: background var(--d-1) var(--ease); }
+.sb-seg:hover { background: color-mix(in srgb, var(--fam) 22%, var(--surface)); }
+.sb-seg.on { box-shadow: 0 0 0 2px var(--navy); z-index: 1; }
+.sb-seg.paired { box-shadow: inset 0 0 0 2px var(--gold); }
+.sb-seg.target { box-shadow: 0 0 0 2px var(--gold); }
+.sb-seg.lifted { z-index: 3; box-shadow: 0 8px 20px var(--shade); cursor: grabbing; transition: none; }
+.sb-seg.changed::after { content: ''; position: absolute; top: 5px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+.sb-seg.sb-live { box-shadow: inset 0 1px 0 var(--gold); }
+.sb-seg.sb-live.on { box-shadow: inset 0 1px 0 var(--gold), 0 0 0 2px var(--navy); }
+.sb-seg.sb-between { min-width: 34px; padding: 5px 4px 7px; align-items: center; background: transparent; border: 1px dashed var(--fam); border-bottom: 3px solid var(--fam); }
+.sb-seg-n { color: var(--text-2); }
+.sb-seg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-mini { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 16px; object-fit: cover; opacity: 0; pointer-events: none; transition: opacity var(--d-2) var(--ease); }
+.sb-seg.mini-on .sb-mini { opacity: 1; }
+.sb-edge { position: absolute; top: 14px; right: 0; bottom: 0; width: 8px; cursor: col-resize; } /* below the gap's + */
+.sb-edge:hover, .merging .lifted .sb-edge { background: color-mix(in srgb, var(--gold) 45%, transparent); }
+.sb-gap { position: relative; flex: 0 0 6px; }
+.sb-plus { position: absolute; left: 50%; top: 0; z-index: 4; width: 20px; height: 20px; padding: 0; margin: -8px 0 0 -10px; border-radius: 50%;
+  font: 500 var(--fs-small)/1 var(--font-mono); background: var(--surface); color: var(--text-2); opacity: 0; transition: opacity var(--d-1) var(--ease); }
+.sb-strip:hover .sb-plus, .sb-plus:focus-visible, .sb-gap:has(.sb-menu) .sb-plus { opacity: 1; }
+.sb-plus:hover { color: var(--text); border-color: var(--gold); }
+.sb-menu { position: absolute; top: calc(100% + 4px); left: 50%; z-index: 20; transform: translateX(-50%); display: grid; gap: 1px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-2); box-shadow: 0 10px 28px var(--shade); white-space: nowrap; }
+.sb-menu button { padding: 6px 12px; border: 0; border-radius: var(--r-1); background: transparent; text-align: left; font-size: var(--fs-small); }
+.sb-menu button:hover, .sb-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.sb-shimmer { position: absolute; inset: 4px 0; pointer-events: none; border-radius: var(--r-1);
+  background: linear-gradient(100deg, transparent 35%, color-mix(in srgb, var(--gold) 40%, transparent) 50%, transparent 65%) 0 0 / 220% 100% no-repeat;
+  animation: sb-shimmer 1.6s linear infinite; }
+@keyframes sb-shimmer { from { background-position: 140% 0; } to { background-position: -40% 0; } }
+.sb-playhead { position: absolute; top: 0; bottom: 0; left: 0; z-index: 5; width: 2px; background: var(--gold); box-shadow: 0 0 10px var(--gold); pointer-events: none; }
+.sb-readonly .sb-seg { cursor: default; }
+
+/* arriving: the two ways */
+.sb-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sb-choice { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.sb-choice b { font: 600 var(--fs-lead)/1.2 var(--font-display); }
+.sb-choice.sb-jazz { border-color: var(--navy); box-shadow: 0 0 0 1px var(--navy); }
+.sb-choice:hover:not(:disabled) { border-color: var(--navy); }
+.sb-choice-pic { position: relative; display: flex; align-items: center; gap: 3px; height: 76px; padding: 0 7%; border-radius: var(--r-2); background: var(--theater-bg); overflow: hidden; }
+.sb-choice-pic i { flex: 1 1 0; height: 26px; border-radius: 2px; background: var(--fam); opacity: .85; }
+.sb-choice-pic i[data-family="hand"] { background: var(--theater-text-2); }
+/* Jazz: the playhead sweeps the strip (1400 ms, the ceremony's own), each shot hopping and lighting as it passes */
+.sb-jazz .sb-choice-pic::after { content: ''; position: absolute; top: 14px; bottom: 14px; left: 7%; width: 2px; background: var(--theater-gold); box-shadow: 0 0 8px var(--theater-gold); opacity: 0; pointer-events: none; }
+.sb-jazz:is(:hover, :focus-visible):not(:disabled) .sb-choice-pic::after { animation: sb-sweep 1.4s linear infinite; }
+.sb-jazz:is(:hover, :focus-visible):not(:disabled) .sb-choice-pic i { animation: sb-hop 1.4s var(--ease) infinite; animation-delay: calc(var(--i, 0) * 1.4s / var(--n, 12)); }
+@keyframes sb-sweep { 0% { left: 7%; opacity: 0; } 6%, 94% { opacity: 1; } 100% { left: 93%; opacity: 0; } }
+@keyframes sb-hop { 0%, 26%, 100% { transform: none; filter: none; } 9% { transform: translateY(-38%); filter: brightness(1.45); } }
+/* Directed: a hand lifts the second shot, carries it along the strip, sets it down, then puts it back */
+.sb-choice:not(.sb-jazz):is(:hover, :focus-visible):not(:disabled) .sb-choice-pic i:nth-child(2) { position: relative; z-index: 1; animation: sb-carry 2.8s var(--ease) infinite;
+  box-shadow: 0 0 0 1px var(--theater-gold); }
+@keyframes sb-carry { 0%, 8% { transform: none; } 22% { transform: translateY(-70%) scale(1.06); } 50% { transform: translate(64px, -70%) scale(1.06); } 62%, 78% { transform: translate(64px, 0); } 92%, 100% { transform: none; } }
+
+/* the cards, and the inspector beside them in Directed */
+.sb-body { display: grid; gap: 20px; align-items: start; }
+.sb-body.with-insp { grid-template-columns: minmax(0, 1fr) 380px; }
+.sb-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 12px; align-content: start; }
+.sb-card { display: grid; gap: 5px; align-content: start; padding: 0; border: 0; background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.sb-card-pic { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-2); background: var(--theater-bg); box-shadow: 0 0 0 1px var(--line); }
+.sb-card-pic::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--fam); }
+.sb-card.sb-live .sb-card-pic { box-shadow: 0 0 0 1px var(--gold); }
+.sb-card.on .sb-card-pic { box-shadow: 0 0 0 2px var(--navy); }
+.sb-card:focus-visible { outline: none; }
+.sb-card:focus-visible .sb-card-pic { box-shadow: 0 0 0 2px var(--focus), 0 0 0 4px var(--bg); }
+.sb-media { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sb-card-text { display: grid; place-items: center; width: 100%; height: 100%; }
+.sb-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sb-card-n { color: var(--text-2); }
+.sb-card-tile { color: var(--fam); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-card[data-family="hand"] .sb-card-tile { color: var(--text); }
+.sb-card-title { font-size: var(--fs-small); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sb-card-meta { display: flex; gap: 8px; color: var(--text-2); }
+.sb-money { color: var(--money); }
+.sb-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+.sb-lock { position: relative; flex: none; width: 9px; height: 7px; margin: 5px 0 0 auto; border-radius: 1px; background: var(--text-2); }
+.sb-lock::before { content: ''; position: absolute; left: 1.5px; top: -5px; width: 6px; height: 6px; box-sizing: border-box; border: 1.5px solid var(--text-2); border-bottom: 0; border-radius: 4px 4px 0 0; }
+
+.sb-insp { position: sticky; top: 0; display: grid; gap: 12px; padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface);
+  animation: sb-in var(--d-3) var(--ease); }
+@keyframes sb-in { from { opacity: 0; transform: translateX(12px); } }
+.sb-insp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-2); }
+.sb-insp-nav { display: flex; gap: 4px; }
+.sb-insp-pic { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-2); background: var(--theater-bg); }
+.sb-insp-style { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: var(--r-pill); color: var(--theater-text); background: rgba(17, 17, 14, .62); }
+.sb-title-row { display: flex; align-items: baseline; gap: 8px; }
+.sb-title { flex: 1; margin: 0; font: 600 var(--fs-lead)/1.25 var(--font-display); }
+.sb-title-input { font: 600 var(--fs-lead) var(--font-display); }
+.sb-sec { display: grid; gap: 8px; }
+.sb-sec-label { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-2); }
+.sb-sec > .sb-sec-label::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.sb-bullets { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-small); line-height: 1.4; }
+.sb-bullets li:not(.sb-cut) { position: relative; padding-left: 14px; }
+.sb-bullets li:not(.sb-cut)::before { content: '•'; position: absolute; left: 2px; color: var(--text-2); }
+.sb-cut { display: flex; }
+.sb-scissors { width: 100%; height: 16px; padding: 0 0 0 2px; border: 0; border-top: 1px dashed transparent; border-radius: 0; background: none; color: var(--text-2);
+  font-size: var(--fs-small); line-height: 1; text-align: left; } /* the bullets' own grey: AA by day and night (qa/visual.sh) */
+.sb-scissors:hover:not(:disabled), .sb-scissors:focus-visible { color: var(--gold-ink); border-top-color: var(--gold); outline: none; }
+.sb-picker { min-width: 0; }
+.sb-fallback { font-size: var(--fs-small); color: var(--text-2); }
+.sb-sec > .slot:not(:empty) + .sb-fallback { display: none; }
+.sb-ref { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px 4px 0; padding: 2px 9px; border: 1px solid var(--line); border-radius: var(--r-pill); }
+.sb-row { display: flex; align-items: center; gap: 8px; }
+.sb-toggle { display: inline-flex; width: fit-content; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-pill); }
+.sb-seg-btn { padding: 4px 12px; border: 0; border-radius: 0; background: transparent; color: var(--text-2); font-size: var(--fs-small); }
+.sb-seg-btn + .sb-seg-btn { border-left: 1px solid var(--line); }
+.sb-seg-btn.on { color: var(--text); background: color-mix(in srgb, var(--gold) 16%, transparent); }
+.sb-well { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; padding: 8px; border: 1.5px dashed var(--line); border-radius: var(--r-2);
+  background: transparent; color: var(--text-2); font-size: var(--fs-small); cursor: pointer; transition: border-color var(--d-1) var(--ease), background var(--d-1) var(--ease); }
+.sb-well:hover:not(:disabled), .sb-well:focus-visible, .sb-well.drop { border-color: var(--chestnut); color: var(--text); background: color-mix(in srgb, var(--chestnut) 6%, transparent); outline: none; }
+.sb-well.full { justify-content: flex-start; flex-wrap: wrap; border-style: solid; }
+.sb-well:disabled { cursor: default; opacity: .6; }
+.sb-well-plus { font: 500 var(--fs-lead)/1 var(--font-mono); }
+.sb-well-clip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.sb-well-clip img { width: 48px; height: 27px; object-fit: cover; border-radius: var(--r-1); }
+.sb-well-clip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-ask { font-size: var(--fs-small); }
+.sb-secs-n { min-width: 4ch; text-align: center; }
+.sb-secs .sb-sec-label { margin-right: auto; }
+.sb-end { justify-content: space-between; }
+.sb-end .on { color: var(--gold-ink); border-color: var(--gold); }
+.sb-actions { align-items: center; margin: 4px 0 0; }
+
+/* ── the ribbon: the plan above every stage from the Deck on ── */
+.rb-host:empty { display: none; }
+.rb { display: flex; align-items: center; gap: 16px; height: 40px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.rb-strip { flex: 1; display: flex; gap: 2px; min-width: 0; height: 22px; }
+.rb-seg { position: relative; flex: 1 1 0; min-width: 10px; padding: 0; overflow: hidden; border: 1px solid var(--fam); border-radius: 3px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.rb-seg[data-state="planned"] { border-style: dashed; }
+.rb-seg.rb-live { box-shadow: inset 0 1px 0 var(--gold); }
+.rb-seg.rb-between { min-width: 8px; }
+.rb-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--fam); opacity: .45; }
+.rb-n { position: relative; display: block; padding: 0 4px; font-size: var(--fs-hud); line-height: 20px; white-space: nowrap; }
+.rb-ok { position: absolute; right: 3px; top: 0; font-size: var(--fs-hud); line-height: 20px; color: var(--moss); }
+.rb-script .rb-seg { border-color: transparent; }
+.rb-ghost { position: absolute; left: 0; top: 0; bottom: 0; box-sizing: border-box; border: 1px dashed var(--fam); border-radius: 3px; }
+.rb-bar { position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: 2px; background: var(--fam); opacity: .55; }
+.rb-line { flex: none; color: var(--text-2); white-space: nowrap; }
+.rb-seg:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* ── the Deck: family badges, Solo and Duet posters, scenes between slides, the crew's module changes ── */
+.thumbs.deck-flow { display: flex; flex-wrap: wrap; }
+.thumbs.deck-flow > .thumb { flex: 0 0 var(--thumb-w, 240px); min-width: 0; } /* one width for all (episodes.js fitThumbs) */
+.thumbs.deck-flow > .ph-between { flex: 0 0 36px; aspect-ratio: auto; }
+.ph-between { position: relative; display: grid; place-items: center; border: 1.5px dashed var(--line); border-radius: var(--r-2); background: transparent; color: var(--gold-ink); }
+.ph-between.ph-cut { color: var(--chestnut); }
+.thumbs.show-zone .thumb.ph-between::after { display: none; } /* a scene between slides has no presenter's bubble */
+.ph-label { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+.thumb[data-family] .mod-badge { background: color-mix(in srgb, var(--fam) 82%, #000); }
+.thumb[data-family="hand"] .mod-badge { background: rgba(0, 0, 0, .7); }
+.thumb .mod-badge.live { color: var(--theater-gold); background: rgba(17, 17, 14, .78); border: 1px solid var(--theater-gold); }
+.thumb.live { box-shadow: 0 0 0 1px var(--gold); }
+.thumb .crew-change { position: absolute; left: 6px; top: 6px; padding: 1px 8px; border-radius: var(--r-pill); color: #fff; background: var(--chestnut); }
+
+/* ── the Bullets as a document: module chips ── */
+.doc-head { display: flex; justify-content: flex-end; margin: 4px 0 -6px; }
+.doc-edit[aria-pressed="true"] { border-color: var(--navy); color: var(--navy); }
+.bullets-doc .mod-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
+.mod-chip { padding: 2px 9px; border-radius: var(--r-pill); border: 1px solid var(--fam); color: var(--fam); background: color-mix(in srgb, var(--fam) 9%, transparent); white-space: nowrap; }
+.mod-chip[data-family="live"] { color: var(--gold-ink); border-color: var(--gold); }
+.mod-text { color: var(--text-2); font-size: var(--fs-small); }
+
+/* ── the Script: the plan against it, the cues ── */
+.plan-line { margin: 4px 0 10px; color: var(--text-2); }
+.cues { display: grid; gap: 6px; margin: 0 0 12px; }
+.cue-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.cue-where { margin-right: 4px; color: var(--gold-ink); }
+.cue { padding: 1px 9px; border-radius: var(--r-pill); font-size: var(--fs-small); border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent); background: color-mix(in srgb, var(--gold) 14%, transparent); }
+.cue.missing { color: var(--red); border-color: var(--red); background: transparent; }
+
+/* ── Restore beside a refusal; an episode a newer FLPT made ── */
+.flash .restore { margin-left: 10px; }
+p.bad .restore { margin-left: 8px; font-weight: 400; }
+.ep-card.too-new .ep-meta { color: var(--gold-ink); }
+
+/* ── Pause motion and reduced motion: posters, nothing re-deals or shimmers ── */
+html.fx-paused .sb-mini, html.fx-paused .sb-shimmer { display: none; }
+html.fx-paused .sb-insp, html.fx-paused .mp-media, html.fx-paused .sb-choice-pic i, html.fx-paused .sb-choice-pic::after { animation: none !important; transition: none; }
+html.fx-paused .mp-tile:hover .mp-media, html.fx-paused .sb-choice:hover .sb-choice-pic i { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sb-mini, .sb-shimmer { display: none; }
+  .sb-insp, .mp-media, .sb-choice-pic i, .sb-choice-pic::after, .sb-seg, .sb-plus, .sb-well { animation: none !important; transition: none; }
+  .mp-tile:hover .mp-media, .sb-choice:hover .sb-choice-pic i { transform: none; }
+}

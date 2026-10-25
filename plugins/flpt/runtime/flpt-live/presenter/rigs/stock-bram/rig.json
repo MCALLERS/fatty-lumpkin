@@ -1,0 +1,30 @@
+{
+ "schema": "flpt.rig/1",
+ "id": "stock-bram",
+ "name": "Bram",
+ "style": "flat-vector",
+ "version": "1.0.0",
+ "canvas": { "w": 720, "h": 720 },
+ "background": { "type": "color", "value": "#EEF0E8" },
+ "camera": { "scale": 1.2, "focus": [360, 390] },
+ "layers": [
+  { "id": "backdrop", "src": "backdrop.svg", "z": -1, "static": true },
+  { "id": "bust", "src": "bust.svg", "z": 0 },
+  { "id": "head", "src": "head.svg", "z": 1, "pivot": [360, 560], "range": { "rot": [-4, 4], "y": [-8, 6] } },
+  { "id": "eyes", "type": "swap", "parent": "head", "z": 2,
+    "states": { "open": "eyes_open.svg", "half": "eyes_half.svg", "closed": "eyes_closed.svg" },
+    "overPupils": ["half"], "hidesPupils": ["closed"] },
+  { "id": "pupils", "src": "pupils.svg", "parent": "head", "z": 3, "range": { "x": [-5, 5], "y": [-4, 3] },
+    "clip": [ { "cx": 298, "cy": 332, "rx": 25, "ry": 28 }, { "cx": 422, "cy": 332, "rx": 25, "ry": 28 } ] },
+  { "id": "glasses", "src": "glasses.svg", "parent": "head", "z": 3.5 },
+  { "id": "brows", "src": "brows.svg", "parent": "head", "z": 4, "pivot": [360, 262], "range": { "y": [-10, 3], "rot": [-5, 5] } },
+  { "id": "mouth", "type": "swap", "parent": "head", "z": 5, "anchor": [360, 446],
+    "states": { "X": "m_X.svg", "A": "m_A.svg", "B": "m_B.svg", "C": "m_C.svg", "D": "m_D.svg", "E": "m_E.svg",
+                "F": "m_F.svg", "G": "m_G.svg", "H": "m_H.svg", "smile": "m_smile.svg", "laugh": "m_laugh.svg" } },
+  { "id": "moustache", "src": "moustache.svg", "parent": "head", "z": 6 }
+ ],
+ "motion": { "blink": { "meanGap": 3.9, "dur": 0.13, "doubleChance": 0.12 }, "bob": { "fromEnvelope": 5, "noise": 1.2 },
+             "breath": { "period": 4.6, "scale": 0.006 }, "mouthMinHoldFrames": 2, "leadFrames": 1, "browOnEmphasis": 0.9 },
+ "provenance": { "kind": "stock", "plate": null, "made": "2026-10-23 FLPT W3-05 (hand-written SVG, make-layers.mjs)",
+                 "costUsd": 0, "consent": null }
+}

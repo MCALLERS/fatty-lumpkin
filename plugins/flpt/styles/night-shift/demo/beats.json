@@ -1,0 +1,13 @@
+{
+  "style": "night-shift",
+  "placement": "duet",
+  "duration": 7,
+  "hold": 0.5,
+  "beats": [
+    { "t": 0.4, "name": "clock", "fx": "pop", "sfx": "pop" },
+    { "t": 1.1, "name": "roll", "fx": "roll", "sfx": "click" },
+    { "t": 2.0, "name": "title", "fx": "set-in", "sfx": "swish" },
+    { "t": 3.2, "name": "turn", "fx": "cascade" },
+    { "t": 4.3, "name": "flare", "fx": "leak", "sfx": "thump" }
+  ]
+}

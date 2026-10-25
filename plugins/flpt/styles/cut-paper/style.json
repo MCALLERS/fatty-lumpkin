@@ -1,0 +1,884 @@
+{
+  "schema": "flpt.style/1",
+  "id": "cut-paper",
+  "version": "1.0.0",
+  "name": "Cut Paper",
+  "line": "Torn paper, soft shadows, crayon, and characters with faces.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "warm",
+      "playful"
+    ],
+    "look": [
+      "collage",
+      "paper",
+      "crayon"
+    ],
+    "pace": "lively",
+    "use": [
+      "stories",
+      "histories"
+    ]
+  },
+  "tokens": {
+    "paper": "#EFE5CF",
+    "inks": [
+      "#26315F",
+      "#3F9F9A",
+      "#F6CF55",
+      "#F3A3BF",
+      "#A9D9C6",
+      "#8C7AD8",
+      "#4C6FB5",
+      "#5AA05A",
+      "#C08048",
+      "#D9A441",
+      "#2A1D18"
+    ],
+    "accent": "#EC7A4F",
+    "type": {
+      "hand": "Caveat",
+      "display": "Fraunces Soft"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-regular.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "Caveat",
+      "file": "fonts/caveat-bold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Caveat.txt"
+    },
+    {
+      "family": "Fraunces Soft",
+      "file": "fonts/fraunces-soft-black.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "pop",
+      "tear",
+      "drop",
+      "boil",
+      "push",
+      "parallax",
+      "write-on"
+    ],
+    "pace": "lively",
+    "easing": "spring:playful"
+  },
+  "sound": {
+    "score": "hush",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 32
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:b1044505bc88487946d2e25b94b268632c6d068a201cd82f1ba6548c9db8c98b",
+    "STYLE.md": "sha256:4c11871ad3533057720affd6f785b59cd48158a480a199bd4fd6a96f57b1eb7d",
+    "starter/scene.js": "sha256:ed0358b7f91bfc45a173db99a3ba0de398a966d1416885116f8338db957bd054"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.DISPLAY",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for cut-out letters (Fraunces Soft)"
+    },
+    {
+      "fn": "ctx.kit.HAND",
+      "kind": "value",
+      "params": [],
+      "doc": "font stack for hand lettering (Caveat)"
+    },
+    {
+      "fn": "ctx.kit.PAL",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette; orange is the hero only"
+    },
+    {
+      "fn": "ctx.kit.arcPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "a0",
+        "a1",
+        "n",
+        "sy"
+      ],
+      "doc": "points on an arc"
+    },
+    {
+      "fn": "ctx.kit.arm",
+      "kind": "function",
+      "params": [
+        "sx",
+        "sy",
+        "wx",
+        "wy",
+        "s",
+        "skin",
+        "sleeve",
+        "o"
+      ],
+      "doc": "an arm from shoulder to wrist, bent at o.elbow; returns the mitten"
+    },
+    {
+      "fn": "ctx.kit.armPose",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "k",
+        "side"
+      ],
+      "doc": "where a person's raised arm is (shoulder, wrist, mitten)"
+    },
+    {
+      "fn": "ctx.kit.bbox",
+      "kind": "function",
+      "params": [
+        "P",
+        "pad"
+      ],
+      "doc": "bounding box of points"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "called by the runtime each frame"
+    },
+    {
+      "fn": "ctx.kit.bird",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a round paper bird; flap, facing"
+    },
+    {
+      "fn": "ctx.kit.books",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "key"
+      ],
+      "doc": "a stack of books"
+    },
+    {
+      "fn": "ctx.kit.bubble",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "tx",
+        "ty",
+        "o"
+      ],
+      "doc": "a paper speech bubble with a tail; draw fills it"
+    },
+    {
+      "fn": "ctx.kit.bunting",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "o"
+      ],
+      "doc": "a string of paper flags, swaying"
+    },
+    {
+      "fn": "ctx.kit.capsulePts",
+      "kind": "function",
+      "params": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "w",
+        "n"
+      ],
+      "doc": "a capsule outline between two points"
+    },
+    {
+      "fn": "ctx.kit.caption",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a paper strip with handwriting (screen space)"
+    },
+    {
+      "fn": "ctx.kit.cat",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "c",
+        "key",
+        "o"
+      ],
+      "doc": "a sleeping cat (awake: eyes open)"
+    },
+    {
+      "fn": "ctx.kit.clock",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "h",
+        "m",
+        "key"
+      ],
+      "doc": "a wall clock at h:m"
+    },
+    {
+      "fn": "ctx.kit.cloud",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "key",
+        "c"
+      ],
+      "doc": "a paper cloud"
+    },
+    {
+      "fn": "ctx.kit.confetti",
+      "kind": "function",
+      "params": [
+        "t0",
+        "n",
+        "key",
+        "cols"
+      ],
+      "doc": "paper confetti falling from t0"
+    },
+    {
+      "fn": "ctx.kit.crayonIn",
+      "kind": "function",
+      "params": [
+        "bb",
+        "c",
+        "key",
+        "o",
+        "anchor"
+      ],
+      "doc": "crayon scribble inside the current clip"
+    },
+    {
+      "fn": "ctx.kit.cut",
+      "kind": "function",
+      "params": [
+        "P",
+        "fill",
+        "o"
+      ],
+      "doc": "a torn paper cutout: shadow, grain, crayon, pattern"
+    },
+    {
+      "fn": "ctx.kit.cutLetters",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "cut-out letters dropping in, one colour each (kinetic type)"
+    },
+    {
+      "fn": "ctx.kit.dist",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": "distance between two points"
+    },
+    {
+      "fn": "ctx.kit.dot",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c"
+      ],
+      "doc": "a filled dot"
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n",
+        "a0",
+        "a1"
+      ],
+      "doc": "points on an ellipse"
+    },
+    {
+      "fn": "ctx.kit.face",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "mood",
+        "o"
+      ],
+      "doc": "a face: smile, happy, wow, sad, focus"
+    },
+    {
+      "fn": "ctx.kit.floor",
+      "kind": "function",
+      "params": [
+        "y",
+        "c",
+        "p",
+        "o"
+      ],
+      "doc": "a floor or table from y down"
+    },
+    {
+      "fn": "ctx.kit.gear",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "a",
+        "c",
+        "key",
+        "o"
+      ],
+      "doc": "a paper gear turned to angle a"
+    },
+    {
+      "fn": "ctx.kit.glow",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c",
+        "o"
+      ],
+      "doc": "a soft pool of light"
+    },
+    {
+      "fn": "ctx.kit.grain",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "the frame grain; call last"
+    },
+    {
+      "fn": "ctx.kit.grainIn",
+      "kind": "function",
+      "params": [
+        "bb",
+        "key",
+        "k",
+        "anchor"
+      ],
+      "doc": "paper grain inside the current clip"
+    },
+    {
+      "fn": "ctx.kit.hand",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "a",
+        "skin",
+        "sleeve",
+        "o"
+      ],
+      "doc": "a mitten hand on a sleeve"
+    },
+    {
+      "fn": "ctx.kit.handFont",
+      "kind": "function",
+      "params": [
+        "size",
+        "weight"
+      ],
+      "doc": "CSS font for hand lettering"
+    },
+    {
+      "fn": "ctx.kit.handText",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "color",
+        "o"
+      ],
+      "doc": "hand lettering, written on with frac"
+    },
+    {
+      "fn": "ctx.kit.handW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "weight"
+      ],
+      "doc": "width of hand lettering"
+    },
+    {
+      "fn": "ctx.kit.house",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a paper house; lit windows"
+    },
+    {
+      "fn": "ctx.kit.ink",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "a sketchy stroke; frac writes it on"
+    },
+    {
+      "fn": "ctx.kit.lamp",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a desk lamp with a tissue beam"
+    },
+    {
+      "fn": "ctx.kit.layerCam",
+      "kind": "function",
+      "params": [
+        "c",
+        "f",
+        "home"
+      ],
+      "doc": "a camera for a layer at depth f (parallax)"
+    },
+    {
+      "fn": "ctx.kit.lettersW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "o"
+      ],
+      "doc": "width of a cut-letter line"
+    },
+    {
+      "fn": "ctx.kit.moon",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "a paper moon"
+    },
+    {
+      "fn": "ctx.kit.mug",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "c",
+        "key",
+        "steam"
+      ],
+      "doc": "a mug with steam"
+    },
+    {
+      "fn": "ctx.kit.page",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "angle",
+        "o"
+      ],
+      "doc": "a sheet of ruled paper; draw writes on it"
+    },
+    {
+      "fn": "ctx.kit.pat",
+      "kind": "value",
+      "params": [],
+      "doc": "patterns: stripes, dots, gingham, lines, grainWood, checks"
+    },
+    {
+      "fn": "ctx.kit.pathLen",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": "length of a path"
+    },
+    {
+      "fn": "ctx.kit.pencil",
+      "kind": "function",
+      "params": [
+        "bb",
+        "t"
+      ],
+      "doc": "boiling coloured-pencil strokes in the clip"
+    },
+    {
+      "fn": "ctx.kit.person",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a bust with a face, hair and shirt; o.raise lifts an arm"
+    },
+    {
+      "fn": "ctx.kit.plant",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "pot",
+        "key"
+      ],
+      "doc": "a potted plant"
+    },
+    {
+      "fn": "ctx.kit.popS",
+      "kind": "function",
+      "params": [
+        "t"
+      ],
+      "doc": "back-eased pop-in scale from t"
+    },
+    {
+      "fn": "ctx.kit.rect",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r"
+      ],
+      "doc": "a rounded rectangle outline"
+    },
+    {
+      "fn": "ctx.kit.register",
+      "kind": "function",
+      "params": [
+        "id",
+        "str",
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "doc": "register a text box for the checks"
+    },
+    {
+      "fn": "ctx.kit.resample",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "step"
+      ],
+      "doc": "resample a path evenly"
+    },
+    {
+      "fn": "ctx.kit.rot",
+      "kind": "function",
+      "params": [
+        "P",
+        "cx",
+        "cy",
+        "a"
+      ],
+      "doc": "rotate points about a centre"
+    },
+    {
+      "fn": "ctx.kit.rrectPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r",
+        "n"
+      ],
+      "doc": "a rounded rectangle outline"
+    },
+    {
+      "fn": "ctx.kit.spark",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "the hero: an orange starburst with a face"
+    },
+    {
+      "fn": "ctx.kit.sparkPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "n",
+        "m"
+      ],
+      "doc": "the hero outline (a window or morph)"
+    },
+    {
+      "fn": "ctx.kit.sparkle",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "c"
+      ],
+      "doc": "a four-point sparkle"
+    },
+    {
+      "fn": "ctx.kit.springIn",
+      "kind": "function",
+      "params": [
+        "t",
+        "p"
+      ],
+      "doc": "a spring from 0 to 1 starting at t"
+    },
+    {
+      "fn": "ctx.kit.star",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "c",
+        "key"
+      ],
+      "doc": "a paper star"
+    },
+    {
+      "fn": "ctx.kit.subPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": "the first frac of a path"
+    },
+    {
+      "fn": "ctx.kit.sun",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "a paper sun with rays (face optional)"
+    },
+    {
+      "fn": "ctx.kit.tag",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a torn paper tag with tape and handwriting"
+    },
+    {
+      "fn": "ctx.kit.tear",
+      "kind": "function",
+      "params": [
+        "u",
+        "key",
+        "inside",
+        "o"
+      ],
+      "doc": "torn-paper wipe; inside draws the next world"
+    },
+    {
+      "fn": "ctx.kit.torn",
+      "kind": "function",
+      "params": [
+        "Q",
+        "key",
+        "amt"
+      ],
+      "doc": "tear an outline (fixed per key)"
+    },
+    {
+      "fn": "ctx.kit.trace",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed"
+      ],
+      "doc": "trace points as a smooth path"
+    },
+    {
+      "fn": "ctx.kit.tree",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "s",
+        "o"
+      ],
+      "doc": "a paper tree (bare: branches)"
+    },
+    {
+      "fn": "ctx.kit.wall",
+      "kind": "function",
+      "params": [
+        "c",
+        "p",
+        "o"
+      ],
+      "doc": "a full-frame wall of one colour"
+    },
+    {
+      "fn": "ctx.kit.windowCut",
+      "kind": "function",
+      "params": [
+        "P",
+        "key",
+        "inside",
+        "o"
+      ],
+      "doc": "a world seen through a torn hole"
+    },
+    {
+      "fn": "ctx.kit.wobble",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "amt",
+        "key",
+        "step"
+      ],
+      "doc": "boil a path on the twos"
+    },
+    {
+      "fn": "ctx.kit.xform",
+      "kind": "function",
+      "params": [
+        "P",
+        "tx",
+        "ty",
+        "rot",
+        "sx",
+        "sy"
+      ],
+      "doc": "translate, rotate and scale points"
+    }
+  ]
+}

@@ -1,0 +1,333 @@
+/* The Style Gallery (PLAN §3.3 S12–S13; W3-01): the wall, the detail sheet and pick mode, in the Theater realm. K9's
+   measured wall is the base: JS masonry with absolute tiles at known aspect ratios (nothing shifts as posters load), 2D
+   transforms and content-visibility, no per-tile backdrop-filter, the ▶ quiet until hover or focus. Every rule for the
+   Gallery's own page is scoped under .g-page (its <body>), so nothing here reaches the main window, which loads this
+   file too for the .gs-* pieces at the end (the top-bar button and the Storyboard inspector's STYLE slot). Six type
+   sizes at most: 11, 13, 15, 19, 30, 46. */
+
+/* ── the page ─────────────────────────────────────────────────────────────────────────────────────────────────── */
+.g-page, .g-page *, .g-page *::before, .g-page *::after { box-sizing: border-box; }
+html:has(> body.g-page) { margin: 0; background: var(--theater-bg); }
+body.g-page {
+  margin: 0; min-height: 100vh; overflow-x: hidden;
+  background: var(--bg); color: var(--text);
+  font: 400 var(--fs-body)/1.45 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+:where(.g-page) button { font: inherit; color: inherit; }
+.g-page :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.g-page .hud { color: var(--text-2); }
+.g-page [hidden] { display: none !important; }
+
+/* the window's own title bar (hiddenInset): a strip to drag by, the traffic lights over its left end */
+.g-page .g-drag { position: fixed; top: 0; left: 0; right: 0; height: 30px; -webkit-app-region: drag; z-index: 9; }
+
+/* ── top bar ── */
+.g-page .g-top {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; gap: 20px;
+  padding: 34px 32px 14px 32px;
+  background: var(--theater-bg);
+  border-bottom: 1px solid var(--line);
+}
+.g-page .g-title { margin: 0; font: 500 var(--fs-title)/1 var(--font-display); letter-spacing: -.01em; white-space: nowrap; }
+.g-page .g-tabs { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.g-page .g-tab {
+  border: 0; background: none; cursor: pointer;
+  padding: 7px 10px; border-radius: var(--r-1);
+  font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase;
+  color: var(--text-2);
+  transition: color var(--d-2) var(--ease), background-color var(--d-2) var(--ease);
+}
+.g-page .g-tab:hover { color: var(--text); }
+.g-page .g-tab[aria-selected="true"] { color: var(--gold); background: rgba(227, 184, 96, .08); }
+.g-page .g-spacer { flex: 1; }
+.g-page .g-search {
+  display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag;
+  height: 34px; padding: 0 12px; width: min(260px, 36vw);
+  border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface);
+}
+.g-page .g-search svg { width: 15px; height: 15px; fill: none; stroke: var(--text-2); stroke-width: 1.6; stroke-linecap: round; flex: none; }
+.g-page .g-search input { all: unset; flex: 1; min-width: 0; font: 400 var(--fs-small) var(--font-ui); color: var(--text); }
+.g-page .g-search input::placeholder { color: var(--text-2); }
+.g-page .g-search:focus-within { border-color: var(--navy); }
+.g-page .g-add-wrap { position: relative; -webkit-app-region: no-drag; }
+.g-page .g-add {
+  width: 34px; height: 34px; border-radius: var(--r-2); cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface);
+  font: 400 var(--fs-lead)/1 var(--font-ui); color: var(--text-2);
+}
+.g-page .g-add:hover, .g-page .g-add[aria-expanded="true"] { color: var(--text); }
+
+/* a small menu (+, Use ▾) */
+.g-page .g-menu {
+  position: absolute; z-index: 8; top: calc(100% + 6px); right: 0; min-width: 180px; max-width: 320px;
+  display: grid; padding: 6px; border-radius: var(--r-2);
+  background: var(--surface-2); box-shadow: 0 0 0 1px var(--line), 0 14px 34px rgba(0, 0, 0, .5);
+}
+.g-page .g-menu button {
+  all: unset; box-sizing: border-box; cursor: pointer; padding: 8px 10px; border-radius: var(--r-1);
+  font: 400 var(--fs-small)/1.3 var(--font-ui); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.g-page .g-menu button:hover, .g-page .g-menu button:focus-visible { background: rgba(238, 232, 218, .08); outline: none; }
+.g-page .g-menu .g-menu-empty { padding: 8px 10px; font: 500 var(--fs-hud)/1.3 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--text-2); }
+
+/* ── the wall (JS masonry: shortest column first, absolute tiles, known aspect ratios) ── */
+.g-page .g-main { padding: 24px 32px 40px; }
+.g-page .g-wall { position: relative; contain: layout style; }
+.g-page .g-tile {
+  position: absolute; top: 0; left: 0;
+  border-radius: var(--r-2);
+  background: var(--surface);
+  overflow: hidden;
+  contain: layout paint style;
+  /* the position comes from layout() as transform; the hover lift (≤ 4 px) is the separate translate property */
+  transition: translate var(--d-2) var(--ease), box-shadow var(--d-2) var(--ease);
+  box-shadow: 0 0 0 1px var(--line);
+}
+html[data-cv="on"] .g-page .g-tile { content-visibility: auto; }
+.g-page .g-wall.is-dealing .g-tile { transition: transform var(--d-3) var(--ease), translate var(--d-2) var(--ease), box-shadow var(--d-2) var(--ease); }
+@media (hover: hover) {
+  html:not(.fx-paused) .g-page .g-tile:not(.g-yours):hover { translate: 0 calc(-1 * var(--lift)); }
+}
+.g-page .g-tile:hover, .g-page .g-tile:focus-within { box-shadow: 0 0 0 1px rgba(238, 232, 218, .22), 0 10px 28px rgba(0, 0, 0, .45); }
+.g-page .g-tile.is-picked { box-shadow: 0 0 0 2px var(--chestnut), 0 10px 28px rgba(0, 0, 0, .45); }
+.g-page .g-tile.is-playing { box-shadow: 0 0 0 2px var(--gold), 0 10px 28px rgba(0, 0, 0, .5); }
+
+.g-page .g-face { all: unset; display: block; position: absolute; inset: 0; cursor: pointer; border-radius: inherit; }
+.g-page .g-face:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.g-page .g-poster, .g-page .g-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.g-page .g-poster { background: var(--surface); }
+.g-page .g-video { opacity: 0; transition: opacity var(--d-1) linear; }
+.g-page .is-live > .g-video, .g-page .g-video.is-live { opacity: 1; }
+
+/* ▶ / ■: always there, quiet until hover or focus (no backdrop-filter: 60 of them cost a render pass each, K9) */
+.g-page .g-play {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2;
+  width: 38px; height: 38px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  display: grid; place-items: center;
+  background: rgba(17, 17, 14, .72);
+  box-shadow: inset 0 0 0 1px rgba(238, 232, 218, .2);
+  transition: background-color var(--d-2) var(--ease), opacity var(--d-2) var(--ease);
+}
+.g-page .g-play svg { width: 14px; height: 14px; fill: var(--text); pointer-events: none; }
+.g-page .g-play .i-stop { display: none; }
+.g-page .g-play:hover, .g-page .g-tile:hover .g-play, .g-page .g-play:focus-visible { background: rgba(17, 17, 14, .88); }
+.g-page .g-play[aria-pressed="true"] { background: var(--gold); box-shadow: none; }
+.g-page .g-play[aria-pressed="true"] svg { fill: var(--theater-bg); }
+.g-page .g-play[aria-pressed="true"] .i-play { display: none; }
+.g-page .g-play[aria-pressed="true"] .i-stop { display: block; }
+.g-page .is-loading .g-play::after, .g-page .g-stage.is-loading .g-play::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid transparent; border-top-color: var(--gold);
+  animation: g-spin 700ms linear infinite;
+}
+@keyframes g-spin { to { transform: rotate(1turn); } }
+
+/* the name on hover, focus and while playing (Fraunces), on a scrim deep enough that a poster's own type under it
+   never competes */
+.g-page .g-meta {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 56px 14px 15px 62px;
+  background: linear-gradient(to top, rgba(17, 17, 14, .96) 0, rgba(17, 17, 14, .9) 50px, rgba(17, 17, 14, 0) 100%);
+  opacity: 0; transition: opacity var(--d-2) var(--ease);
+  pointer-events: none;
+}
+.g-page .g-tile:hover .g-meta, .g-page .g-tile:focus-within .g-meta, .g-page .g-tile.is-playing .g-meta, .g-page .g-tile.is-picked .g-meta { opacity: 1; }
+.g-page.g-picking .g-meta { padding-right: 52px; }
+.g-page .g-name { margin: 0; font: 500 var(--fs-lead)/1.2 var(--font-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-page .g-chip { margin: 4px 0 0; font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--text-2); }
+.g-page .g-tile.is-playing .g-chip { color: var(--gold); }
+/* In review · Shared · Rendering: small, top right, off the poster's title */
+.g-page .g-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 6px; border-radius: var(--r-1);
+  background: rgba(17, 17, 14, .86); color: var(--text-2);
+  font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase;
+}
+/* pick mode's "i" (the detail, since a press picks): bottom right, across from ▶ */
+.g-page .g-info {
+  position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(17, 17, 14, .82); color: var(--text); font: 500 var(--fs-small)/1 var(--font-display);
+  opacity: 0; transition: opacity var(--d-2) var(--ease);
+}
+.g-page .g-tile:hover .g-info, .g-page .g-tile:focus-within .g-info { opacity: 1; }
+.g-page .g-tile.is-rendering .g-poster { opacity: .35; }
+
+/* the last tile: Your look, a dashed band across the wall under the lowest column (it opens the reference sheet) */
+.g-page .g-yours { background: transparent; box-shadow: none; border: 1.5px dashed rgba(238, 232, 218, .28); }
+.g-page .g-yours:hover, .g-page .g-yours:focus-within { border-color: var(--gold); box-shadow: none; }
+.g-page .g-yours-face { all: unset; position: absolute; inset: 0; cursor: pointer; border-radius: inherit; display: flex; align-items: center; justify-content: center; gap: 16px; }
+.g-page .g-yours-face:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.g-page .g-yours-mark { font: 400 var(--fs-display)/1 var(--font-display); color: var(--text-2); transform: translateY(-2px); }
+.g-page .g-yours:hover .g-yours-mark, .g-page .g-yours:focus-within .g-yours-mark { color: var(--gold); }
+.g-page .g-yours-name { font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: .18em; text-transform: uppercase; color: var(--text-2); }
+
+.g-page .g-empty { text-align: center; padding: 40px 0 12px; margin: 0; }
+
+/* ── inspiration: six tiles of FLPT's own art; each opens in the browser (the row fills its width, no empty column) ── */
+.g-page .g-insp { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); }
+.g-page .g-insp h2 { margin: 0 0 14px; }
+.g-page .g-insp-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 16px; }
+/* narrower than six across (6 × 176 + 5 × 16 + the main's 64): two rows of three, never one left over; phone width: two */
+@media (min-width: 641px) and (max-width: 1199px) { .g-page .g-insp-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.g-page .g-site { position: relative; border-radius: var(--r-2); background: var(--surface); box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+.g-page .g-site-open { all: unset; box-sizing: border-box; display: grid; gap: 4px; width: 100%; padding: 74px 14px 14px; cursor: pointer; min-height: 132px; }
+.g-page .g-site-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.g-page .g-site-art { position: absolute; inset: 0 0 auto 0; height: 64px; width: 100%; pointer-events: none; }
+.g-page .g-site-name { font: 500 var(--fs-body)/1.25 var(--font-display); color: var(--text); }
+.g-page .g-site-meta { font: 500 var(--fs-hud)/1.2 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--text-2); }
+.g-page .g-site:hover { box-shadow: 0 0 0 1px rgba(238, 232, 218, .22); }
+.g-page .g-site-capture {
+  position: absolute; top: 10px; right: 10px; border: 1px solid var(--line); border-radius: var(--r-pill); background: rgba(17, 17, 14, .82); cursor: pointer;
+  padding: 5px 9px; font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--text-2);
+}
+.g-page .g-site-capture:hover { color: var(--text); }
+
+/* ── footer ── */
+.g-page .g-foot { display: flex; align-items: center; gap: 16px; padding: 0 32px 32px; }
+.g-page .g-link { all: unset; cursor: pointer; font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--navy); }
+.g-page .g-link:hover { text-decoration: underline; }
+.g-page .g-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+/* ── buttons the sheet and the pick bar share ── */
+.g-page .g-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer;
+  padding: 8px 14px; border-radius: var(--r-2); font: 500 var(--fs-small)/1.2 var(--font-ui);
+}
+.g-page .g-btn:hover { border-color: rgba(238, 232, 218, .3); }
+.g-page .g-btn:disabled { opacity: .55; cursor: default; }
+.g-page .g-btn.primary { background: var(--navy); border-color: var(--navy); color: var(--on-navy); }
+.g-page .g-btn.primary:hover { filter: brightness(1.08); }
+.g-page .g-btn.quiet { border-color: transparent; color: var(--text-2); }
+.g-page .g-btn.quiet:hover { color: var(--text); }
+
+/* ── pick mode: the bar along the bottom ── */
+.g-page.g-picking .g-main { padding-bottom: 96px; }
+.g-page .g-pickbar {
+  position: fixed; z-index: 7; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 14px; padding: 14px 32px;
+  background: var(--surface-2); border-top: 1px solid var(--line);
+}
+.g-page .g-pickbar .g-pick-for { color: var(--gold); }
+.g-page .g-pick-label { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-page .g-pick-name { font: 500 var(--fs-body)/1.2 var(--font-display); color: var(--text); white-space: nowrap; }
+.g-page .g-pickbar .g-spacer { flex: 1; }
+
+/* ── the detail sheet (S13): under the top bar (--g-top-h, measured), over a scrim that dims the rest ── */
+.g-page .g-scrim { position: fixed; inset: 0; z-index: 10; background: var(--scrim); }
+.g-page .g-sheet {
+  position: fixed; z-index: 11; top: calc(var(--g-top-h, 84px) + 16px); left: 0; right: 0; margin: 0 auto;
+  width: min(1180px, calc(100% - 64px)); max-height: calc(100% - var(--g-top-h, 84px) - 32px);
+  display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 32px;
+  padding: 28px; border-radius: var(--r-3);
+  background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(0, 0, 0, .6);
+  overflow: auto;
+  animation: g-rise var(--d-4) var(--ease) both;
+}
+@keyframes g-rise { from { opacity: 0; transform: translateY(var(--rise)); } }
+html.fx-paused .g-page .g-sheet { animation: none; }
+.g-page .g-close { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border-radius: 50%; border: 0; background: transparent; color: var(--text-2); cursor: pointer; font: 400 var(--fs-lead)/1 var(--font-ui); }
+.g-page .g-close:hover { color: var(--text); background: rgba(238, 232, 218, .06); }
+
+.g-page .g-stagecol { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.g-page .g-stages { display: grid; gap: 10px; grid-template-columns: 1fr; }
+.g-page .g-stages.is-side { grid-template-columns: 1fr 1fr; }
+.g-page .g-stage { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-2); overflow: hidden; background: var(--theater-bg); box-shadow: 0 0 0 1px var(--line); }
+.g-page .g-stage .g-poster, .g-page .g-stage .g-video { object-fit: contain; background: var(--theater-bg); }
+.g-page .g-stage .g-wipe-top { position: absolute; inset: 0; }
+.g-page .g-stage-name { position: absolute; top: 10px; left: 10px; z-index: 2; padding: 4px 7px; border-radius: var(--r-1); background: rgba(17, 17, 14, .82); }
+/* ▶ over the picture, centred; while it plays, ■ shows on hover or focus only */
+.g-page .g-stage .g-play-big {
+  left: 50%; top: 50%; bottom: auto; z-index: 3; width: 68px; height: 68px; transform: translate(-50%, -50%);
+  background: rgba(17, 17, 14, .7); box-shadow: inset 0 0 0 1px rgba(238, 232, 218, .28), 0 8px 26px rgba(0, 0, 0, .35);
+}
+.g-page .g-stage .g-play-big svg { width: 22px; height: 22px; }
+.g-page .g-stage .g-play-big .i-play { transform: translateX(1.5px); }
+.g-page .g-stage:hover .g-play-big, .g-page .g-stage .g-play-big:focus-visible { background: rgba(17, 17, 14, .86); }
+.g-page .g-stage.is-playing:not(:hover) .g-play-big:not(:focus-visible) { opacity: 0; }
+.g-page .g-stage .g-time {
+  position: absolute; right: 10px; bottom: 10px; z-index: 2; padding: 4px 7px; border-radius: var(--r-1);
+  background: rgba(17, 17, 14, .82); pointer-events: none;
+}
+.g-page .g-stage .g-time:empty { display: none; }
+.g-page .g-transport { display: flex; align-items: center; gap: 12px; min-height: 34px; }
+.g-page .g-wipe { flex: 1; accent-color: var(--gold); }
+.g-page .g-seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-2); overflow: hidden; }
+.g-page .g-seg button { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; font: 500 var(--fs-hud)/1 var(--font-mono); letter-spacing: var(--track-hud); text-transform: uppercase; color: var(--text-2); }
+.g-page .g-seg button[aria-pressed="true"] { background: rgba(227, 184, 96, .12); color: var(--gold); }
+.g-page select, .g-page option, .g-page input { font-size: var(--fs-small); }
+.g-page .g-other { max-width: 220px; height: 32px; border-radius: var(--r-1); border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: 400 var(--fs-small) var(--font-ui); padding: 0 8px; }
+
+/* what it is: the name and its line, the specimen (type and inks), the tags, then what may be done; recipe and credit last */
+.g-page .g-info-col { display: grid; gap: 18px; align-content: start; min-width: 0; padding-right: 28px; }
+.g-page .g-d-head { display: grid; gap: 6px; }
+.g-page .g-d-name { margin: 0; font: 500 var(--fs-title)/1.1 var(--font-display); }
+.g-page .g-d-line { margin: 0; color: var(--text-2); font: 400 var(--fs-small)/1.45 var(--font-ui); }
+.g-page .g-spec {
+  display: flex; align-items: center; gap: 16px; min-width: 0;
+  padding: 14px 16px; border-radius: var(--r-2); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+}
+.g-page .g-type-aa { font: 400 var(--fs-display)/1 var(--font-display); color: var(--text); flex: none; }
+.g-page .g-type-names { display: grid; gap: 2px; min-width: 0; flex: 1; font: 400 var(--fs-small)/1.3 var(--font-ui); color: var(--text); }
+.g-page .g-type-names span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-page .g-type-names span + span { color: var(--text-2); }
+.g-page .g-swatches { display: grid; grid-template-columns: repeat(var(--g-sw-cols, 3), 22px); gap: 5px; flex: none; margin-left: auto; }
+.g-page .g-swatch { width: 22px; height: 22px; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(238, 232, 218, .18); }
+.g-page .g-tags { display: flex; gap: 10px; flex-wrap: wrap; margin: 0; }
+.g-page .g-tags span + span::before { content: '·'; margin-right: 10px; color: var(--text-2); }
+.g-page .g-tags .g-sound { color: var(--gold); }
+.g-page .g-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.g-page .g-actions .g-add-wrap .g-menu { left: 0; right: auto; }
+.g-page .g-d-foot { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.g-page .g-recipe summary { cursor: pointer; list-style: none; }
+.g-page .g-recipe summary::-webkit-details-marker { display: none; }
+.g-page .g-recipe summary::before { content: '▸ '; }
+.g-page .g-recipe[open] summary::before { content: '▾ '; }
+.g-page .g-recipe pre { margin: 10px 0 0; max-height: 280px; overflow: auto; white-space: pre-wrap; padding: 12px; border-radius: var(--r-1); background: var(--surface-2); color: var(--text-2); font: 400 var(--fs-small)/1.5 var(--font-mono); }
+.g-page .g-credit { margin: 0; color: var(--text-2); font: 400 var(--fs-small)/1.4 var(--font-ui); }
+
+/* the toast (Duplicated, Removed · Undo, a refusal) */
+.g-page .g-toast {
+  position: fixed; z-index: 12; left: 50%; bottom: 24px; transform: translateX(-50%);
+  display: flex; gap: 12px; align-items: center; margin: 0; padding: 10px 14px; border-radius: var(--r-2);
+  background: var(--surface-2); box-shadow: 0 0 0 1px var(--line), 0 14px 34px rgba(0, 0, 0, .5);
+  font: 400 var(--fs-small)/1.3 var(--font-ui); color: var(--text);
+}
+.g-page.g-picking .g-toast { bottom: 88px; }
+.g-page .g-toast.is-bad { box-shadow: 0 0 0 1px var(--red), 0 14px 34px rgba(0, 0, 0, .5); }
+
+/* phone width (the web's overlay): 16 px gutters, two columns, nothing wider than the screen */
+@media (max-width: 640px) {
+  .g-page .g-top { padding: 34px 16px 12px; gap: 12px; flex-wrap: wrap; }
+  .g-page .g-spacer { display: none; }
+  .g-page .g-search { order: 3; flex: 1 1 calc(100% - 46px); width: auto; }
+  .g-page .g-top .g-add-wrap { order: 4; }
+  .g-page .g-main { padding: 16px 16px 40px; }
+  .g-page .g-insp-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .g-page .g-foot, .g-page .g-pickbar { padding-left: 16px; padding-right: 16px; }
+  .g-page .g-sheet { top: calc(var(--g-top-h, 120px) + 8px); width: calc(100% - 16px); max-height: calc(100% - var(--g-top-h, 120px) - 16px); grid-template-columns: 1fr; gap: 20px; padding: 16px; }
+  .g-page .g-info-col { padding-right: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g-page .g-tile, .g-page .g-wall.is-dealing .g-tile, .g-page .g-video, .g-page .g-meta, .g-page .g-play, .g-page .g-info { transition: none; }
+  .g-page .g-tile:hover { translate: none; }
+  .g-page .g-sheet { animation: none; }
+}
+html.fx-paused .g-page .g-tile, html.fx-paused .g-page .g-wall.is-dealing .g-tile { transition: none; }
+
+/* ── the main window's pieces (gallery.js loads this file there too; nothing above applies outside .g-page) ── */
+.gs-open { font-size: var(--fs-body); line-height: 1; }
+.gs-style { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gs-pick {
+  display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%;
+  padding: 4px 10px 4px 4px; border-radius: var(--r-2); border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer;
+  font: 400 var(--fs-small)/1.2 var(--font-ui);
+}
+.gs-pick:hover:not(:disabled) { border-color: var(--gold-ink); }
+.gs-pick:disabled { cursor: default; opacity: .7; }
+.gs-pick img, .gs-pick .gs-none { width: 48px; height: 27px; border-radius: 4px; object-fit: cover; flex: none; background: var(--surface-2); }
+.gs-pick .gs-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-pick .gs-mark { color: var(--text-2); }
+.gs-pick.is-flagged { border-color: var(--red); }
+.gs-pick .gs-flag { color: var(--red); }

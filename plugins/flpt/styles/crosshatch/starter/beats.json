@@ -1,0 +1,13 @@
+{
+  "style": "crosshatch",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "notes", "t": 0.4},
+    { "name": "plan", "t": 1.3},
+    { "name": "push", "t": 1.9},
+    { "name": "inside", "t": 2.8},
+    { "name": "type", "t": 5.0}
+  ]
+}

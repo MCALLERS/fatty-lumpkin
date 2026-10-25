@@ -44,12 +44,17 @@ def main():
     # FLPT patch: --draft re-times to the free draft's voice (macOS say) instead of the final narration.
     draft = "--draft" in args
     tls = [t for t in glob.glob(str(P / "video/output/*.timeline.json")) if ("draft" in Path(t).name) == draft]
+    # FLPT_RETIME_TL_V1: the run's own timeline by name (Refine writes presentation_refined/_tight beside it)
+    pinned = P / "video/output" / ("draft_presentation.timeline.json" if draft else "presentation.timeline.json")
+    if pinned.exists():
+        tls = [str(pinned)]
     if not tls:
         raise SystemExit("no final timeline in video/output/ — run the pipeline (--final or --no-avatar) first")
     tl = json.load(open(max(tls, key=os.path.getmtime)))
     slides = {s["n"]: s for s in tl["slides"]}
     first = min(slides)
-    after_cut = {c.get("after_slide") for c in tl.get("cutscenes", [])}
+    # FLPT_SPLICED_ROWS_V1: a row spliced in after the pipeline (FLPT's splice, Refine) gave the next slide no lead
+    after_cut = {c.get("after_slide") for c in tl.get("cutscenes", []) if not c.get("spliced")}
     script = open(P / "script.md", encoding="utf-8").read()
 
     failed = []

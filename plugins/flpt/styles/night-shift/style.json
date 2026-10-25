@@ -1,0 +1,433 @@
+{
+  "schema": "flpt.style/1",
+  "id": "night-shift",
+  "version": "1.0.0",
+  "name": "Night Shift",
+  "line": "A dark stage on film: bone serif that sets in, sodium light.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": true,
+  "tags": {
+    "mood": [
+      "nocturnal",
+      "cinematic"
+    ],
+    "look": [
+      "dark",
+      "film",
+      "serif",
+      "grain"
+    ],
+    "pace": "kinetic",
+    "use": [
+      "interstitial",
+      "cut scene"
+    ]
+  },
+  "tokens": {
+    "paper": "#0B0D12",
+    "inks": [
+      "#ECE3D2",
+      "#8E99AB",
+      "#F4A340",
+      "#E8562A",
+      "#F7C98B"
+    ],
+    "accent": "#F4A340",
+    "type": {
+      "display": "Fraunces",
+      "kinetic": "Fraunces Italic",
+      "slam": "Fraunces Soft Black",
+      "mono": "IBM Plex Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Night Shift Display",
+      "file": "fonts/fraunces-display-semibold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Night Shift Italic",
+      "file": "fonts/fraunces-italic.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Night Shift Black",
+      "file": "fonts/fraunces-soft-black.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Night Shift Mono",
+      "file": "fonts/IBMPlexMono-SemiBold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "set-in",
+      "cascade",
+      "slam",
+      "roll",
+      "rack",
+      "burn",
+      "leak",
+      "weave"
+    ],
+    "pace": "kinetic, then held",
+    "easing": "spring:snappy"
+  },
+  "sound": {
+    "score": "pulse-112",
+    "sfx": "on"
+  },
+  "cost": {
+    "msPerFrame": 38
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": {
+      "runtime": "flpt-live@1.0.0",
+      "toolchain": "2026-10-12/darwin-arm64"
+    }
+  },
+  "credit": "FLPT original",
+  "licence": "MIT",
+  "authors": [
+    "Bombadillo AI"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:ffac1e336f1eed2c30ec4430bfcd70b946bcd12204d8b87f53a537b7d23df9e4",
+    "STYLE.md": "sha256:ed9c3ffbff57e47b242a117eceef5975fbefbba03191676120e4b231b58456ac",
+    "starter/scene.js": "sha256:1c0400b54e46a0c6f3cb5e7468eee64b417bfe43ee0803ddaa485e244586965a"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.C",
+      "kind": "value",
+      "params": [],
+      "doc": "the palette as rgb triples (paper, bone, steel, dim, sodium, ember, dawn, inks)"
+    },
+    {
+      "fn": "ctx.kit.FACE",
+      "kind": "value",
+      "params": [],
+      "doc": "the four faces: display, italic, black, mono (family, weight, tracking)"
+    },
+    {
+      "fn": "ctx.kit.FONT",
+      "kind": "value",
+      "params": [],
+      "doc": "the four font families, quoted for canvas and ctx.text"
+    },
+    {
+      "fn": "ctx.kit.anchor",
+      "kind": "function",
+      "params": [
+        "c",
+        "wx",
+        "wy"
+      ],
+      "doc": "where a world point lands on screen under a camera: pin a chip to it"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "ctx"
+      ],
+      "doc": "called by the runtime each frame"
+    },
+    {
+      "fn": "ctx.kit.cascade",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "letters fall in one by one: the kinetic word (u: seconds since start)"
+    },
+    {
+      "fn": "ctx.kit.chip",
+      "kind": "function",
+      "params": [
+        "g",
+        "label",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a mono label in a pill that pops and types on (x, y: left, middle)"
+    },
+    {
+      "fn": "ctx.kit.clock",
+      "kind": "function",
+      "params": [
+        "g",
+        "from",
+        "to",
+        "u",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a time rolling to another in a chip, digits flipping right to left"
+    },
+    {
+      "fn": "ctx.kit.dust",
+      "kind": "function",
+      "params": [
+        "g",
+        "amount"
+      ],
+      "doc": "film dust and a hair in the gate now and then (screen space)"
+    },
+    {
+      "fn": "ctx.kit.finish",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "the film pass, last: leaks, flash (from flashAt), vignette, grain, dust"
+    },
+    {
+      "fn": "ctx.kit.flash",
+      "kind": "function",
+      "params": [
+        "g",
+        "u",
+        "o"
+      ],
+      "doc": "over-exposure from a light at (o.x, o.y): highlights clip first"
+    },
+    {
+      "fn": "ctx.kit.focus",
+      "kind": "function",
+      "params": [
+        "g",
+        "px",
+        "draw"
+      ],
+      "doc": "draw(q) out of focus by px: a rack focus at quarter size"
+    },
+    {
+      "fn": "ctx.kit.frame",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a rectangle drawn on by frac, or its corners only (corner px)"
+    },
+    {
+      "fn": "ctx.kit.grain",
+      "kind": "function",
+      "params": [
+        "g",
+        "amount"
+      ],
+      "doc": "coarse film grain, a new tile and offset every frame"
+    },
+    {
+      "fn": "ctx.kit.ground",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "the night ground with the streetlight pool; warm brings dawn up"
+    },
+    {
+      "fn": "ctx.kit.leak",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "one light leak sprite (ember, sodium, dawn, cool), screen blended"
+    },
+    {
+      "fn": "ctx.kit.leaks",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "the ambient leaks, right edge and top; boost flares them"
+    },
+    {
+      "fn": "ctx.kit.letterbox",
+      "kind": "function",
+      "params": [
+        "g",
+        "u"
+      ],
+      "doc": "cinema bars at 2.39:1 sliding in, u 0..1"
+    },
+    {
+      "fn": "ctx.kit.lines",
+      "kind": "function",
+      "params": [
+        "g",
+        "x",
+        "y",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "greeked copy: rows of bars, never words, revealed by frac"
+    },
+    {
+      "fn": "ctx.kit.para",
+      "kind": "function",
+      "params": [
+        "c",
+        "depth",
+        "ref"
+      ],
+      "doc": "a camera for a layer at another depth (far moves less)"
+    },
+    {
+      "fn": "ctx.kit.rgba",
+      "kind": "function",
+      "params": [
+        "name",
+        "a"
+      ],
+      "doc": "a palette colour at an alpha"
+    },
+    {
+      "fn": "ctx.kit.roll",
+      "kind": "function",
+      "params": [
+        "g",
+        "from",
+        "to",
+        "u",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "digits that flip (or count), any face; stroke for ghost numerals"
+    },
+    {
+      "fn": "ctx.kit.rule",
+      "kind": "function",
+      "params": [
+        "g",
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "o"
+      ],
+      "doc": "a line drawn on by frac"
+    },
+    {
+      "fn": "ctx.kit.slam",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a word that lands big with a short trail (u: seconds since start)"
+    },
+    {
+      "fn": "ctx.kit.streaks",
+      "kind": "function",
+      "params": [
+        "g",
+        "o"
+      ],
+      "doc": "speed lines that run at speed px/s; offset is the distance run"
+    },
+    {
+      "fn": "ctx.kit.strips",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "the set-in: slices slide into register; out sends them away"
+    },
+    {
+      "fn": "ctx.kit.type",
+      "kind": "function",
+      "params": [
+        "g",
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "crisp outline type with red halation on big words"
+    },
+    {
+      "fn": "ctx.kit.vignette",
+      "kind": "function",
+      "params": [
+        "g",
+        "amount"
+      ],
+      "doc": "the dark falloff at the frame edges"
+    },
+    {
+      "fn": "ctx.kit.weave",
+      "kind": "function",
+      "params": [
+        "amount"
+      ],
+      "doc": "the gate weave for this frame: add it to the camera target"
+    },
+    {
+      "fn": "ctx.kit.zone",
+      "kind": "function",
+      "params": [],
+      "doc": "where words may sit; left(y) keeps clear of a Duet bubble"
+    }
+  ]
+}

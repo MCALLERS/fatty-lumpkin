@@ -251,6 +251,17 @@ def build_page(section_html: str, hrefs: list[str], families: list[str],
     return page, used
 
 
+def flpt_local_fonts(page: str) -> str:
+    """FLPT_LOCAL_FONTS_V1: with FLPT_FONT_CSS=<file>, the page's Google font links become that local stylesheet."""
+    css = os.environ.get("FLPT_FONT_CSS", "").strip()
+    if not css or not Path(css).is_file():
+        return page
+    page = re.sub(r'<link rel="(?:preconnect|stylesheet)" href="https://fonts\.(?:googleapis|gstatic)\.com[^"]*"'
+                  r'(?: crossorigin)?>\n?', "", page)
+    link = f'<link rel="stylesheet" href="{html.escape(Path(css).resolve().as_uri(), quote=True)}">\n'
+    return page.replace("<style>", link + "<style>", 1)
+
+
 def extract_section(raw: str) -> str | None:
     start = re.search(r"<section\b", raw, flags=re.I)
     if not start:
@@ -261,6 +272,59 @@ def extract_section(raw: str) -> str | None:
     return raw[start.start():ends[-1]]
 
 
+# FLPT_SLIDE_SANDBOX_V1: Chrome's switches inside FLPT's sandbox. Its own sandbox can't start in there (the jail is
+# the boundary, as for HyperFrames' Chrome), and every request goes to a proxy the jail never lets out, loopback too.
+FLPT_JAIL_FLAGS = [
+    "--no-sandbox",
+    "--proxy-server=192.0.2.1:9",
+    "--proxy-bypass-list=<-loopback>",
+    "--host-resolver-rules=MAP * ~NOTFOUND",
+    "--disable-quic",
+    "--blink-settings=dnsPrefetchingEnabled=false",
+    "--no-pings",
+]
+# ... and its profile: no WebRTC UDP outside a proxy (headless Chrome takes this from the profile, not from a switch)
+FLPT_JAIL_PREFS = {"webrtc": {"ip_handling_policy": "disable_non_proxied_udp", "multiple_routes_enabled": False,
+                              "nonproxied_udp_enabled": False}}
+_FLPT_JAIL = []
+
+
+def flpt_jailed() -> bool:
+    """FLPT_SLIDE_SANDBOX_V1: FLPT_SANDBOXED=1 (only the app's sandboxed runs set it) and the jail confirmed: a UDP
+    connect to an outside address (it sends nothing) is refused by the sandbox itself, EPERM. Checked once a run."""
+    if os.environ.get("FLPT_SANDBOXED") != "1":
+        return False
+    if not _FLPT_JAIL:
+        jailed = False
+        try:
+            import _socket  # the C socket: --draft's block_network() replaces socket.socket.connect
+            import errno
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+            try:
+                s.connect(("192.0.2.1", 9))
+            except OSError as e:
+                jailed = e.errno == errno.EPERM
+            finally:
+                s.close()
+        except Exception:
+            jailed = False
+        _FLPT_JAIL.append(jailed)
+    return _FLPT_JAIL[0]
+
+
+def flpt_jail(profile: str) -> list:
+    """FLPT_SLIDE_SANDBOX_V1: in the jail, Chrome's switches for it, with its fresh profile set first; else none."""
+    if not flpt_jailed():
+        return []
+    try:
+        d = Path(profile) / "Default"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "Preferences").write_text(json.dumps(FLPT_JAIL_PREFS))
+    except OSError:
+        return []
+    return list(FLPT_JAIL_FLAGS)
+
+
 def run_chrome(chrome: str, html_path: Path, png_path: Path, timeout: float = 60.0) -> tuple[bool, str]:
     """Run headless Chrome once. Some Chrome builds write the screenshot but never
     exit, so we watch for the "bytes written" line / the file and then kill the
@@ -269,7 +333,8 @@ def run_chrome(chrome: str, html_path: Path, png_path: Path, timeout: float = 60
     if tmp_png.exists():
         tmp_png.unlink()
     profile = tempfile.mkdtemp(prefix="render_slides_profile_")
-    cmd = [chrome, *CHROME_FLAGS, f"--user-data-dir={profile}",
+    cmd = [chrome, *CHROME_FLAGS, *flpt_jail(profile),  # FLPT_SLIDE_SANDBOX_V1
+           f"--user-data-dir={profile}",
            f"--screenshot={tmp_png}", html_path.as_uri()]
     out_lines: list[str] = []
     done = threading.Event()
@@ -318,6 +383,39 @@ def run_chrome(chrome: str, html_path: Path, png_path: Path, timeout: float = 60
 
 
 # ─── main ───────────────────────────────────────────────────────────────────
+
+# FLPT_SLIDE_JAIL_LINUX_V1 (engine/tools/patches/44_slide_jail_linux.py): on Linux FLPT's jail is bubblewrap, where a
+# connect to an outside address finds no route rather than EPERM. Confirmed there by what bwrap makes, all at once: no
+# route out, loopback the only interface, one uid mapped alone in a user namespace, no capability.
+_flpt_seatbelt_jailed = globals().get("flpt_jailed", lambda: False)
+
+
+def flpt_linux_jailed() -> bool:
+    if os.environ.get("FLPT_SANDBOXED") != "1" or not sys.platform.startswith("linux"):
+        return False
+    try:
+        import _socket
+        import errno
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))
+            return False
+        except OSError as e:
+            if e.errno not in (errno.ENETUNREACH, errno.EPERM):
+                return False
+        finally:
+            s.close()
+        ifs = [line.split(":")[0].strip() for line in Path("/proc/net/dev").read_text().splitlines()[2:] if ":" in line]
+        uid_map = Path("/proc/self/uid_map").read_text().split()
+        cap_eff = [line.split()[1] for line in Path("/proc/self/status").read_text().splitlines() if line.startswith("CapEff:")]
+    except Exception:
+        return False
+    return ifs == ["lo"] and len(uid_map) == 3 and uid_map[2] == "1" and cap_eff == ["0000000000000000"]
+
+
+def flpt_jailed() -> bool:  # noqa: F811  FLPT_SLIDE_JAIL_LINUX_V1: Seatbelt's check, or bubblewrap's
+    return _flpt_seatbelt_jailed() or flpt_linux_jailed()
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Render the HTML deck to 1920x1080 PNG slides.")
@@ -404,7 +502,7 @@ def main() -> int:
             h.update(f"{p}|{st.st_size}|{st.st_mtime_ns}".encode())
         digest = h.hexdigest()
         html_path = work / f"slide_{n:02d}.html"
-        html_path.write_text(page, encoding="utf-8")
+        html_path.write_text(flpt_local_fonts(page), encoding="utf-8")  # FLPT_LOCAL_FONTS_V1 (digest: the page as is)
         if args.keep_html:
             (html_keep / f"slide_{n:02d}_{sid}.html").write_text(page, encoding="utf-8")
         up_to_date = (not args.force and png.exists() and png_size(png) == (W, H)

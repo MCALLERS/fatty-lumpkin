@@ -1,0 +1,12 @@
+{
+  "style": "painted-doc",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "look", "t": 1.5 },
+    { "name": "star", "t": 2.3 },
+    { "name": "wipe", "t": 3.1 },
+    { "name": "title", "t": 3.95 }
+  ]
+}

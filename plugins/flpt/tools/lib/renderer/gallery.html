@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-realm="theater" data-page="gallery">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: flpt-gallery:; media-src flpt-gallery:; font-src 'self' flpt-gallery:; style-src 'self'; script-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none';">
+<title>Style Gallery</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="gallery.css">
+<script src="fx-boot.js"></script>
+</head>
+<body class="g-page" data-realm="theater">
+<div class="g-drag" aria-hidden="true"></div>
+
+<header class="g-top">
+  <h1 class="g-title">Style Gallery</h1>
+  <nav class="g-tabs" role="tablist" aria-label="Collections">
+    <button type="button" role="tab" class="g-tab" data-filter="all" aria-selected="true">All</button>
+    <button type="button" role="tab" class="g-tab" data-filter="shipped" aria-selected="false">Shipped</button>
+    <button type="button" role="tab" class="g-tab" data-filter="mine" aria-selected="false">Mine</button>
+    <button type="button" role="tab" class="g-tab" data-filter="shared" aria-selected="false" hidden>Shared</button>
+  </nav>
+  <span class="g-spacer"></span>
+  <label class="g-search">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4 4"/></svg>
+    <input type="search" id="g-q" placeholder="Search" aria-label="Search styles" autocomplete="off" spellcheck="false">
+  </label>
+  <div class="g-add-wrap">
+    <button type="button" class="g-add" id="g-add" aria-haspopup="menu" aria-expanded="false" aria-controls="g-add-menu" aria-label="New style" title="New style">+</button>
+    <div class="g-menu" id="g-add-menu" role="menu" aria-label="New style" hidden>
+      <button type="button" role="menuitem" data-act="look" title="Video, pictures or a link">Your look</button>
+      <button type="button" role="menuitem" data-act="file" title="A .flptstyle file">Style file</button>
+    </div>
+  </div>
+</header>
+
+<main class="g-main" id="g-main">
+  <div class="g-wall" id="g-wall" role="list" aria-label="Styles"></div>
+  <p class="g-empty hud" id="g-empty" hidden>No styles</p>
+  <section class="g-insp" aria-labelledby="g-insp-h">
+    <h2 class="hud" id="g-insp-h">Inspiration</h2>
+    <div class="g-insp-row" id="g-insp"></div>
+  </section>
+</main>
+
+<footer class="g-foot">
+  <span class="hud" id="g-count"></span>
+  <span class="hud" id="g-latest" data-content hidden></span>
+  <button type="button" class="g-link" id="g-check" hidden>Check for new styles</button>
+</footer>
+
+<div class="g-pickbar" id="g-pickbar" role="region" aria-label="Pick a style" hidden>
+  <span class="hud g-pick-for">Use for</span>
+  <span class="hud g-pick-label" id="g-pick-label" data-content></span>
+  <span class="g-spacer"></span>
+  <span class="g-pick-name" id="g-pick-name" data-content></span>
+  <button type="button" class="g-btn quiet" id="g-pick-leave">Cancel</button>
+  <button type="button" class="g-btn primary" id="g-pick-use" disabled>Use</button>
+</div>
+
+<div class="g-scrim" id="g-scrim" hidden></div>
+<section class="g-sheet" id="g-detail" role="dialog" aria-modal="true" aria-labelledby="g-d-name" hidden></section>
+<p class="g-toast" id="g-toast" role="status" aria-live="polite" hidden></p>
+
+<script src="gallery.js"></script>
+</body>
+</html>

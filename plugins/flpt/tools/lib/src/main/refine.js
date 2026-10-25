@@ -17,10 +17,25 @@
 //
 // Sync: every piece is cut on the film's own frame grid (30 fps, 1600 samples a frame at 48 kHz), its picture by frame
 // and its sound by sample, so each piece starts with picture and sound together and stays that way when joined.
+//
+// Planned rows (V2, PLAN §2.7, spike K5): the storyboard's pieces between slides (a Solo ♪, a cut scene drawn in code)
+// rendered to media/jsscene_<id>.mp4 and spliced here, never through media.json (interstitials.js makes the rows with
+// plannedAddon; the page can't):
+//   slide: 0          a cold open, before slide 1 (no breath after it: slide 1 has its own 0.5 s lead)
+//   level: 'own'      the clip keeps its own level (rendered at -21 LUFS by the mixer) instead of the narration's
+//   seam.in/out       cut | fade (0.25 s, as every other clip) | black (0.5 s of black and silence, hard edges, part of
+//                     the piece's chapter); the breath after it fades up only after a `fade`
+//   source            { kind: 'jsscene', id, shot }: the chapter takes the piece's id, and every row Refine inserts is
+//                     `spliced: true` (narrationLead and retime.py give the slide after it no lead of its own)
+// The editing master's +20 ms (EDIT_NUDGE_MS, for HeyGen's late lips) goes on the film's sound only: an insert's own
+// sound stays on its picture (0.7.1 delayed the whole mix, so a clip's sound landed 20 ms late; K5 measured it).
+// Nothing that is a reference (references.isReference) goes in: not as an add-on, not as the film.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const references = require('./references');
+const sandbox = require('./sandbox');
 
 const FPS = 30;
 const SR = 48000;
@@ -41,7 +56,19 @@ const T = {
   brollLead: 0.2, // b-roll lands this far ahead of its phrase
   phraseGap: 0.3, // a cut after a phrase goes at most this far into the pause after it
   minBed: 1.0,
+  black: 0.5, // a `black` seam: this long of black and silence
+  nudgeMs: 20, // EDIT_NUDGE_MS: the editing master's voice delay
+  sceneBedLufs: -32, // a bed under a scene that has its own music (the double-music guard)
 };
+const SEAMS = ['cut', 'fade', 'black'];
+const EDITED = 'edited (trimmed, looped, mixed)'; // what a credit says was done to a CC BY track in the video (PLAN W2-03, G4)
+/** A planned row's seams (`cut` when not said); every other add-on fades, as it always has. */
+const seamOf = (a) => {
+  if (!a || !a.planned) return { in: 'fade', out: 'fade' };
+  const s = a.seam || {};
+  return { in: SEAMS.includes(s.in) ? s.in : 'cut', out: SEAMS.includes(s.out) ? s.out : 'cut' };
+};
+const SOURCE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const LIMITS = { phrase: 200, title: 200, credit: 2000, seconds: [0.5, 120], gainDb: [-20, 15] };
 
 const exists = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
@@ -74,6 +101,7 @@ function cleanAddon(spec, { slides = 0, addons = [] } = {}) {
   if (!kind) throw new Error('Pick a clip, a transition, music or b-roll.');
   const file = typeof s.file === 'string' && path.isAbsolute(s.file) ? s.file : null;
   if (!file || !exists(file)) throw new Error('That file isn\'t there.');
+  references.assertNotReference(file);
   if (kind === 'music' ? !AUDIO_RE.test(file) : !VIDEO_RE.test(file)) throw new Error(kind === 'music' ? 'Music is a sound file.' : 'That needs a video.');
   const text = (v, n) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
   const out = { kind, title: text(s.title, LIMITS.title) || path.basename(file).replace(/\.[^.]+$/, ''), duration: Number(s.duration) > 0 ? r3(Number(s.duration)) : null };
@@ -83,6 +111,7 @@ function cleanAddon(spec, { slides = 0, addons = [] } = {}) {
     if (!host || !(host.kind === 'clip' || (host.kind === 'transition' && host.style !== 'overlay'))) throw new Error('Music goes under a slide or under an inserted clip.');
     out.under = under;
   } else {
+    // slide 0 (a cold open) is the storyboard's alone (plannedAddon): an add-on of the user's goes after a slide
     const n = Number(s.slide);
     if (!Number.isInteger(n) || n < 1 || (slides && n > slides)) throw new Error(slides ? `Pick a slide from 1 to ${slides}.` : 'Pick a slide.');
     out.slide = n;
@@ -114,7 +143,34 @@ function cleanAddon(spec, { slides = 0, addons = [] } = {}) {
   return out;
 }
 
-/** Where an add-on goes, in a few words ("after slide 3", "under slide 5"). */
+/**
+ * A planned row: a piece between slides from the storyboard (interstitials.js), spliced like a clip after slide N
+ * (0: a cold open) at its own level, with its seams. `file` is relative to presentation/ (the record keeps it so);
+ * `sha` is its render's (a new render makes Refine's outputs out of date); `music` says it has music of its own; `credit`
+ * is its music's (score.json), for the credits. Throws a plain message on anything wrong.
+ */
+function plannedAddon(spec) {
+  const s = spec && typeof spec === 'object' ? spec : {};
+  const src = s.source && typeof s.source === 'object' ? s.source : {};
+  if (src.kind !== 'jsscene' || !SOURCE_ID.test(String(src.id))) throw new Error('A planned piece needs its id.');
+  const file = typeof s.file === 'string' ? s.file.replace(/\\/g, '/') : '';
+  if (!/^media\/jsscene_[A-Za-z0-9_-]{1,64}\.mp4$/.test(file)) throw new Error('A planned piece plays its own render.');
+  const n = Number(s.slide);
+  if (!Number.isInteger(n) || n < 0) throw new Error('A planned piece goes before slide 1 or after a slide.');
+  const text = (v, k) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, k) : '');
+  const seam = s.seam && typeof s.seam === 'object' ? s.seam : {};
+  return {
+    id: `j:${src.id}`, kind: 'clip', planned: true, title: text(s.title, LIMITS.title) || String(src.id), file, slide: n, sound: 'keep', level: 'own',
+    seam: { in: SEAMS.includes(seam.in) ? seam.in : 'cut', out: SEAMS.includes(seam.out) ? seam.out : 'cut' },
+    source: { kind: 'jsscene', id: String(src.id), ...(typeof src.shot === 'string' && /^s[1-9][0-9]{0,3}$/.test(src.shot) ? { shot: src.shot } : {}) },
+    sha: typeof s.sha === 'string' && /^[0-9a-f]{8,128}$/.test(s.sha) ? s.sha : null,
+    music: s.music === true,
+    credit: s.credit && typeof s.credit === 'object' ? s.credit : null,
+    duration: Number(s.duration) > 0 ? r3(Number(s.duration)) : null,
+  };
+}
+
+/** Where an add-on goes, in a few words ("after slide 3", "under slide 5", "before slide 1"). */
 function where(a, addons = []) {
   const q = (p) => `“${p}”`;
   if (a.kind === 'music') {
@@ -123,13 +179,16 @@ function where(a, addons = []) {
   }
   if (a.kind === 'transition') return a.style === 'overlay' ? `cut ${a.slide} → ${a.slide + 1}` : `after slide ${a.slide}`;
   if (a.kind === 'broll') return `over slide ${a.slide}${a.phrase ? `, from ${q(a.phrase)}` : ''}${a.seconds ? `, ${a.seconds} s` : ''}`;
+  if (Number(a.slide) === 0) return 'before slide 1';
   return a.phrase ? `slide ${a.slide}, after ${q(a.phrase)}` : `after slide ${a.slide}`;
 }
 
 /** What the refined outputs were made from: they count only while the add-ons and the film are the same. */
 function addonsKey(addons) {
+  // a planned row adds what makes it (its seams, its render's hash); the user's add-ons keep 0.7.1's keys
   const keep = (a) => ({ id: a.id, kind: a.kind, file: a.file, slide: a.slide || null, under: a.under || null, phrase: a.phrase || '', sound: a.sound || null,
-    seconds: a.seconds || null, style: a.style || null, cut: a.cut != null ? a.cut : null });
+    seconds: a.seconds || null, style: a.style || null, cut: a.cut != null ? a.cut : null,
+    ...(a.planned ? { planned: true, source: a.source || null, level: a.level || null, seam: seamOf(a), sha: a.sha || null } : {}) });
   return sha1(JSON.stringify((addons || []).map(keep)));
 }
 function filmKey(file) {
@@ -229,7 +288,7 @@ async function slideWords({ pres, n, draft, seconds, python, realWords, env, sig
   const cached = readJson(`${base}.json`);
   if (cached && cached.key === key && Array.isArray(cached.words)) return cached.words;
   fs.writeFileSync(`${base}.txt`, text);
-  const r = await runTool(python, [realWords, wav, `${base}.txt`, `${base}.words.json`], { env, signal });
+  const r = await runScript(python, realWords, [wav, `${base}.txt`, `${base}.words.json`], { writable: [dir], env, signal });
   const words = r.code === 0 ? readJson(`${base}.words.json`) : null;
   if (!Array.isArray(words) || !words.length) return null;
   fs.writeFileSync(`${base}.json`, JSON.stringify({ key, wav: path.basename(wav), words }));
@@ -251,11 +310,14 @@ function filmChapters(timeline) {
   });
 }
 
-/** The pipeline's own leads, as n → seconds: 0.5 s before slide 1's narration and after a cut scene, none elsewhere. */
+/**
+ * The pipeline's own leads, as n → seconds: 0.5 s before slide 1's narration and after a cut scene, none elsewhere. A
+ * spliced chapter (anything Refine or the splice put in after the pipeline) gave the slide after it no lead (K5).
+ */
 function narrationLead(chapters) {
   const slides = chapters.filter((c) => c.kind === 'slide');
   const first = slides.length ? Math.min(...slides.map((s) => Number(s.n))) : 1;
-  const afterCut = new Set(chapters.filter((c) => c.kind === 'cutscene').map((c) => Number(c.after_slide)));
+  const afterCut = new Set(chapters.filter((c) => c.kind === 'cutscene' && !c.spliced).map((c) => Number(c.after_slide)));
   return (n) => (Number(n) === first || afterCut.has(Number(n) - 1) ? 0.5 : 0);
 }
 
@@ -265,10 +327,11 @@ function narrationLead(chapters) {
  * absolute `path`), each file's probe (`media[path]`: { duration, video, audio }) and word timings (`words[n]`).
  *
  * Pieces: { type: 'film', f0, f1, broll? } (the film's own frames, or a b-roll's picture over the film's sound),
- * { type: 'insert', a, offset, total } (a clip or a card) and { type: 'hold', frame, from, holdTotal } (the film's
- * next frame, held while it fades up after an insert); any of them may carry an overlay (a glitch).
+ * { type: 'insert', a, offset, total } (a clip or a card), { type: 'black' } (a planned row's `black` seam) and
+ * { type: 'hold', frame, from, holdTotal, fade } (the film's next frame, held, fading up after a `fade`, after an
+ * insert); any of them may carry an overlay (a glitch). `video` names the output in its timeline.
  */
-function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
+function plan({ timeline, addons, media = {}, words = {}, title = '', video = 'presentation_refined.mp4' }) {
   const notes = [];
   const chapters = filmChapters(timeline);
   const slides = chapters.filter((c) => c.kind === 'slide');
@@ -288,6 +351,10 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
   const glitches = [];
   for (const a of addons) {
     if (a.kind === 'music') continue;
+    if (a.kind === 'clip' && a.planned && Number(a.slide) === 0) { // a cold open, before the film's first frame
+      inserts.push({ at: 0, a, frames: framesOf(a), sound: a.sound || 'keep', card: false, mid: false, slide: 0 });
+      continue;
+    }
     const s = slideOf(a.slide);
     if (!s) { notes.push(`${a.title}: slide ${a.slide} isn't in the film, so it's left out.`); continue; }
     if (a.kind === 'transition' && a.style === 'overlay') {
@@ -336,18 +403,33 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
   for (const list of at.values()) list.sort((x, y) => (x.card === y.card ? order.get(x.a.id) - order.get(y.a.id) : (x.card ? -1 : 1)));
   const chapterOf = (f) => chapters.find((c) => f >= c.f0 && f < c.f1) || chapters[chapters.length - 1];
   const breath = Math.round(T.breath * FPS);
+  const blackFrames = Math.round(T.black * FPS);
   const segs = [];
   const block = (p) => {
     const list = at.get(p);
     if (!list) return;
-    const clip = list.find((x) => !x.card);
-    // A clip at a slide's end is a chapter of its own; cards lead into the next chapter; mid-slide, they're the slide's.
-    const owner = list[0].mid ? `film:${chapterOf(p - 1).f0}` : clip ? `insert:${clip.a.id}` : 'next';
-    for (const ins of list) segs.push({ type: 'insert', a: ins.a, path: ins.a.path, frames: ins.frames, offset: 0, total: ins.frames, sound: ins.sound, card: ins.card, slide: ins.slide, owner, host: p });
-    // The breath holds what comes next: the film's frame, or a b-roll's first frame when one starts right there.
+    // A clip at a slide's end is a chapter of its own (each clip its own); cards lead into whatever comes next;
+    // mid-slide, they're all the slide's.
+    const mid = list[0].mid ? `film:${chapterOf(p - 1).f0}` : null;
+    let owner = 'next';
+    let lastOut = 'fade';
+    for (const ins of list) {
+      owner = mid || (ins.card ? 'next' : `insert:${ins.a.id}`);
+      // a planned row's seams: `black` is 0.5 s of black and silence on that side, in the piece's own chapter
+      const seam = seamOf(ins.a);
+      const slug = () => ({ type: 'black', a: ins.a, frames: blackFrames, slide: ins.slide, owner, host: p });
+      if (seam.in === 'black') segs.push(slug());
+      segs.push({ type: 'insert', a: ins.a, path: ins.a.path, frames: ins.frames, offset: 0, total: ins.frames, sound: ins.sound, card: ins.card, slide: ins.slide, owner, host: p, seam });
+      if (seam.out === 'black') segs.push(slug());
+      lastOut = seam.out;
+    }
+    // The breath holds what comes next: the film's frame, or a b-roll's first frame when one starts right there. It
+    // fades up only after a `fade` (as every add-on of the user's ends); after a `cut` or `black` it is held as it is.
+    // A cold open has none unless it fades out: slide 1 has its own lead.
     const b = brolls.find((x) => x.f0 === p);
-    if (p < total) segs.push({ type: 'hold', frame: p, frames: breath, from: 0, holdTotal: breath, owner, host: p, broll: b ? { a: b.a, path: b.a.path } : null });
+    if (p < total && (p > 0 || lastOut === 'fade')) segs.push({ type: 'hold', frame: p, frames: breath, from: 0, holdTotal: breath, owner, host: p, broll: b ? { a: b.a, path: b.a.path } : null, fade: lastOut === 'fade' });
   };
+  block(0); // a cold open plays before the film's first frame
   for (let i = 0; i + 1 < points.length; i++) {
     const [f0, f1] = [points[i], points[i + 1]];
     const b = brolls.find((x) => f0 >= x.f0 && f1 <= x.f1);
@@ -422,7 +504,10 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
     if (s.owner.startsWith('insert:')) {
       const ins = segs.find((x) => x.type === 'insert' && `insert:${x.a.id}` === s.owner);
       r += 1;
-      rows.push({ key: s.owner, o0: s.o0, frames: s.frames, row: { kind: 'cutscene', id: `R${r}`, title: ins.a.title, label: ins.a.title, after_slide: ins.slide, placeholder: false, media: path.basename(ins.a.path) } });
+      // `spliced`: put in after the pipeline (the slide after it has no lead of its own); a planned row keeps its id
+      const src = ins.a.planned && ins.a.source ? ins.a.source : null;
+      rows.push({ key: s.owner, o0: s.o0, frames: s.frames, row: { kind: 'cutscene', id: src ? src.id : `R${r}`, title: ins.a.title, label: ins.a.title, after_slide: ins.slide, placeholder: false,
+        media: path.basename(ins.a.path), spliced: true, ...(src ? { planned: true, source: src, seam: seamOf(ins.a) } : {}) } });
     } else {
       const { f0, f1, frames: f, ...row } = chapters.find((c) => `film:${c.f0}` === s.owner); // eslint-disable-line no-unused-vars
       rows.push({ key: s.owner, o0: s.o0, frames: s.frames, row });
@@ -446,7 +531,7 @@ function plan({ timeline, addons, media = {}, words = {}, title = '' }) {
     else map.push([s.f0, s.o0, s.frames]);
   }
   const refined = {
-    video: 'presentation_refined.mp4', draft: Boolean(timeline.draft), created: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), fps: FPS,
+    video, draft: Boolean(timeline.draft), created: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), fps: FPS,
     total_duration: r3(frames / FPS),
     slides: chaptersOut.filter((c) => c.kind === 'slide'),
     cutscenes: chaptersOut.filter((c) => c.kind === 'cutscene'),
@@ -476,9 +561,12 @@ const f6 = (x) => x.toFixed(6);
 
 /**
  * The ffmpeg arguments for a plan: the film once, one input per add-on (music looped), one filter graph, two outputs
- * (the refined MP4 and the CapCut-safe master). `gains[addon id]` is the gain (dB) for that add-on's sound.
+ * (the refined MP4 and the CapCut-safe master; the MP4 alone when `out.master` is null). `gains[addon id]` is the gain
+ * (dB) for that add-on's sound. `nudge` 'film' (the default) builds the master's sound as its own chain: the film's
+ * sound 20 ms late, every insert's (a piece's stem, a clip's, a card's) on its picture; 'global' is 0.7.1's (the whole
+ * mix 20 ms late).
  */
-function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
+function ffmpegArgs(p, { film, gains = {}, media = {}, out, nudge = 'film' }) {
   const N = p.frames;
   const inputs = [film];
   const byKey = new Map();
@@ -491,16 +579,21 @@ function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
   const gainOf = (id) => clamp(Number(gains[id]) || 0, LIMITS.gainDb[0], LIMITS.gainDb[1]);
   const hasAudio = (file) => !media[file] || media[file].audio !== false;
   const pad = (frames) => `tpad=stop_mode=clone:stop_duration=${f3(frames / FPS + 1)},trim=end_frame=${frames},${VTB}`;
+  const master = Boolean(out && out.master);
+  const own = master && nudge !== 'global'; // the master's sound built piece by piece
+  const nudgeSamples = Math.round((T.nudgeMs / 1000) * SR);
   // Each source (an add-on's picture or sound, a held frame) is prepared once, then cut into the pieces using it.
   const sources = new Map();
   const source = (key, make) => { if (!sources.has(key)) sources.set(key, { i: sources.size, uses: [], ...make() }); return sources.get(key); };
   const cut = (src, piece, offset) => { const label = `s${src.i}u${src.uses.length}`; src.uses.push({ piece, offset, label }); return label; };
-  const afades = (total, d) => `afade=t=in:st=0:d=${d},afade=t=out:st=${f3(total / FPS - d)}:d=${d}`;
+  const afades = (total, din, dout = din) => `afade=t=in:st=0:d=${din},afade=t=out:st=${f3(total / FPS - dout)}:d=${dout}`;
   let fv = 0;
   let fa = 0;
+  let fm = 0;
   const labels = p.pieces.map((x, i) => {
     let v;
     let a;
+    let am = null; // this piece's sound in the master (its own chain only)
     if (x.type === 'film') {
       if (x.broll) {
         const n = input(`b:${x.broll.a.id}`, x.broll.path);
@@ -511,40 +604,66 @@ function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
       }
       const prev = p.pieces[i - 1];
       const next = p.pieces[i + 1];
-      const fades = [prev && prev.type !== 'film' ? `afade=t=in:st=0:d=${T.declick}` : null, next && next.type === 'insert' ? `afade=t=out:st=${f3(x.frames / FPS - T.declick)}:d=${T.declick}` : null].filter(Boolean);
-      L(`[fa${fa++}]atrim=start=${f6(x.f0 / FPS)}:end=${f6(x.f1 / FPS)},${AFORMAT},${ATB},apad,atrim=end_sample=${x.frames * SPF}${fades.length ? `,${fades.join(',')}` : ''}[pa${i}]`);
+      const fades = [prev && prev.type !== 'film' ? `afade=t=in:st=0:d=${T.declick}` : null,
+        next && (next.type === 'insert' || next.type === 'black') ? `afade=t=out:st=${f3(x.frames / FPS - T.declick)}:d=${T.declick}` : null].filter(Boolean);
+      const tail = `apad,atrim=end_sample=${x.frames * SPF}${fades.length ? `,${fades.join(',')}` : ''}`;
+      L(`[fa${fa++}]atrim=start=${f6(x.f0 / FPS)}:end=${f6(x.f1 / FPS)},${AFORMAT},${ATB},${tail}[pa${i}]`);
       a = `pa${i}`;
+      if (own) { // the film's sound, already 20 ms late (the [fm] chain), cut on the same samples
+        L(`[fm${fm++}]atrim=start_sample=${x.f0 * SPF}:end_sample=${x.f1 * SPF},${ATB},${tail}[pm${i}]`);
+        am = `pm${i}`;
+      }
     } else if (x.type === 'hold') {
-      const hold = `setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=end_frame=${x.holdTotal},${VTB},fade=t=in:st=0:d=${f3(x.holdTotal / FPS)}`;
-      const src = source(`h:${x.frame}`, () => ({ type: 'v', from: x.broll
+      const hold = `setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=end_frame=${x.holdTotal},${VTB}${x.fade === false ? '' : `,fade=t=in:st=0:d=${f3(x.holdTotal / FPS)}`}`;
+      const src = source(`h:${x.frame}:${x.fade === false ? 'held' : 'fade'}`, () => ({ type: 'v', from: x.broll
         ? `[${input(`hb:${x.broll.a.id}`, x.broll.path)}:v]${VCOVER},trim=end_frame=1,${hold}`
         : `[fv${fv++}]trim=start=${f3((x.frame - 0.5) / FPS)}:end=${f3((x.frame + 0.5) / FPS)},${hold}` }));
       v = cut(src, x, x.from);
       L(`${SILENCE},atrim=end_sample=${x.frames * SPF},${ATB}[pa${i}]`);
       a = `pa${i}`;
+      if (own) { L(`${SILENCE},atrim=end_sample=${x.frames * SPF},${ATB}[pm${i}]`); am = `pm${i}`; }
+    } else if (x.type === 'black') { // a `black` seam: black picture (bt709, tv range), silence
+      L(`color=c=black:s=1920x1080:r=${FPS},format=yuv420p,setsar=1,trim=end_frame=${x.frames},${VTB}[pv${i}]`);
+      v = `pv${i}`;
+      L(`${SILENCE},atrim=end_sample=${x.frames * SPF},${ATB}[pa${i}]`);
+      a = `pa${i}`;
+      if (own) { L(`${SILENCE},atrim=end_sample=${x.frames * SPF},${ATB}[pm${i}]`); am = `pm${i}`; }
     } else {
       const n = input(`i:${x.a.id}`, x.path);
-      const fades = x.card ? '' : `,fade=t=in:st=0:d=${T.insertFade},fade=t=out:st=${f3(x.total / FPS - T.insertFade)}:d=${T.insertFade}`;
-      v = cut(source(`iv:${x.a.id}`, () => ({ type: 'v', from: `[${n}:v]${VCONFORM},${pad(x.total)}${fades}` })), x, x.offset);
+      // the picture fades only on a `fade` seam (every add-on of the user's); the sound de-clicks on `cut` and `black`
+      const seam = x.seam || { in: 'fade', out: 'fade' };
+      const vf = x.card ? [] : [seam.in === 'fade' ? `fade=t=in:st=0:d=${T.insertFade}` : null, seam.out === 'fade' ? `fade=t=out:st=${f3(x.total / FPS - T.insertFade)}:d=${T.insertFade}` : null].filter(Boolean);
+      v = cut(source(`iv:${x.a.id}`, () => ({ type: 'v', from: `[${n}:v]${VCONFORM},${pad(x.total)}${vf.length ? `,${vf.join(',')}` : ''}` })), x, x.offset);
       const sound = x.sound !== 'mute' && hasAudio(x.path) ? `[${n}:a]${ACONFORM},volume=${gainOf(x.a.id)}dB` : SILENCE;
-      a = cut(source(`ia:${x.a.id}`, () => ({ type: 'a', from: `${sound},apad,atrim=end_sample=${x.total * SPF},${ATB},${afades(x.total, x.card ? T.cardAudioFade : T.insertAudioFade)}` })), x, x.offset);
+      const ad = (s) => (x.card ? T.cardAudioFade : s === 'fade' ? T.insertAudioFade : T.declick);
+      const asrc = source(`ia:${x.a.id}`, () => ({ type: 'a', from: `${sound},apad,atrim=end_sample=${x.total * SPF},${ATB},${afades(x.total, ad(seam.in), ad(seam.out))}` }));
+      a = cut(asrc, x, x.offset);
+      if (own) am = cut(asrc, x, x.offset); // the insert's own sound, on its picture, in the master too
     }
     if (x.overlay) {
       const o = x.overlay;
       const n = input(`o:${o.a.id}`, o.path);
       const ov = cut(source(`ov:${o.a.id}`, () => ({ type: 'v', from: `[${n}:v]${VCONFORM},${pad(o.total)},${TO_RGB}` })), x, o.offset);
       const sound = hasAudio(o.path) ? `[${n}:a]${ACONFORM},volume=${gainOf(o.a.id)}dB` : SILENCE;
-      const oa = cut(source(`oa:${o.a.id}`, () => ({ type: 'a', from: `${sound},apad,atrim=end_sample=${o.total * SPF},${ATB},${afades(o.total, T.declick)}` })), x, o.offset);
+      const osrc = source(`oa:${o.a.id}`, () => ({ type: 'a', from: `${sound},apad,atrim=end_sample=${o.total * SPF},${ATB},${afades(o.total, T.declick)}` }));
+      const oa = cut(osrc, x, o.offset);
       L(`[${v}]${TO_RGB}[pb${i}]`);
       L(`[pb${i}][${ov}]blend=all_mode=screen:shortest=1,${TO_YUV}[px${i}]`);
       L(`[${a}][${oa}]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,${AFORMAT}[py${i}]`);
       v = `px${i}`;
       a = `py${i}`;
+      if (own) {
+        L(`[${am}][${cut(osrc, x, o.offset)}]amix=inputs=2:normalize=0:duration=first:dropout_transition=0,${AFORMAT}[pz${i}]`);
+        am = `pz${i}`;
+      }
     }
-    return [v, a];
+    return [v, a, am];
   });
   if (fv) L(`[0:v]split=${fv}${Array.from({ length: fv }, (_, k) => `[fv${k}]`).join('')}`);
-  if (fa) L(`[0:a]asplit=${fa}${Array.from({ length: fa }, (_, k) => `[fa${k}]`).join('')}`);
+  if (fm) L('[0:a]asplit=2[fa_all][fm_all]');
+  if (fa) L(`[${fm ? 'fa_all' : '0:a'}]asplit=${fa}${Array.from({ length: fa }, (_, k) => `[fa${k}]`).join('')}`);
+  // the film's sound for the master: EDIT_NUDGE_MS of silence first, so every film piece's samples sit 20 ms late
+  if (fm) L(`[fm_all]${AFORMAT},${ATB},adelay=delays=${nudgeSamples}S:all=1,${ATB},asplit=${fm}${Array.from({ length: fm }, (_, k) => `[fm${k}]`).join('')}`);
   for (const s of sources.values()) {
     const outs = s.uses.map((_, j) => `[s${s.i}x${j}]`).join('');
     if (s.type === 'v') {
@@ -558,16 +677,28 @@ function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
 
   // Joined, with the music beds under it; then the two outputs.
   L(`${labels.map(([v, a]) => `[${v}][${a}]`).join('')}concat=n=${labels.length}:v=1:a=1[vcat][acat]`);
+  if (own) L(`${labels.map(([, , am]) => `[${am}]`).join('')}concat=n=${labels.length}:v=0:a=1[mcat]`);
   const beds = p.beds.map((b, j) => {
     const n = input(`m:${b.a.id}`, b.path, true);
-    L(`[${n}:a]${ACONFORM},atrim=end_sample=${b.frames * SPF},${ATB},volume=${gainOf(b.a.id)}dB,afade=t=in:st=0:d=${T.bedFadeIn},afade=t=out:st=${f3(Math.max(0, b.frames / FPS - T.bedFadeOut))}:d=${T.bedFadeOut},adelay=delays=${b.o0 * SPF}S:all=1,apad=whole_len=${N * SPF}[bed${j}]`);
-    return `[bed${j}]`;
+    L(`[${n}:a]${ACONFORM},atrim=end_sample=${b.frames * SPF},${ATB},volume=${gainOf(b.a.id)}dB,afade=t=in:st=0:d=${T.bedFadeIn},afade=t=out:st=${f3(Math.max(0, b.frames / FPS - T.bedFadeOut))}:d=${T.bedFadeOut},adelay=delays=${b.o0 * SPF}S:all=1,apad=whole_len=${N * SPF}${own ? `,asplit=2[bed${j}][bedm${j}]` : `[bed${j}]`}`);
+    return j;
   });
-  L(beds.length ? `[acat]${beds.join('')}amix=inputs=${beds.length + 1}:normalize=0:duration=first:dropout_transition=0,${AFORMAT}[amix]` : `[acat]${AFORMAT}[amix]`);
-  L('[vcat]format=yuv420p,split=2[vout1][vout2]');
-  L(`[amix]apad,atrim=end_sample=${N * SPF},${ATB},asplit=2[aout1][a2]`);
-  // The editing master's voice goes 20 ms later (EDIT_NUDGE_MS), as the pipeline's own master does.
-  L(`[a2]adelay=delays=${0.02 * SR}S:all=1,atrim=end_sample=${N * SPF},${ATB}[aout2]`);
+  const mix = (from, pre, to) => L(beds.length ? `[${from}]${beds.map((j) => `[${pre}${j}]`).join('')}amix=inputs=${beds.length + 1}:normalize=0:duration=first:dropout_transition=0,${AFORMAT}[${to}]` : `[${from}]${AFORMAT}[${to}]`);
+  mix('acat', 'bed', 'amix');
+  if (!master) {
+    L('[vcat]format=yuv420p[vout1]');
+    L(`[amix]apad,atrim=end_sample=${N * SPF},${ATB}[aout1]`);
+  } else if (own) {
+    L('[vcat]format=yuv420p,split=2[vout1][vout2]');
+    mix('mcat', 'bedm', 'mmix');
+    L(`[amix]apad,atrim=end_sample=${N * SPF},${ATB}[aout1]`);
+    L(`[mmix]apad,atrim=end_sample=${N * SPF},${ATB}[aout2]`);
+  } else {
+    L('[vcat]format=yuv420p,split=2[vout1][vout2]');
+    L(`[amix]apad,atrim=end_sample=${N * SPF},${ATB},asplit=2[aout1][a2]`);
+    // The editing master's voice goes 20 ms later (EDIT_NUDGE_MS), as the pipeline's own master does.
+    L(`[a2]adelay=delays=${nudgeSamples}S:all=1,atrim=end_sample=${N * SPF},${ATB}[aout2]`);
+  }
 
   const args = ['-hide_banner', '-nostdin', '-y', '-v', 'error', '-progress', 'pipe:1', '-nostats'];
   for (const i of inputs) {
@@ -580,20 +711,37 @@ function ffmpegArgs(p, { film, gains = {}, media = {}, out }) {
 
 /**
  * The two outputs of a graph ending in [vout1][aout1] (the MP4, in the film's own encoding) and [vout2][aout2] (the
- * CapCut-safe master: no B-frames, PCM, no edit lists). `frames`: the length (exact: the graph already makes every
- * stream that long).
+ * CapCut-safe master: no B-frames, PCM, no edit lists; left out when `out.master` is null). `frames`: the length
+ * (exact: the graph already makes every stream that long).
  */
 function outputArgs(frames, out) {
   const d = f6(frames / FPS);
-  return ['-map', '[vout1]', '-map', '[aout1]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '300',
+  const mp4 = ['-map', '[vout1]', '-map', '[aout1]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', '300',
     '-r', String(FPS), '-fps_mode', 'cfr', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
-    '-video_track_timescale', '15360', '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', String(SR), '-movflags', '+faststart', '-t', d, '-f', 'mp4', out.video,
-    '-map', '[vout2]', '-map', '[aout2]', '-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-bf', '0', '-g', '30', '-pix_fmt', 'yuv420p',
+    '-video_track_timescale', '15360', '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', String(SR), '-movflags', '+faststart', '-t', d, '-f', 'mp4', out.video];
+  if (!out.master) return mp4;
+  return [...mp4, '-map', '[vout2]', '-map', '[aout2]', '-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-bf', '0', '-g', '30', '-pix_fmt', 'yuv420p',
     '-r', String(FPS), '-fps_mode', 'cfr', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-c:a', 'pcm_s16le', '-ar', String(SR), '-use_editlist', '0', '-t', d, '-f', 'mov', out.master];
 }
 
 // ── running it ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One of the method's standard-library scripts (real-words.py, loudmatch.py, slack_pack.py) on a Python FLPT was
+ * handed (the episode's own, maybe): isolated (-I: no PYTHON* variables, no user site, not its own folder on the path)
+ * and without site (-S: no site-packages, so no .pth anyone planted there runs), and inside macOS's sandbox where it
+ * exists (no network, the key files unreadable, writes only in `writable` and the temporary folders). T18's residual
+ * for Refine and Deliver (W2-00 #3). → runTool's { code, out, err }
+ */
+function runScript(python, script, args, { writable = [], env, signal, onOut } = {}) {
+  let cmd = python;
+  let argv = ['-I', '-S', script, ...args];
+  if (sandbox.available()) {
+    try { [cmd, argv] = sandbox.wrap(cmd, argv, { writable }); } catch (e) { return Promise.resolve({ code: 126, out: '', err: `Not run: ${e.message}.` }); }
+  }
+  return runTool(cmd, argv, { env, signal, onOut });
+}
 
 /** Run a tool, collecting its output; the signal stops it. */
 function runTool(cmd, args, { env, signal, onOut } = {}) {
@@ -680,12 +828,45 @@ function hasEditList(file) {
 }
 
 /**
- * Apply the add-ons to the film (or, with draft, to the free draft: the same shape, used by QA) and write the
- * refined outputs. Returns { video, master, timeline, frames, seconds, lufs, tp, notes }; throws a plain message.
+ * The slides whose Live Motion scene plays its own sound under the narration (media.json `flpt-scene` entries with
+ * `audio: 'mix'`), and of those the ones with music in it (the scene's score/score.json). Read from the episode's
+ * presentation folder as the last run left it. → { sound: Set<n>, music: Set<n> }
+ */
+function sceneSound(pres) {
+  const out = { sound: new Set(), music: new Set() };
+  const slides = (readJson(path.join(pres || '', 'media.json')) || {}).slides;
+  if (!slides || typeof slides !== 'object') return out;
+  for (const [k, e] of Object.entries(slides)) {
+    const n = Number(k);
+    if (!Number.isInteger(n) || n < 1 || !e || e.note !== 'flpt-scene' || e.audio !== 'mix' || !e.video) continue;
+    out.sound.add(n);
+    const score = readJson(path.join(pres, 'hyperframes', `slide_${String(n).padStart(2, '0')}`, 'score', 'score.json'));
+    if (score && score.music) out.music.add(n);
+  }
+  return out;
+}
+
+/**
+ * Where a music bed sits: about -26 LUFS (at least 10 LU under the narration), or -32 under a scene that has its own
+ * music (a slide's Live Motion scene, or a planned piece's), with a line saying so. → { target, note }
+ */
+function bedTarget(a, { filmLufs, music = new Set(), addons = [] }) {
+  const base = Math.min(T.bedLufs, filmLufs - 10);
+  const host = a.under ? addons.find((x) => x.id === a.under) : null;
+  const where = host ? (host.planned && host.music ? `“${host.title}”` : null) : music.has(Number(a.slide)) ? `Slide ${a.slide}` : null;
+  if (!where) return { target: base, note: null };
+  return { target: Math.min(base, T.sceneBedLufs), note: `${where} has its own music, so ${a.title} sits at ${T.sceneBedLufs} LUFS.` };
+}
+
+/**
+ * Apply the add-ons to the film (or, with draft, to the free draft: the same shape) and write the refined outputs.
+ * Returns { video, master, timeline, frames, seconds, lufs, tp, notes }; throws a plain message.
  *   d.pres          <episode>/presentation
- *   d.film, d.filmTimeline, d.out ({ video, master, timeline })
- *   d.addons        the episode's add-ons, each with `path` (absolute)
+ *   d.film, d.filmTimeline, d.out ({ video, master (null: the MP4 alone), timeline })
+ *   d.addons        the episode's add-ons, each with `path` (absolute); planned rows among them (plannedAddon)
  *   d.ffmpeg, d.ffprobe, d.python (the episode's), d.realWords (the method's real-words.py), d.env (PATH)
+ *   d.headline      the first log line (the splice says its own); d.meta: more top-level fields for the timeline
+ *   d.nudge         'film' (the default) or 'global' (see ffmpegArgs)
  */
 async function apply(d) {
   const say = d.onLine || (() => {});
@@ -696,8 +877,11 @@ async function apply(d) {
   const addons = d.addons || [];
   if (!addons.length) throw new Error('Add something first.');
   for (const a of addons) if (!exists(a.path)) throw new Error(`${a.title}: its file is missing (${path.basename(a.path)}).`);
+  // nothing private goes into a video: not the film, not an add-on (W1-12)
+  for (const f of [d.film, ...addons.map((a) => a.path)]) references.assertNotReference(f);
+  const nudge = d.nudge === 'global' ? 'global' : 'film';
 
-  say(`Refine: ${addons.length} add-on${addons.length === 1 ? '' : 's'} on the film (ffmpeg only: nothing is filmed or paid for).`);
+  say(d.headline || `Refine: ${addons.length} add-on${addons.length === 1 ? '' : 's'} on the film (ffmpeg only: nothing is filmed or paid for).`);
   const media = {};
   for (const file of [d.film, ...new Set(addons.map((a) => a.path))]) {
     media[file] = await probeMedia(ffprobe, file, env);
@@ -717,27 +901,36 @@ async function apply(d) {
     words[n] = await slideWords({ pres: d.pres, n, draft: Boolean(timeline.draft), seconds: s && s.narration_seconds, python: d.python, realWords: d.realWords, env, signal });
     if (words[n] && d.mapWords) words[n] = d.mapWords(n, words[n]);
   }
-  const p = plan({ timeline, addons, media, words, title: d.title || '' });
-  for (const n of p.notes) say(`  ! ${n}`);
+  const p = plan({ timeline, addons, media, words, title: d.title || '', video: path.basename(d.out.video) });
+  if (d.meta && typeof d.meta === 'object') Object.assign(p.timeline, d.meta);
 
-  // Levels: clips and cards to the narration, glitch sounds a little under it, beds at about -26 LUFS.
+  // Levels: clips and cards to the narration, glitch sounds a little under it, beds at about -26 LUFS (-32 under a
+  // scene with its own music); a planned piece keeps its own (-21 LUFS, the mixer's).
   const film = await loudness(ffmpeg, d.film, { env });
   const filmLufs = film && Number.isFinite(film.lufs) ? film.lufs : -16;
+  const scene = sceneSound(d.pres);
   const gains = {};
   const why = [];
   for (const a of addons) {
     if (a.kind === 'broll' || (a.kind === 'clip' && a.sound === 'mute') || !media[a.path].audio) continue;
+    if (a.level === 'own') { why.push(`${a.title} at its own level`); continue; }
     const bed = p.beds.find((b) => b.a.id === a.id);
     if (a.kind === 'music' && !bed) continue;
-    const target = a.kind === 'music' ? Math.min(T.bedLufs, filmLufs - 10) : a.kind === 'transition' && a.style === 'overlay' ? filmLufs - 4 : filmLufs;
+    let target = a.kind === 'transition' && a.style === 'overlay' ? filmLufs - 4 : filmLufs;
+    if (a.kind === 'music') {
+      const t = bedTarget(a, { filmLufs, music: scene.music, addons });
+      target = t.target;
+      if (t.note) p.notes.push(t.note);
+    }
     const m = await loudness(ffmpeg, a.path, { env, seconds: bed ? bed.frames / FPS : undefined, loop: Boolean(bed) });
     gains[a.id] = gainFor(m, target);
     why.push(`${a.title} ${m && Number.isFinite(m.lufs) ? `${m.lufs.toFixed(1)} LUFS` : 'silent'} → ${gains[a.id] >= 0 ? '+' : ''}${gains[a.id]} dB`);
   }
+  for (const n of p.notes) say(`  ! ${n}`);
   say(`  levels: the film ${film ? film.lufs.toFixed(1) : '?'} LUFS; ${why.join('; ') || 'nothing to level'}`);
 
-  const tmp = { video: d.out.video.replace(/\.mp4$/, '.tmp.mp4'), master: d.out.master.replace(/\.mov$/, '.tmp.mov') };
-  const { args } = ffmpegArgs(p, { film: d.film, gains, media, out: tmp });
+  const tmp = { video: d.out.video.replace(/\.mp4$/, '.tmp.mp4'), master: d.out.master ? d.out.master.replace(/\.mov$/, '.tmp.mov') : null };
+  const { args } = ffmpegArgs(p, { film: d.film, gains, media, out: tmp, nudge });
   say(`  rendering ${(p.frames / FPS).toFixed(1)} s (${p.pieces.length} pieces${p.beds.length ? `, ${p.beds.length} music bed${p.beds.length === 1 ? '' : 's'}` : ''}${p.overlays.length ? `, ${p.overlays.length} overlay${p.overlays.length === 1 ? '' : 's'}` : ''})…`);
   let shown = -1;
   const t0 = Date.now();
@@ -750,14 +943,14 @@ async function apply(d) {
     const pct = Math.min(99, Math.floor((last / 1e6 / (p.frames / FPS)) * 10) * 10);
     if (pct > shown) { shown = pct; say(`  ${pct} %`); }
   } });
-  const clean = () => { for (const f of Object.values(tmp)) fs.rmSync(f, { force: true }); };
+  const clean = () => { for (const f of Object.values(tmp)) if (f) fs.rmSync(f, { force: true }); };
   if (signal && signal.aborted) { clean(); throw new Error('Stopped.'); }
   if (r.code !== 0) { clean(); throw new Error(`ffmpeg stopped: ${(r.err.trim().split('\n').pop() || `exit ${r.code}`).slice(0, 300)}`); }
 
   // Check what came out before it replaces anything.
   const want = p.frames / FPS;
   const v = await probeMedia(ffprobe, tmp.video, env);
-  const mv = await probeMedia(ffprobe, tmp.master, env);
+  const mv = tmp.master ? await probeMedia(ffprobe, tmp.master, env) : null;
   const problems = [];
   if (!v || !v.video || !v.audio) problems.push('the MP4 has no picture or no sound');
   else {
@@ -765,35 +958,68 @@ async function apply(d) {
     if (v.frames && v.frames !== p.frames) problems.push(`the MP4 has ${v.frames} frames, not ${p.frames}`);
     if (v.videoDuration && v.audioDuration && Math.abs(v.videoDuration - v.audioDuration) > 0.15) problems.push('its picture and sound differ in length');
   }
-  if (!mv || !mv.video || mv.acodec !== 'pcm_s16le' || mv.hasBFrames) problems.push('the editing master isn\'t CapCut-safe (PCM sound, no B-frames)');
-  else if (mv.frames && mv.frames !== p.frames) problems.push(`the editing master has ${mv.frames} frames, not ${p.frames}`);
-  if (hasEditList(tmp.master)) problems.push('the editing master has an edit list');
+  if (tmp.master) {
+    if (!mv || !mv.video || mv.acodec !== 'pcm_s16le' || mv.hasBFrames) problems.push('the editing master isn\'t CapCut-safe (PCM sound, no B-frames)');
+    else if (mv.frames && mv.frames !== p.frames) problems.push(`the editing master has ${mv.frames} frames, not ${p.frames}`);
+    if (hasEditList(tmp.master)) problems.push('the editing master has an edit list');
+  }
   if (problems.length) { clean(); throw new Error(`The refined video didn't check out: ${problems.join('; ')}.`); }
   fs.renameSync(tmp.video, d.out.video);
-  fs.renameSync(tmp.master, d.out.master);
+  if (tmp.master) fs.renameSync(tmp.master, d.out.master);
   fs.writeFileSync(d.out.timeline, `${JSON.stringify(p.timeline, null, 2)}\n`);
   const level = await loudness(ffmpeg, d.out.video, { env });
   say(`  ✓ ${path.basename(d.out.video)}: ${want.toFixed(1)} s, ${p.frames} frames, ${level ? `${level.lufs.toFixed(1)} LUFS, peak ${level.tp.toFixed(1)} dBTP` : 'level not measured'} (${Math.round((Date.now() - t0) / 1000)} s)`);
-  say(`  ✓ ${path.basename(d.out.master)}: no B-frames, PCM sound, no edit lists, voice +20 ms`);
-  return { video: d.out.video, master: d.out.master, timeline: d.out.timeline, frames: p.frames, seconds: r3(want),
+  if (tmp.master) say(`  ✓ ${path.basename(d.out.master)}: no B-frames, PCM sound, no edit lists, voice +20 ms${nudge === 'film' ? ' (the film\'s; inserts on their picture)' : ''}`);
+  return { video: d.out.video, master: tmp.master ? d.out.master : null, timeline: d.out.timeline, frames: p.frames, seconds: r3(want),
     lufs: level ? Math.round(level.lufs * 10) / 10 : null, tp: level ? Math.round(level.tp * 10) / 10 : null, notes: p.notes };
 }
 
-/** The music credits for a delivery: each track's credit lines and what was done to it. */
-function musicCredits(addons, title) {
-  const music = (addons || []).filter((a) => a.kind === 'music');
-  if (!music.length) return null;
-  const seen = new Set();
-  const blocks = [];
-  for (const a of music) {
-    const k = a.credit || a.title;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    const before = a.changes ? ` The file used: ${a.changes.replace(/\s*No other changes\.?\s*$/, '').replace(/^./, (c) => c.toLowerCase())}` : '';
-    blocks.push(`${a.credit || `${a.title} (no credit recorded: add one in Transitions & Music)`}\nChanges: excerpted, looped where needed, faded and mixed beneath the narration.${before}`);
+/** A CC BY track's credit lines, from a score.json `credit` (score.plan) or a shipped item, as one text. */
+function creditText(c) {
+  if (!c || typeof c !== 'object') return '';
+  if (typeof c.text === 'string' && c.text.trim()) return c.text.trim();
+  const head = [c.name ? `"${c.name}"` : null, c.author || null].filter(Boolean).join(' ');
+  return [head, c.license ? `Licensed under ${c.license}` : null, c.licenseUrl || null, c.source ? `Source: ${c.source}` : null].filter(Boolean).join('\n');
+}
+
+/**
+ * The CC BY tracks a delivery plays, each once: [{ text (its credit lines), changes (to the shipped file itself), edit
+ * (what was done to it in the video: a scene's own words from score.json, such as "edited (trimmed, mixed)", else
+ * "edited (trimmed, looped, mixed)"), bed (Refine put it under the narration) }].
+ *   addons   the episode's add-ons: Refine's beds and the planned pieces whose score plays a CC BY track (`credit`)
+ *   scenes   [{ credit, changes }]: the Live Motion slides' tracks (score.json `credit`)
+ * A track used both ways is credited once. music-credits.txt, DESCRIPTION.txt and the player page all say `edit`.
+ */
+function creditTracks(addons, { scenes = [] } = {}) {
+  const tracks = new Map();
+  const add = (text, { changes = null, edit = null, bed = false }) => {
+    if (!text) return;
+    const t = tracks.get(text) || { text, changes: null, edit: null, bed: false };
+    t.changes = t.changes || changes;
+    t.edit = t.edit || edit;
+    t.bed = t.bed || bed;
+    tracks.set(text, t);
+  };
+  for (const a of (addons || []).filter((x) => x.kind === 'music')) {
+    add(a.credit || `${a.title} (no credit recorded: add one in Transitions & Music)`, { changes: a.changes || null, bed: true });
   }
+  for (const s of [...(addons || []).filter((x) => x.planned && x.credit), ...(scenes || [])]) {
+    add(creditText(s.credit), { changes: s.changes || (s.credit && s.credit.changes) || null, edit: (s.credit && s.credit.edit) || null });
+  }
+  return [...tracks.values()].map((t) => ({ ...t, edit: t.edit || EDITED }));
+}
+
+/** music-credits.txt: each track's credit lines and what was done to it (creditTracks), or null with no music. */
+function musicCredits(addons, title, { scenes = [] } = {}) {
+  const tracks = creditTracks(addons, { scenes });
+  if (!tracks.length) return null;
+  const blocks = tracks.map((t) => {
+    const before = t.changes ? ` The file used: ${t.changes.replace(/\s*No other changes\.?\s*$/, '').replace(/^./, (c) => c.toLowerCase())}` : '';
+    return `${t.text}\nChanges: ${t.edit}.${before}`;
+  });
   return `Music in "${title}"\n\n${blocks.join('\n\n')}\n`;
 }
 
-module.exports = { outputs, cleanAddon, where, addonsKey, filmKey, findPhrase, slideNarration, wavSeconds, narrationWav, slideWords, filmChapters,
-  narrationLead, plan, ffmpegArgs, outputArgs, apply, loudness, gainFor, probeMedia, hasEditList, musicCredits, runTool, KINDS, T, FPS, SR };
+module.exports = { outputs, cleanAddon, plannedAddon, where, addonsKey, filmKey, findPhrase, slideNarration, wavSeconds, narrationWav, slideWords, filmChapters,
+  narrationLead, plan, ffmpegArgs, outputArgs, apply, loudness, gainFor, probeMedia, hasEditList, musicCredits, creditTracks, creditText, sceneSound, bedTarget, runTool, runScript,
+  KINDS, T, FPS, SR, SEAMS, EDITED, seamOf };

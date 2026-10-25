@@ -28,6 +28,7 @@ import numpy as np
 FPS, SR = 30, 16000
 GAP_MIN, KEEP_SENT, KEEP_MID, KEEP_X = 1.1, 0.75, 0.6, 1.0
 XFADE_GUARD, EDGE_GUARD = 0.4, 0.04
+BUBBLE_FADE_S = 0.4                       # the pipeline's bubble fade next to a "bubble": false slide
 DISSOLVE_S = 0.2                          # a cut that must stay (a laugh) over moving content gets this video+audio dissolve
 JUMP_MAX = 3.0                            # mean |Δ| (0–255) of the slide area across a cut; above it the cut is shortened or skipped
 PRE_KEEP, POST_KEEP = 0.25, 0.2          # minimum silence kept after the previous word / before the next
@@ -77,8 +78,11 @@ def main():
 
     def place(lo, hi, length, bubble, why):
         """Choose a frame-aligned window [x, x+length) inside [lo, hi] minimising the slide-area jump."""
-        f_lo, f_hi = math.ceil(lo * FPS), math.floor(hi * FPS); n = int(round(length * FPS))
-        if n < 3 or f_hi - f_lo < n:
+        f_lo, f_hi = math.ceil(lo * FPS), math.floor(hi * FPS)
+        # a cut clamped to its whole window (cross-slide pauses) must still fit after frame rounding (2026-10-14 fix:
+        # rounding made it 1-2 frames too long, and the cut was silently dropped)
+        n = min(int(round(length * FPS)), f_hi - f_lo)
+        if n < 3:
             return None
         fr = frames_gray(mp4, (f_lo - 1) / FPS, (f_hi + 1) / FPS)          # frame k ↔ f_lo - 1 + k
         mask = np.ones((H, W), bool)
@@ -129,6 +133,8 @@ def main():
         else:
             keep = KEEP_X
             lo = w0["end"] + PRE_KEEP; hi = s0[3] - EDGE_GUARD
+            if s0[4] and not s1[4]:      # the bubble fades out over this slide's last 0.4 s: keep the fade whole
+                hi = min(hi, s0[3] - BUBBLE_FADE_S - EDGE_GUARD)
             why = f"pause {g:.2f}s → {keep:.2f}s across slides {s0[1]}→{s1[1]}"
         length = g - keep
         if length <= 0.1:

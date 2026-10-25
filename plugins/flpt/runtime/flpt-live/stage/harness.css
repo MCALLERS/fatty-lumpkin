@@ -1,0 +1,21 @@
+/* The Stage's harness (PLAN §2.5): no chrome and no words, only the piece, its reference and the overlays. */
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #11110E; }
+[hidden] { display: none !important; }
+.layer { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+/* stacking: the piece, the reference (above it only under a wipe), then the overlays, the bubble, the wipe line, the shield */
+#scene { overflow: hidden; background: #000; z-index: 1; }
+/* The piece is a fixed 1920×1080 page, scaled to its box; it never takes a pointer event (K2: no user activation). */
+#scene iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; display: block; transform-origin: 0 0; pointer-events: none; background: #000; }
+#scene iframe.loading { visibility: hidden; }
+#ref { overflow: hidden; background: #000; z-index: 0; }
+#ref.over { z-index: 2; }
+#ref video, #ref img.one { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+#ref .frames { position: absolute; inset: 0; display: grid; gap: 2px; }
+#ref .frames img { width: 100%; height: 100%; object-fit: cover; display: block; min-width: 0; min-height: 0; }
+#overlays { pointer-events: none; z-index: 3; }
+#bubble { border-radius: 50%; overflow: hidden; background: #24231E; z-index: 3; }
+#bubble img, #bubble video { width: 100%; height: 100%; object-fit: cover; display: block; }
+#wipe { width: 2px; margin-left: -1px; background: #E3B860; pointer-events: none; z-index: 4; }
+/* The shield takes every pointer event, so the piece's frame never gets user activation (K2 finding 5). */
+#shield { position: absolute; inset: 0; background: transparent; z-index: 5; }
+#shield.wiping { cursor: ew-resize; }

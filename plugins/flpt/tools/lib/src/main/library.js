@@ -10,6 +10,12 @@
 //
 // For the crew (wired in by the episode flow later): saveLink() records links and saves pictures, but a video link
 // is only ever recorded, never downloaded (Clippy, which only the user runs, is the one way video comes in).
+//
+// References (kind `reference`, references.js) are private: <id>/{source.*, frames/, motion.mp4?, card.json}. They're
+// left out of list(), search(), facets() and get() unless the caller asks for them ({ includePrivate: true }), never
+// match another item as a duplicate, can't be made by add() or addFile(), and stay references when recovered or when
+// their record (or the index) is edited by hand: the folder's own mark and card decide. So nothing that offers the
+// Library to a crew, a call, Refine or a film can reach one by accident.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -19,6 +25,9 @@ const { parseTime, formatTime } = require('./timecode');
 
 // transition and music are the Transitions & Music repository's kinds (addons.js), which reuses this module.
 const KINDS = ['clip', 'image', 'article', 'website', 'wiki', 'video-link', 'audio', 'document', 'note', 'flpt', 'transition', 'music'];
+const PRIVATE_KINDS = ['reference']; // made only through addReference(); never offered without { includePrivate: true }
+const ALL_KINDS = [...KINDS, ...PRIVATE_KINDS];
+const REFERENCE_MARK = '.flpt-reference'; // written first into a reference's folder, so even a half-built one is known
 const LINK_KINDS = ['article', 'website', 'wiki', 'video-link'];
 const ADDED_BY = ['you', 'clippy', 'crew', 'import', 'episode', 'flpt'];
 const ADDON_STYLES = ['card', 'overlay'];
@@ -147,9 +156,11 @@ function normalize(raw, id) {
     cut: num(a.cut) != null && num(a.cut) >= 0 && num(a.cut) < 60 ? num(a.cut) : null,
     credit: str(a.credit, 2000), license: str(a.license, 80), licenseUrl: httpOrEmpty(a.licenseUrl), changes: str(a.changes, 1000),
   } : null;
+  const kind = ALL_KINDS.includes(o.kind) ? o.kind : 'note';
   return {
     id: id || str(o.id, 100),
-    kind: KINDS.includes(o.kind) ? o.kind : 'note',
+    kind,
+    private: PRIVATE_KINDS.includes(kind),
     title: str(o.title, MAX.title).trim() || 'Untitled',
     notes: str(o.notes, MAX.notes),
     tags: cleanTags(o.tags),
@@ -174,6 +185,28 @@ function normalize(raw, id) {
     origin: origin && (origin.from || origin.path) ? origin : null,
     addon: addon && Object.values(addon).some((v) => v !== null && v !== '') ? addon : null,
   };
+}
+
+/** A folder with a reference's own contents: its mark or its style card (whatever its record says). */
+function hasReferenceContents(folder) {
+  if (isFile(path.join(folder, REFERENCE_MARK))) return true;
+  try { const j = JSON.parse(fs.readFileSync(path.join(folder, 'card.json'), 'utf8')); return Boolean(j && j.schema === 'flpt.stylecard/1'); } catch { return false; }
+}
+
+/** A Library folder that holds a reference: its mark, a style card, or a record saying so. */
+function isReferenceFolder(folder) {
+  if (hasReferenceContents(folder)) return true;
+  try { const j = JSON.parse(fs.readFileSync(path.join(folder, 'item.json'), 'utf8')); return Boolean(j && PRIVATE_KINDS.includes(j.kind)); } catch { return false; }
+}
+
+function folderBytes(dir) {
+  let n = 0;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) n += folderBytes(p);
+    else if (e.isFile()) n += fs.statSync(p).size;
+  }
+  return n;
 }
 
 function writeJsonAtomic(file, value) {
@@ -269,14 +302,31 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     cache = { items, ids: new Set(items.map((i) => i.id)) };
   }
 
+  /**
+   * A record as its folder says it is: a reference's folder (its mark, its card) makes it a reference, private,
+   * whatever a hand-edited item.json or index says about its kind.
+   */
+  function asStored(item) {
+    if (item.kind === 'reference' || !hasReferenceContents(path.join(itemsDir, item.id))) return item;
+    return normalize({ ...item, kind: 'reference', file: item.file, sha256: null }, item.id);
+  }
+
   /** A folder that lost its item.json (or has a damaged one) still shows up: rebuilt from what's in it. */
   function recover(id) {
     const folder = path.join(itemsDir, id);
     const json = path.join(folder, 'item.json');
     if (exists(json)) fs.renameSync(json, path.join(folder, `item.json.unreadable-${Date.now()}`)); // keep it, never delete
+    const st = fs.statSync(folder);
+    if (isReferenceFolder(folder)) {
+      // A reference stays a reference (private), whatever happened to its record.
+      const file = ['motion.mp4', ...fs.readdirSync(folder).filter((f) => /^source\./.test(f)).sort()].find((f) => isFile(path.join(folder, f))) || null;
+      const item = normalize({ kind: 'reference', title: id, file, thumb: exists(path.join(folder, 'thumb.jpg')) ? 'thumb.jpg' : null,
+        addedBy: 'you', addedAt: st.birthtime.toISOString(), notes: '' }, id);
+      writeJsonAtomic(path.join(folder, 'item.json'), item);
+      return item;
+    }
     const files = fs.readdirSync(folder).filter((f) => !f.startsWith('.') && !RESERVED.has(f) && !/\.unreadable-\d+$/.test(f) && mediaType(f));
     const file = files.find((f) => mediaType(f) !== 'audio' || files.length === 1) || null;
-    const st = fs.statSync(folder);
     const item = normalize({ kind: file ? kindForFile(file) : 'note', title: file ? titleFromFilename(file) : id, file, thumb: exists(path.join(folder, 'thumb.jpg')) ? 'thumb.jpg' : null,
       addedBy: 'you', addedAt: st.birthtime.toISOString(), notes: '' }, id);
     writeJsonAtomic(path.join(folder, 'item.json'), item);
@@ -299,7 +349,7 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     const recovered = [];
     for (const id of folders()) {
       try {
-        items.push(normalize(JSON.parse(fs.readFileSync(path.join(itemsDir, id, 'item.json'), 'utf8')), id));
+        items.push(asStored(normalize(JSON.parse(fs.readFileSync(path.join(itemsDir, id, 'item.json'), 'utf8')), id)));
       } catch {
         try { items.push(recover(id)); recovered.push(id); } catch (e) { log(`library: couldn't recover ${id}: ${e.message}`); }
       }
@@ -317,7 +367,7 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     try {
       const idx = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
       if (idx && idx.v === 1 && Array.isArray(idx.items)) {
-        const items = idx.items.filter((i) => i && typeof i.id === 'string' && ID_RE.test(i.id)).map((i) => normalize(i, i.id));
+        const items = idx.items.filter((i) => i && typeof i.id === 'string' && ID_RE.test(i.id)).map((i) => asStored(normalize(i, i.id)));
         const ids = new Set(items.map((i) => i.id));
         if (ids.size === items.length && ids.size === names.length && names.every((n) => ids.has(n))) {
           cache = { items: sorted(items), ids };
@@ -352,9 +402,11 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     }
   }
 
-  const byHash = (sha) => load().find((i) => i.sha256 && i.sha256 === sha) || null;
+  // Never a reference: the same picture or link added to the Library is its own (public) item.
+  const byHash = (sha) => load().find((i) => !i.private && i.sha256 && i.sha256 === sha) || null;
   // A saved link (or a picture saved from it). A clip isn't a copy of its video's link: it's one moment of it.
-  const byLink = (key) => (key ? load().find((i) => i.kind !== 'clip' && linkKey(i.source.url) === key) || null : null);
+  const byLink = (key) => (key ? load().find((i) => !i.private && i.kind !== 'clip' && linkKey(i.source.url) === key) || null : null);
+  const shown = (it, includePrivate) => includePrivate === true || !it.private;
 
   async function thumbnailFor(stage, mainFile, type, { thumbFrom, duration }) {
     const out = path.join(stage, 'thumb.jpg');
@@ -435,21 +487,59 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
     }
   }
 
-  function get(id) {
+  /**
+   * Add a reference (references.js): `build(folder)` fills a fresh folder (frames/, motion.mp4, source.*, card.json…)
+   * and returns { file, thumbFrom, width, height, duration, title? } with paths inside it. The folder moves into items/ with
+   * one rename once the record is written; anything that fails leaves nothing behind. Private, never deduplicated.
+   */
+  async function addReference({ title = '', notes = '', tags = [], source = {}, build } = {}) {
+    if (typeof build !== 'function') throw new Error('A reference needs its contents.');
+    const name = str(title, MAX.title).trim() || 'Reference';
+    const id = newId(name, 'reference');
+    const stage = path.join(incoming, id);
+    fs.mkdirSync(stage, { recursive: true });
+    fs.writeFileSync(path.join(stage, REFERENCE_MARK), '');
+    try {
+      const made = (await build(stage)) || {};
+      const inside = (p) => (typeof p === 'string' && p && path.resolve(stage, p).startsWith(stage + path.sep) && isFile(path.resolve(stage, p)) ? path.resolve(stage, p) : null);
+      const main = inside(made.file);
+      const file = main && path.dirname(main) === stage ? path.basename(main) : null;
+      const type = main ? mediaType(main) : null;
+      const t = await thumbnailFor(stage, null, type, { thumbFrom: inside(made.thumbFrom) || main });
+      const item = normalize({
+        id, kind: 'reference', title: str(made.title, MAX.title).trim() || name, notes: str(notes, MAX.notes), tags, source, file, ...(t || {}),
+        width: num(made.width), height: num(made.height), duration: num(made.duration), bytes: folderBytes(stage),
+        addedBy: 'you', addedAt: new Date().toISOString(), usedIn: [], sha256: null, origin: null,
+      }, id);
+      writeJsonAtomic(path.join(stage, 'item.json'), item);
+      fs.mkdirSync(itemsDir, { recursive: true });
+      fs.renameSync(stage, path.join(itemsDir, id));
+      put(item);
+      changed();
+      return resolve(item);
+    } catch (e) {
+      fs.rmSync(stage, { recursive: true, force: true }); // only our own half-built folder
+      throw e;
+    }
+  }
+
+  function get(id, { includePrivate = false } = {}) {
     assertId(id);
-    const it = load().find((i) => i.id === id);
-    if (!it) throw new Error('That item isn\'t in the Library any more.');
+    const it = load().find((i) => i.id === id && shown(i, includePrivate));
+    // The folder has the last word: a reference whose record was changed behind the Library's back still isn't offered.
+    if (!it || (!includePrivate && hasReferenceContents(path.join(itemsDir, id)))) throw new Error('That item isn\'t in the Library any more.');
     return resolve(it);
   }
 
-  function list() { return load().map(resolve); }
+  function list({ includePrivate = false } = {}) { return load().filter((i) => shown(i, includePrivate)).map(resolve); }
 
   /** Items matching every word of the query (title, notes, tags, source), best first, then newest. */
-  function search(query = '', { kind = null, tag = null } = {}) {
+  function search(query = '', { kind = null, tag = null, includePrivate = false } = {}) {
     const words = fold(query).split(/\s+/).filter(Boolean).slice(0, 12);
     const wantTag = tag ? fold(tag).trim() : null;
     const out = [];
     for (const it of load()) {
+      if (!shown(it, includePrivate)) continue;
       if (kind && it.kind !== kind) continue;
       if (wantTag && !it.tags.includes(wantTag)) continue;
       let score = 0;
@@ -472,10 +562,11 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
   }
 
   /** Tags and kinds in use, most common first (for the filters). */
-  function facets() {
+  function facets({ includePrivate = false } = {}) {
     const tags = new Map();
     const kinds = new Map();
     for (const it of load()) {
+      if (!shown(it, includePrivate)) continue;
       kinds.set(it.kind, (kinds.get(it.kind) || 0) + 1);
       for (const t of it.tags) tags.set(t, (tags.get(t) || 0) + 1);
     }
@@ -729,11 +820,11 @@ function createLibrary({ dir, trash, media = {}, fetch: fetchImpl = null, onChan
 
   return {
     dir, itemsDir, indexFile, add, get, list, search, facets, update, remove, rebuild, markUsed, attachSnapshot, snapshotLink,
-    saveLink, addFile, importCutaway, idle: () => snapQueue,
+    saveLink, addFile, importCutaway, addReference, idle: () => snapQueue,
   };
 }
 
 module.exports = {
   createLibrary, normalize, cutawayItem, cutawayInterval, titleFromFilename, safeName, cleanTags, linkKey, mediaType, kindForFile,
-  KINDS, LINK_KINDS, ADDED_BY, ID_RE, TYPES, EXTENSIONS,
+  isReferenceFolder, KINDS, PRIVATE_KINDS, LINK_KINDS, ADDED_BY, ID_RE, TYPES, EXTENSIONS, REFERENCE_MARK,
 };

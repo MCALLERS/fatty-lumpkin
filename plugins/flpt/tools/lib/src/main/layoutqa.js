@@ -3,7 +3,8 @@
 // report what the series learned to check before any render (playbook Part 2, "Deck QA"):
 //   overflow      an element's content is bigger than its box (more than 2 px), or text runs off the slide
 //   overlap       two text boxes intersect
-//   bubble-zone   text inside the presenter bubble's corner (x < 380, y > 700 on the 1920×1080 slide)
+//   bubble-zone   text inside the presenter bubble's corner (x < 380, y > 700 on the 1920×1080 slide), on the slides
+//                 that show the bubble (not on a Cosmos or Motion Solo slide, where it's hidden: modules.META)
 //   small-text    text under 24 px (unreadable at 720p)
 //   wordy         more than 30 words on the slide (the target is about 20; the voice carries the rest)
 // It runs Chrome with --dump-dom, so it needs no browser-automation library.
@@ -12,6 +13,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
+const modules = require('./modules');
 
 // Mirrors BASE_CSS in render_slides.py so measurements match the real renders.
 const BASE_CSS = `html,body{margin:0;padding:0;background:#000}
@@ -124,10 +126,19 @@ function assetResolver(deckDir) {
   }));
 }
 
+/** The slide ids in a deck folder whose modules.json entry hides the presenter's bubble (its corner is free there). */
+function hiddenBubbleIds(deckDir) {
+  let map = {};
+  try { map = JSON.parse(fs.readFileSync(path.join(deckDir, 'modules.json'), 'utf8')) || {}; } catch { return new Set(); }
+  const slides = map && typeof map.slides === 'object' && map.slides ? map.slides : {};
+  return new Set(Object.keys(slides).filter((id) => modules.hidesBubble(slides[id])));
+}
+
 /** Check every slide in a deck folder (deck.json + slides/<id>.html). Returns [{ n, id, issues, error }]. */
 async function checkDeck({ deckDir, chrome }) {
   const deck = JSON.parse(fs.readFileSync(path.join(deckDir, 'deck.json'), 'utf8'));
   const ids = (deck.order || []).map((x) => (typeof x === 'string' ? x : x && x.id)).filter(Boolean);
+  const hidden = hiddenBubbleIds(deckDir);
   // The deck's own fonts, loaded the way render_slides.py does, so text measures the same as in the real render.
   const faces = Array.isArray(deck.faces) ? deck.faces : (deck.faces && typeof deck.faces === 'object' ? Object.values(deck.faces) : []);
   const hrefs = faces.map((f) => (typeof f === 'string' ? f : f && (f.href || f.url))).filter((h) => typeof h === 'string' && /^https:\/\//.test(h));
@@ -146,7 +157,10 @@ async function checkDeck({ deckDir, chrome }) {
       const page = `<!doctype html><html><head><meta charset="utf-8">${head}<style>${BASE_CSS}</style></head><body>${section}<script>${MEASURE}</script></body></html>`;
       const file = path.join(tmp, `${String(i + 1).padStart(2, '0')}.html`);
       fs.writeFileSync(file, page);
-      results.push({ n: i + 1, id, ...(await runChrome(chrome, file)) });
+      const r = await runChrome(chrome, file);
+      // No bubble on this slide, so nothing to keep out of its corner.
+      if (hidden.has(id) && Array.isArray(r.issues)) r.issues = r.issues.filter((x) => x.kind !== 'bubble-zone');
+      results.push({ n: i + 1, id, ...r });
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -171,4 +185,4 @@ function summarize(results) {
   return lines;
 }
 
-module.exports = { assetResolver, checkDeck, summarize, extractSection, BASE_CSS };
+module.exports = { assetResolver, checkDeck, summarize, extractSection, hiddenBubbleIds, BASE_CSS };

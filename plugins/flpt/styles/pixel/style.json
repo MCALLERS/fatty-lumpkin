@@ -1,0 +1,886 @@
+{
+  "schema": "flpt.style/1",
+  "id": "pixel",
+  "version": "1.0.0",
+  "name": "Pixel",
+  "line": "True low resolution per era, a palette per era, Bayer dither, a bitmap font.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "playful",
+      "nostalgic"
+    ],
+    "look": [
+      "pixel",
+      "dither",
+      "8-bit",
+      "palette",
+      "lowres"
+    ],
+    "pace": "brisk",
+    "use": [
+      "history",
+      "versions",
+      "games",
+      "timeline"
+    ]
+  },
+  "tokens": {
+    "paper": "#14101E",
+    "inks": [
+      "#14101E",
+      "#232A4E",
+      "#2F5FA8",
+      "#5FB4E6",
+      "#F4F0E6",
+      "#2E8A4A",
+      "#8AD04A",
+      "#F6D64A",
+      "#F08A32",
+      "#D83A3A",
+      "#0F2A14",
+      "#C4D870"
+    ],
+    "accent": "#F08A32",
+    "type": {
+      "display": "FLPT 5x7 bitmap",
+      "text": "FLPT 5x7 bitmap"
+    }
+  },
+  "fonts": [],
+  "motion": {
+    "vocab": [
+      "on-twos",
+      "whole-pixel",
+      "sprite-flip",
+      "blink",
+      "hop",
+      "parallax",
+      "pan",
+      "re-raster push",
+      "era-morph",
+      "stepped-window",
+      "type-on"
+    ],
+    "pace": "brisk",
+    "easing": "stepped"
+  },
+  "sound": {
+    "score": "pulse-112",
+    "sfx": "on"
+  },
+  "cost": {
+    "msPerFrame": 15
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "from": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": null
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "licenceFile": "LICENSE",
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:f3b4940324e7ed71b6e429ed0c43749f5b213ccec9e580522c85bcb44c5a0cd3",
+    "STYLE.md": "sha256:ef6df21c272298781cda28f9cfa04db8094eebc369d8f8147ae89c3059a379fc",
+    "starter/scene.js": "sha256:de1cc05a638f1b22bae6fb2e516a85e65cd50af22c995fa975cd96e006cdfefc"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.BAYER4",
+      "kind": "value",
+      "params": [],
+      "doc": "the 4x4 Bayer thresholds (0..1), row by row"
+    },
+    {
+      "fn": "ctx.kit.FONT5",
+      "kind": "value",
+      "params": [],
+      "doc": "the 5x7 bitmap font: A-Z, 0-9 and common punctuation"
+    },
+    {
+      "fn": "ctx.kit.GRIDS",
+      "kind": "value",
+      "params": [],
+      "doc": "pixel sizes that divide 1920x1080 (2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24 ...)"
+    },
+    {
+      "fn": "ctx.kit.HANDHELD",
+      "kind": "value",
+      "params": [],
+      "doc": "four handheld greens, darkest first"
+    },
+    {
+      "fn": "ctx.kit.HERO_8",
+      "kind": "value",
+      "params": [],
+      "doc": "the hero's colours for an 8-colour era"
+    },
+    {
+      "fn": "ctx.kit.HERO_HH",
+      "kind": "value",
+      "params": [],
+      "doc": "the hero's colours for a handheld era"
+    },
+    {
+      "fn": "ctx.kit.HERO_PAL",
+      "kind": "value",
+      "params": [],
+      "doc": "the hero's 16-colour palette: an orange body"
+    },
+    {
+      "fn": "ctx.kit.MONO",
+      "kind": "value",
+      "params": [],
+      "doc": "a one-bit palette: ink and warm white"
+    },
+    {
+      "fn": "ctx.kit.PAL16",
+      "kind": "value",
+      "params": [],
+      "doc": "the 16-colour arcade palette by name: ink, night, blue, sky ... brown"
+    },
+    {
+      "fn": "ctx.kit.PAL4",
+      "kind": "value",
+      "params": [],
+      "doc": "the handheld palette (HANDHELD)"
+    },
+    {
+      "fn": "ctx.kit.PAL8",
+      "kind": "value",
+      "params": [],
+      "doc": "eight colours: ink, blue, sky, white, green, lime, yellow, brown"
+    },
+    {
+      "fn": "ctx.kit.PIX",
+      "kind": "function",
+      "params": [],
+      "doc": "the current buffer: { w, h, px, z, tx, ty } inside lowres, else null"
+    },
+    {
+      "fn": "ctx.kit.PIX_ALL",
+      "kind": "value",
+      "params": [],
+      "doc": "every kit colour (what a blob may dither with)"
+    },
+    {
+      "fn": "ctx.kit.PIX_UI",
+      "kind": "value",
+      "params": [],
+      "doc": "window rim colours: light, dark, shadow"
+    },
+    {
+      "fn": "ctx.kit.SPR",
+      "kind": "value",
+      "params": [],
+      "doc": "stock sprites: spark, twinkle, heart, beetle, slime, bird, coin, lamp, rail"
+    },
+    {
+      "fn": "ctx.kit.bayer",
+      "kind": "function",
+      "params": [
+        "x",
+        "y"
+      ],
+      "doc": "the Bayer threshold (0..1) at a pixel"
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "runtime-internal: the runtime binds the frame; never call it"
+    },
+    {
+      "fn": "ctx.kit.birds",
+      "kind": "function",
+      "params": [
+        "key",
+        "n",
+        "x0",
+        "y",
+        "speed",
+        "c",
+        "o"
+      ],
+      "doc": "birds flapping across at speed px/s round height y"
+    },
+    {
+      "fn": "ctx.kit.blob",
+      "kind": "function",
+      "params": [
+        "P",
+        "c",
+        "G",
+        "pal",
+        "o"
+      ],
+      "doc": "a shape (screen points) as chunky dithered pixels on a G px grid"
+    },
+    {
+      "fn": "ctx.kit.building",
+      "kind": "function",
+      "params": [
+        "x",
+        "base",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a tower whose windows light and go dark on the beat"
+    },
+    {
+      "fn": "ctx.kit.cellR",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "c"
+      ],
+      "doc": "fill whole pixels [x, x+w) x [y, y+h) through the view"
+    },
+    {
+      "fn": "ctx.kit.cloud",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "c",
+        "hi",
+        "k",
+        "s"
+      ],
+      "doc": "a puffy pixel cloud with a lit top edge (k varies it, s scales it)"
+    },
+    {
+      "fn": "ctx.kit.coin",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "k",
+        "o"
+      ],
+      "doc": "a spinning coin sprite (k offsets its spin)"
+    },
+    {
+      "fn": "ctx.kit.depth",
+      "kind": "function",
+      "params": [
+        "v",
+        "k"
+      ],
+      "doc": "a parallax layer's view: k 0 stays put, 1 moves with the world"
+    },
+    {
+      "fn": "ctx.kit.ditherPair",
+      "kind": "function",
+      "params": [
+        "c",
+        "pal"
+      ],
+      "doc": "the two palette colours and the mix that make a colour"
+    },
+    {
+      "fn": "ctx.kit.eraMorph",
+      "kind": "function",
+      "params": [
+        "T",
+        "o"
+      ],
+      "doc": "one era becomes the next: a morph, then a stepped window opening"
+    },
+    {
+      "fn": "ctx.kit.fireflies",
+      "kind": "function",
+      "params": [
+        "key",
+        "n",
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "c",
+        "hi"
+      ],
+      "doc": "blinking fireflies wandering in a box"
+    },
+    {
+      "fn": "ctx.kit.grass",
+      "kind": "function",
+      "params": [
+        "x0",
+        "x1",
+        "y",
+        "c",
+        "o"
+      ],
+      "doc": "grass tufts along a ground line, flipping on the beat"
+    },
+    {
+      "fn": "ctx.kit.gridMask",
+      "kind": "function",
+      "params": [
+        "P",
+        "G"
+      ],
+      "doc": "a shape (screen points) rasterised on a G px grid"
+    },
+    {
+      "fn": "ctx.kit.gridStep",
+      "kind": "function",
+      "params": [
+        "u",
+        "Ga",
+        "Gb"
+      ],
+      "doc": "the pixel size between Ga and Gb at u, stepped through GRIDS"
+    },
+    {
+      "fn": "ctx.kit.hash01",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "c"
+      ],
+      "doc": "a fast seeded hash of integers to 0..1 (per-pixel detail)"
+    },
+    {
+      "fn": "ctx.kit.hexOf",
+      "kind": "function",
+      "params": [
+        "v"
+      ],
+      "doc": "[r, g, b] as '#rrggbb'"
+    },
+    {
+      "fn": "ctx.kit.house",
+      "kind": "function",
+      "params": [
+        "x",
+        "base",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a house: walls, a stepped roof, a door, windows lit or on the beat"
+    },
+    {
+      "fn": "ctx.kit.lamp",
+      "kind": "function",
+      "params": [
+        "x",
+        "base",
+        "h",
+        "o"
+      ],
+      "doc": "a lamp post with a dithered glow"
+    },
+    {
+      "fn": "ctx.kit.lowres",
+      "kind": "function",
+      "params": [
+        "res",
+        "draw",
+        "o"
+      ],
+      "doc": "draw at a true low resolution: draw(w, h) in whole pixels, scaled up hard"
+    },
+    {
+      "fn": "ctx.kit.maskRing",
+      "kind": "function",
+      "params": [
+        "m"
+      ],
+      "doc": "the one-cell ring just outside a grid mask"
+    },
+    {
+      "fn": "ctx.kit.mixC",
+      "kind": "function",
+      "params": [
+        "a",
+        "b",
+        "u"
+      ],
+      "doc": "two colours mixed at u (snap or dither it before it shows)"
+    },
+    {
+      "fn": "ctx.kit.nearestC",
+      "kind": "function",
+      "params": [
+        "c",
+        "pal"
+      ],
+      "doc": "the palette colour nearest a colour"
+    },
+    {
+      "fn": "ctx.kit.palette",
+      "kind": "function",
+      "params": [
+        "cols",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a strip of palette swatches in a panel, popping in one by one"
+    },
+    {
+      "fn": "ctx.kit.pcircle",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "c",
+        "o"
+      ],
+      "doc": "a filled pixel disc (o.ring: the rim only)"
+    },
+    {
+      "fn": "ctx.kit.pdither",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "cA",
+        "cB",
+        "f"
+      ],
+      "doc": "ordered dither: colour B where f(x, y) beats the Bayer threshold"
+    },
+    {
+      "fn": "ctx.kit.pellipse",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "c",
+        "o"
+      ],
+      "doc": "a filled pixel ellipse (o.ring: the rim only)"
+    },
+    {
+      "fn": "ctx.kit.pfill",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "the whole buffer in one colour"
+    },
+    {
+      "fn": "ctx.kit.pglow",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r0",
+        "r1",
+        "c",
+        "amt"
+      ],
+      "doc": "a dithered halo from r0 to r1 (moons, lamps, coins)"
+    },
+    {
+      "fn": "ctx.kit.pgrad",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "cols",
+        "o"
+      ],
+      "doc": "a dithered gradient through colours (o.horiz, o.ease)"
+    },
+    {
+      "fn": "ctx.kit.pine",
+      "kind": "function",
+      "params": [
+        "x",
+        "base",
+        "h",
+        "w",
+        "c",
+        "rim",
+        "k",
+        "o"
+      ],
+      "doc": "a stepped pine with a lit edge; its tip leans on the beat"
+    },
+    {
+      "fn": "ctx.kit.pixBox",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "o"
+      ],
+      "doc": "a pixel panel: one-pixel border, clipped corners, fill, shadow"
+    },
+    {
+      "fn": "ctx.kit.pixBubble",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a speech bubble with pixel text or an icon sprite"
+    },
+    {
+      "fn": "ctx.kit.pixCaption",
+      "kind": "function",
+      "params": [
+        "str",
+        "o"
+      ],
+      "doc": "a caption panel that types itself on, in the era's pixels"
+    },
+    {
+      "fn": "ctx.kit.pixFX",
+      "kind": "function",
+      "params": [
+        "fx"
+      ],
+      "doc": "era effects on the buffer: pal, posterize, noise, blocks, flicker"
+    },
+    {
+      "fn": "ctx.kit.pixFromWorld",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "res"
+      ],
+      "doc": "a screen point as a pixel of a resolution"
+    },
+    {
+      "fn": "ctx.kit.pixHero",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "the hero critter at any size, with mood, look, hop and walk"
+    },
+    {
+      "fn": "ctx.kit.pixLetters",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "c",
+        "o"
+      ],
+      "doc": "kinetic bitmap type: each(i, n, ch) moves or hides a glyph"
+    },
+    {
+      "fn": "ctx.kit.pixPost",
+      "kind": "function",
+      "params": [
+        "o",
+        "G"
+      ],
+      "doc": "screen effects on a G px grid: scan, lcd, vignette"
+    },
+    {
+      "fn": "ctx.kit.pixSign",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "base",
+        "o"
+      ],
+      "doc": "a wooden sign on a post with pixel text"
+    },
+    {
+      "fn": "ctx.kit.pixTag",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a tag placed in the world that pops in at double size"
+    },
+    {
+      "fn": "ctx.kit.pixText",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "c",
+        "o"
+      ],
+      "doc": "bitmap text, registered for the text checks (34 px or more)"
+    },
+    {
+      "fn": "ctx.kit.pixTextW",
+      "kind": "function",
+      "params": [
+        "str",
+        "sc"
+      ],
+      "doc": "the width of a line of bitmap text in pixels"
+    },
+    {
+      "fn": "ctx.kit.pixToScreen",
+      "kind": "function",
+      "params": [
+        "x",
+        "y"
+      ],
+      "doc": "a world pixel's centre on screen, through the view"
+    },
+    {
+      "fn": "ctx.kit.pixToWorld",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "res"
+      ],
+      "doc": "a pixel's centre on screen at a resolution"
+    },
+    {
+      "fn": "ctx.kit.pline",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "c",
+        "o"
+      ],
+      "doc": "a one-pixel Bresenham line (o.w thicker)"
+    },
+    {
+      "fn": "ctx.kit.polySpans",
+      "kind": "function",
+      "params": [
+        "P",
+        "y0",
+        "y1"
+      ],
+      "doc": "the pixel spans of a polygon, row by row"
+    },
+    {
+      "fn": "ctx.kit.posterize",
+      "kind": "function",
+      "params": [
+        "c",
+        "levels"
+      ],
+      "doc": "a colour quantised to n levels per channel"
+    },
+    {
+      "fn": "ctx.kit.ppoly",
+      "kind": "function",
+      "params": [
+        "P",
+        "c"
+      ],
+      "doc": "a filled polygon with hard stepped edges"
+    },
+    {
+      "fn": "ctx.kit.prect",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "c"
+      ],
+      "doc": "a rectangle of whole pixels"
+    },
+    {
+      "fn": "ctx.kit.pset",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "c"
+      ],
+      "doc": "one pixel"
+    },
+    {
+      "fn": "ctx.kit.rgbOf",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "a colour as [r, g, b]"
+    },
+    {
+      "fn": "ctx.kit.ridge",
+      "kind": "function",
+      "params": [
+        "key",
+        "x0",
+        "x1",
+        "y",
+        "amp",
+        "c",
+        "o"
+      ],
+      "doc": "hills or peaks: seeded relief, a lit rim, a shadow face, snow"
+    },
+    {
+      "fn": "ctx.kit.screenSpace",
+      "kind": "function",
+      "params": [
+        "fn"
+      ],
+      "doc": "draw fn in buffer pixels, without the view"
+    },
+    {
+      "fn": "ctx.kit.shadeC",
+      "kind": "function",
+      "params": [
+        "c",
+        "k"
+      ],
+      "doc": "a colour toward black (k < 0) or white (k > 0)"
+    },
+    {
+      "fn": "ctx.kit.sprite",
+      "kind": "function",
+      "params": [
+        "rows",
+        "map",
+        "x",
+        "y",
+        "o"
+      ],
+      "doc": "a sprite from string rows and a colour map (flip, scale, anchor)"
+    },
+    {
+      "fn": "ctx.kit.stars",
+      "kind": "function",
+      "params": [
+        "key",
+        "n",
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "cols",
+        "o"
+      ],
+      "doc": "stars that blink on the boil, a moon kept clear"
+    },
+    {
+      "fn": "ctx.kit.stepWindow",
+      "kind": "function",
+      "params": [
+        "P",
+        "o"
+      ],
+      "doc": "a stepped window: inside() through it, rims, a shadow, outside"
+    },
+    {
+      "fn": "ctx.kit.tree",
+      "kind": "function",
+      "params": [
+        "x",
+        "base",
+        "r",
+        "o"
+      ],
+      "doc": "a leafy tree: canopy lit from the top-left, an outline, a trunk"
+    },
+    {
+      "fn": "ctx.kit.view",
+      "kind": "function",
+      "params": [
+        "o"
+      ],
+      "doc": "a camera: world pixel p on buffer pixel to at zoom z (re-rasterised)"
+    },
+    {
+      "fn": "ctx.kit.water",
+      "kind": "function",
+      "params": [
+        "key",
+        "x",
+        "y",
+        "w",
+        "h",
+        "cols",
+        "hi",
+        "o"
+      ],
+      "doc": "water rows with highlight dashes drifting on the boil"
+    },
+    {
+      "fn": "ctx.kit.withGrid",
+      "kind": "function",
+      "params": [
+        "G",
+        "fn"
+      ],
+      "doc": "a layer of pixel primitives on top at G px a pixel"
+    },
+    {
+      "fn": "ctx.kit.withView",
+      "kind": "function",
+      "params": [
+        "v",
+        "fn"
+      ],
+      "doc": "draw fn through a view (ctx.cam and ctx.push results work too)"
+    }
+  ]
+}

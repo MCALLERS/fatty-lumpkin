@@ -1,0 +1,11 @@
+{
+  "style": "cut-paper",
+  "placement": "solo",
+  "duration": 8,
+  "hold": 0.5,
+  "beats": [
+    { "name": "wake", "t": 1.0, "end": 1.5 },
+    { "name": "bridge", "t": 4.0, "end": 4.6 },
+    { "name": "flowers", "t": 4.75, "end": 6.25 }
+  ]
+}

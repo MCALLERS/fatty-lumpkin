@@ -37,7 +37,7 @@ The look comes from the user's reference, the "Avocado toast" segment of Nate He
 
 | Path | What it is |
 |---|---|
-| `live-slide/` | The blank starter. Copy it per slide. It's self-contained: `index.html`, `beats.json`, generated `beats.js`, and `assets/` (GSAP 3.14.2, `live-slide.js` engine, local woff2 files with their OFL licences: Source Serif 4 400, 400 italic, 600 and 600 italic; IBM Plex Sans 400, 400 italic, 500, 600 and 600 italic; IBM Plex Mono 400, 500 and 600). |
+| `live-slide/` | The blank starter. Copy it per slide. It's self-contained: `index.html`, `beats.json`, generated `beats.js`, and `assets/` (`flpt-tween.js`, FLPT's own seekable subset of GSAP's timeline<!-- FLPT_GSAP_FREE_V1 -->, `live-slide.js` engine, local woff2 files with their OFL licences: Source Serif 4 400, 400 italic, 600 and 600 italic; IBM Plex Sans 400, 400 italic, 500, 600 and 600 italic; IBM Plex Mono 400, 500 and 600). |
 | `examples/possible-worlds/` | Worked 30 s example: actual world → ring of feasible worlds → remote worlds → Tactic / Strategy / "No-regrets move = □ every feasible world". Copy it when your slide is a diagram. |
 | `examples/whiteboard-sketch/` | The whiteboard sketch ("avocado toast") starter: board, marker pen, Caveat, `hand.js`, a doodle kit sheet and a `README.md` on authoring doodles. Its engine (1.1) adds stroke-by-stroke pen drawing, pen colour per stroke, pen-written labels and pen glides; everything else matches `live-slide/`. `--from whiteboard-sketch`. |
 | `render.mjs` | Scaffold (`--new`), sync (`--sync`), and render + verify (`--out`). |
@@ -115,7 +115,7 @@ The render uses `npx hyperframes@0.8.80` (change it with `--hf <version>`) with 
 |---|---|
 | `t` / `after` | Seconds from the start of the slide, or seconds after the previous beat. |
 | `target` | An id (`"actual"`), a CSS selector (`".node"`, `"#remote circle"`), or a list of them. |
-| `do` | `in` (default), `out`, `focus` (targets full strength, everything else already shown goes to `--dim`), `unfocus` (no target needed), `dim`, `pulse`, `count` (numbers: `data-from`/`data-to`/`data-decimals`/`data-prefix`/`data-suffix` on the element, or `value`), and `to` (any GSAP vars; `var(--token)` is resolved). |
+| `do` | `in` (default), `out`, `focus` (targets full strength, everything else already shown goes to `--dim`), `unfocus` (no target needed), `dim`, `pulse`, `count` (numbers: `data-from`/`data-to`/`data-decimals`/`data-prefix`/`data-suffix` on the element, or `value`), and `to` (GSAP-style vars inside flpt-tween's subset: CSS properties, `--custom` properties, 2D transforms, `attr`; `var(--token)` is resolved; anything else stops the render with a `✗ … FlptTweenUnsupported` line that names it). |
 | `anim` | For `in`: `rise` (default), `fade`, `pop`, `draw` (SVG stroke draws on), `wipe` (clip reveal left to right), `grow` (scaleX from `data-origin`), `words` (word-by-word). An element can set its default with `data-anim`. |
 | `dur`, `ease`, `stagger`, `drawStagger`, `level` | Overrides. `level` is the dim opacity for `focus`/`dim`. |
 | `pen` | `draw` on one SVG shape: a pen nib rides the drawing tip (the whiteboard look). |
@@ -231,3 +231,22 @@ A narrated slide can become a short painted documentary: limited 2D animation, t
 - **Real art held inside a cartoon:** paint the hands holding a green card and key the real print in behind them. Check for leftover green pixels.
 - **CJK glyphs** (e.g. 围棋) render with the Mac's own PingFang. No OFL CJK font ships with the template, so a render on another machine substitutes a different face.
 - **Typing big words:** one-frame letter reveals read best. Plex Mono italic needs `font-synthesis: none` to match the deck.
+
+## Recipes from *A Modest Proposal* (Part 5 re-cut, 2026-10-12)
+- **Whiteboard seams at ~59 dB.** Build the seam replica of the previous slide's last frame with the same markup as the live slide, down to one span per typed character. Close is not enough: a different text structure re-flows the antialiasing.
+- **Wait for fonts before building the timeline** on whiteboard slides (`await document.fonts.load(...)`), so pen write-ons follow the real glyph outlines.
+- **Retire masked layers** (fade them to 0) once their wipe ends, so HyperFrames' layout audit doesn't report them as overlapping.
+- **Mixed looks in one run:** slides 20 and 21 were whiteboards, and 19 and 22 kept the deck's serif-and-cards look on the same paper ground. Seams still matched, because each slide opens on its neighbour's last frame.
+- **On-screen text follows its own words.** A line card quoting the narration goes in on those words, not on a later keyword. Our spec cued one card 14 s late, and it read as a non sequitur.
+- **No long dead holds under a lead-in.** When a slide holds still for 15 s or more under narration that leads into a cut scene, give it one slow beat on a cue word that leads into the scene. For example, the lights dim to about 55 % on "deep in the mines" before Gandalf in Moria.
+- **A still stirred, not static.** To animate one element of a generated still, paint it out with ffmpeg, cut it out as its own layer, and sway it a degree or two about a natural pivot. Check at 100 % for a smooth strip where it was painted out.
+- **Footage under a split screen:** a 640×360 archival clip at about 0.72× speed reads as silent-film pace and fills a 22 s slot. End on the deck still's exact frame so the hold matches the PNG.
+
+## Recipes from *The Response* (2026-10-13)
+- **Beats that return to rest.** When a slide sits still too long, add motion that ends where it began: a tag sinks 6 px and settles, a card lifts 10 px with a deeper shadow and settles. The last frame still matches the deck PNG, so nothing downstream needs rebuilding.
+- **Don't use a staggered `do:"out"` on things that enter one by one** (per-character carets). GSAP nests a staggered tween in a timeline that renders before later "in" tweens on the same frame, so they stay stuck visible. Hide them through a CSS variable (`--lit`) instead.
+- **Seek-safe custom motion** (planets riding their orbits): recompute every frame from `tl.time()` in the timeline's `onUpdate`, with fx beats carrying the cues. Never run a free `requestAnimationFrame` loop.
+- **A negative `after`** starts a beat before its cue word while keeping it chained to the cue.
+- **Judge the hold test at delivery quality.** Draft renders can fail it on encoder noise alone (42.9 dB on one slide that passed at delivery).
+- **The local Source Serif has no → glyph,** so the browser falls back to Times' thinner arrow. Where a frame must match the deck PNG, draw the deck's arrow over the glyph or use an SVG arrow.
+- **"Lights go down" on a print:** use a darkened copy for about 0.6 s, with the words untouched. A semi-transparent dark overlay does the same without a new file.

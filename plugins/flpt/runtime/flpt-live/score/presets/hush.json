@@ -1,0 +1,186 @@
+{
+  "id": "hush",
+  "name": "Hush",
+  "about": "D major, slow and spacious, no percussion, 75 BPM: a beat is 24 frames at 30 fps.",
+  "bpm": 75,
+  "beatsPerBar": 4,
+  "offset": 0,
+  "barsPerChord": 2,
+  "progression": [
+    {
+      "name": "Dmaj9",
+      "root": 38,
+      "pad": [
+        54,
+        57,
+        61,
+        64
+      ],
+      "arp": [
+        66,
+        69,
+        73,
+        76
+      ]
+    },
+    {
+      "name": "Bm7",
+      "root": 35,
+      "pad": [
+        54,
+        57,
+        62,
+        66
+      ],
+      "arp": [
+        66,
+        69,
+        74,
+        78
+      ]
+    },
+    {
+      "name": "Gmaj7",
+      "root": 43,
+      "pad": [
+        54,
+        59,
+        62,
+        67
+      ],
+      "arp": [
+        66,
+        71,
+        74,
+        79
+      ]
+    },
+    {
+      "name": "Asus4",
+      "root": 45,
+      "pad": [
+        57,
+        62,
+        64,
+        69
+      ],
+      "arp": [
+        69,
+        74,
+        76,
+        81
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "name": "in",
+      "bars": 2,
+      "layers": [
+        "drone",
+        "pad"
+      ]
+    },
+    {
+      "name": "float",
+      "bars": 4,
+      "layers": [
+        "drone",
+        "pad",
+        "chimes",
+        "pluckSparse"
+      ]
+    },
+    {
+      "name": "swell",
+      "bars": 2,
+      "layers": [
+        "drone",
+        "pad",
+        "chimes",
+        "riser"
+      ]
+    },
+    {
+      "name": "out",
+      "bars": 2,
+      "layers": [
+        "drone",
+        "pad",
+        "chimes"
+      ]
+    }
+  ],
+  "instruments": {
+    "drone": {
+      "gainDb": -18,
+      "octave": 1,
+      "attack": 2.5,
+      "release": 3,
+      "am": 0.06,
+      "send": 0.4
+    },
+    "pad": {
+      "gainDb": -14,
+      "attack": 1.6,
+      "release": 2.4,
+      "cutoff": 800,
+      "q": 0.7,
+      "detune": 0.08,
+      "lfo": 0.07,
+      "lfoDepth": 0.6,
+      "send": 0.55
+    },
+    "pluck": {
+      "gainDb": -12,
+      "t60": 2.2,
+      "bright": 0.35,
+      "dur": 1.6,
+      "octave": 0,
+      "sparse": 0.25,
+      "send": 0.6,
+      "patterns": [
+        [
+          0,
+          1,
+          2,
+          3
+        ]
+      ]
+    },
+    "chimes": {
+      "gainDb": -21,
+      "prob": 0.28,
+      "scale": [
+        74,
+        76,
+        78,
+        81,
+        83,
+        86
+      ],
+      "dur": 3.2,
+      "decay": 1.8,
+      "send": 0.7
+    },
+    "riser": {
+      "gainDb": -24,
+      "bars": 2,
+      "from": 200,
+      "to": 3500,
+      "saw": 0.1,
+      "send": 0.7
+    }
+  },
+  "reverb": {
+    "room": 0.92,
+    "damp": 0.6,
+    "wet": 0.45,
+    "width": 1,
+    "predelay": 0.035
+  },
+  "master": {
+    "rmsDb": -21,
+    "peakDb": -4
+  }
+}

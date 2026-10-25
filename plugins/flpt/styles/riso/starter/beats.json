@@ -1,0 +1,13 @@
+{
+  "style": "riso",
+  "placement": "solo",
+  "duration": 9.6,
+  "hold": 0.5,
+  "beats": [
+    { "name": "sun", "t": 2.5 },
+    { "name": "hop", "t": 3.6 },
+    { "name": "word", "t": 4.6 },
+    { "name": "push", "t": 6.2 },
+    { "name": "set", "t": 8.2 }
+  ]
+}

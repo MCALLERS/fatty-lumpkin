@@ -1,0 +1,647 @@
+{
+  "schema": "flpt.style/1",
+  "id": "riso",
+  "version": "1.0.0",
+  "name": "Riso",
+  "line": "Three inks, printed, never painted.",
+  "runtime": "flpt-live@^1",
+  "minApp": "2.0.0",
+  "frame": {
+    "w": 1920,
+    "h": 1080,
+    "fps": 30
+  },
+  "duetSafe": true,
+  "ones": false,
+  "tags": {
+    "mood": [
+      "playful",
+      "bright"
+    ],
+    "look": [
+      "print",
+      "halftone",
+      "overprint"
+    ],
+    "pace": "lively"
+  },
+  "tokens": {
+    "paper": "#F2ECE3",
+    "inks": [
+      "#3689AB",
+      "#DC44A0",
+      "#EEDE1E"
+    ],
+    "accent": "#DC44A0",
+    "type": {
+      "display": "Fraunces Soft",
+      "italic": "Fraunces Soft Italic",
+      "mono": "IBM Plex Mono"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Fraunces Soft",
+      "file": "fonts/fraunces-soft-black.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "Fraunces Soft Italic",
+      "file": "fonts/fraunces-italic.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/OFL-Fraunces.txt"
+    },
+    {
+      "family": "IBM Plex Mono",
+      "file": "fonts/IBMPlexMono-SemiBold.ttf",
+      "licence": "OFL-1.1",
+      "licenceFile": "fonts/LICENSE-IBMPlexMono.txt"
+    }
+  ],
+  "motion": {
+    "vocab": [
+      "print",
+      "register",
+      "overprint",
+      "press",
+      "iris",
+      "boil"
+    ],
+    "pace": "lively",
+    "easing": "spring:playful"
+  },
+  "sound": {
+    "score": "pulse-112",
+    "sfx": "soft"
+  },
+  "cost": {
+    "msPerFrame": 92
+  },
+  "files": {
+    "kit": "kit.js",
+    "spec": "STYLE.md",
+    "starter": "starter/scene.js",
+    "demo": "demo/"
+  },
+  "media": {
+    "poster": "poster.jpg",
+    "loop": "loop.mp4",
+    "loopTall": "loop-tall.mp4"
+  },
+  "provenance": {
+    "kind": "shipped",
+    "parent": null,
+    "from": null,
+    "fromEpisode": null,
+    "fromShot": null,
+    "refsUsed": false,
+    "rendered": {
+      "runtime": "flpt-live@1.0.0",
+      "toolchain": "2026-10-12/darwin-arm64"
+    }
+  },
+  "credit": "Ported from cth9191/animate (MIT)",
+  "licence": "MIT",
+  "licenceFile": "LICENSE",
+  "authors": [
+    "cth9191 (original)",
+    "Bombadillo AI (16:9 port)"
+  ],
+  "share": {
+    "status": "none",
+    "at": null
+  },
+  "hashes": {
+    "kit.js": "sha256:99497381fa22ab16832c94858deda166ff1174a15c6289d32124ad30bbb3f8be",
+    "STYLE.md": "sha256:ab8a26ac806a859cf07f7bf6dad68771c6c9a5d36ce545306a49f86d4817dff9",
+    "starter/scene.js": "sha256:1dc318699b152992d42c227369aca6e96cbeef1cb0068d1e63ecc2755b28123f"
+  },
+  "api": [
+    {
+      "fn": "ctx.kit.INKS",
+      "kind": "value",
+      "params": [],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.MIX",
+      "kind": "value",
+      "params": [],
+      "doc": "named overprints: dark, coral, green, blue, orange, sky, lilac"
+    },
+    {
+      "fn": "ctx.kit.PITCH",
+      "kind": "value",
+      "params": [],
+      "doc": "screen pitches: fine 7, world 10.8, field 17.5"
+    },
+    {
+      "fn": "ctx.kit.arcPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "a0",
+        "a1",
+        "n",
+        "sy"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.bbox",
+      "kind": "function",
+      "params": [
+        "P",
+        "pad"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.bind",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.boxPts",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.card",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a paper card with a teal rim, in screen space"
+    },
+    {
+      "fn": "ctx.kit.circ",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.clipTo",
+      "kind": "function",
+      "params": [
+        "path"
+      ],
+      "doc": "clip every plate to a path until unclip"
+    },
+    {
+      "fn": "ctx.kit.curvy",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.depth",
+      "kind": "function",
+      "params": [
+        "c",
+        "d",
+        "C"
+      ],
+      "doc": "the camera for a farther or nearer layer: parallax"
+    },
+    {
+      "fn": "ctx.kit.dist",
+      "kind": "function",
+      "params": [
+        "a",
+        "b"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.ell",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "rx",
+        "ry",
+        "rot"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.ellipsePts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "rx",
+        "ry",
+        "rot",
+        "n"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.endSheet",
+      "kind": "function",
+      "params": [],
+      "doc": "put the printed sheet into the frame"
+    },
+    {
+      "fn": "ctx.kit.erase",
+      "kind": "function",
+      "params": [
+        "path",
+        "inks"
+      ],
+      "doc": "take inks back off a region (a plate not printed there yet)"
+    },
+    {
+      "fn": "ctx.kit.fill",
+      "kind": "function",
+      "params": [
+        "path",
+        "tones",
+        "o"
+      ],
+      "doc": "a knockout fill in plate tones; over raises only the listed plates"
+    },
+    {
+      "fn": "ctx.kit.hand",
+      "kind": "function",
+      "params": [
+        "P",
+        "key",
+        "amt",
+        "step"
+      ],
+      "doc": "a path wobbled on the boil"
+    },
+    {
+      "fn": "ctx.kit.hero",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r",
+        "o"
+      ],
+      "doc": "the ink-blue bean hero with paper eyes and a sprout"
+    },
+    {
+      "fn": "ctx.kit.heroOutline",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.inkRGB",
+      "kind": "function",
+      "params": [
+        "t"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.iris",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "key",
+        "fn",
+        "o"
+      ],
+      "doc": "a world opening inside a printed circle with a rough rim"
+    },
+    {
+      "fn": "ctx.kit.layer",
+      "kind": "function",
+      "params": [
+        "pitch",
+        "o"
+      ],
+      "doc": "three grey plates and a mask at one screen pitch; T, box, full, shapes, band"
+    },
+    {
+      "fn": "ctx.kit.letters",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "tones",
+        "o"
+      ],
+      "doc": "a word pressed in letter by letter, plates sliding into register"
+    },
+    {
+      "fn": "ctx.kit.lin",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "stops"
+      ],
+      "doc": "a grey linear gradient for one plate"
+    },
+    {
+      "fn": "ctx.kit.line",
+      "kind": "function",
+      "params": [
+        "P",
+        "tones",
+        "o"
+      ],
+      "doc": "a wobbled, tapered ribbon in plate tones; overprints unless knock"
+    },
+    {
+      "fn": "ctx.kit.maskFill",
+      "kind": "function",
+      "params": [
+        "path",
+        "rule"
+      ],
+      "doc": "add a path to the layer mask (paper there)"
+    },
+    {
+      "fn": "ctx.kit.misregister",
+      "kind": "function",
+      "params": [
+        "off",
+        "fn"
+      ],
+      "doc": "draw with single plates moved off register"
+    },
+    {
+      "fn": "ctx.kit.pathLen",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.place",
+      "kind": "function",
+      "params": [
+        "T",
+        "fn",
+        "off"
+      ],
+      "doc": "draw in a local frame (x, y, rot, s); off moves single plates"
+    },
+    {
+      "fn": "ctx.kit.poly",
+      "kind": "function",
+      "params": [
+        "P"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.popS",
+      "kind": "function",
+      "params": [
+        "t"
+      ],
+      "doc": "a back-eased pop scale from a time"
+    },
+    {
+      "fn": "ctx.kit.print",
+      "kind": "function",
+      "params": [],
+      "doc": "screen the plates, multiply the inks, blend into the sheet"
+    },
+    {
+      "fn": "ctx.kit.printed",
+      "kind": "function",
+      "params": [
+        "pitch",
+        "o",
+        "fn"
+      ],
+      "doc": "layer, draw, print: one printed layer"
+    },
+    {
+      "fn": "ctx.kit.rad",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "r0",
+        "r1",
+        "stops"
+      ],
+      "doc": "a grey radial gradient for one plate"
+    },
+    {
+      "fn": "ctx.kit.rect",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.resample",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "step"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.rgbHex",
+      "kind": "function",
+      "params": [
+        "rgb"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.rim",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "key",
+        "o"
+      ],
+      "doc": "a dry-brush printed ring"
+    },
+    {
+      "fn": "ctx.kit.rimLine",
+      "kind": "function",
+      "params": [
+        "P",
+        "key",
+        "o"
+      ],
+      "doc": "a dry-brush printed outline of a closed path"
+    },
+    {
+      "fn": "ctx.kit.ringPts",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r",
+        "n"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.rrect",
+      "kind": "function",
+      "params": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "r"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.sheet",
+      "kind": "function",
+      "params": [
+        "box"
+      ],
+      "doc": "fresh paper into the sheet buffer, or print over what the frame shows in a box"
+    },
+    {
+      "fn": "ctx.kit.specks",
+      "kind": "function",
+      "params": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "n",
+        "key"
+      ],
+      "doc": "single-ink specks in a dark"
+    },
+    {
+      "fn": "ctx.kit.speedLines",
+      "kind": "function",
+      "params": [
+        "cx",
+        "cy",
+        "r0",
+        "r1",
+        "angle",
+        "amount",
+        "tones",
+        "key"
+      ],
+      "doc": "printed arcs trailing something that turns"
+    },
+    {
+      "fn": "ctx.kit.subPath",
+      "kind": "function",
+      "params": [
+        "P",
+        "frac"
+      ],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.tag",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "o"
+      ],
+      "doc": "a yellow slip on a pink shadow, in screen space"
+    },
+    {
+      "fn": "ctx.kit.tonesOf",
+      "kind": "function",
+      "params": [
+        "c"
+      ],
+      "doc": "the nearest plate tones for an outside colour"
+    },
+    {
+      "fn": "ctx.kit.type",
+      "kind": "function",
+      "params": [
+        "str",
+        "x",
+        "y",
+        "size",
+        "tones",
+        "o"
+      ],
+      "doc": "printed type in display, italic or mono; plates moves one plate copy"
+    },
+    {
+      "fn": "ctx.kit.typeW",
+      "kind": "function",
+      "params": [
+        "str",
+        "size",
+        "weight",
+        "o"
+      ],
+      "doc": "the width of a line of type in a face"
+    },
+    {
+      "fn": "ctx.kit.unclip",
+      "kind": "function",
+      "params": [],
+      "doc": ""
+    },
+    {
+      "fn": "ctx.kit.wobble",
+      "kind": "function",
+      "params": [
+        "P",
+        "closed",
+        "amt",
+        "key",
+        "step"
+      ],
+      "doc": ""
+    }
+  ]
+}

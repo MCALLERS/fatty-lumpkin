@@ -186,3 +186,138 @@ Add 3–6 bullets per session: what worked, what the user changed, and any new c
 - **The extras cost far more than the presentation.** The Cinema shorts and pickups came to roughly 125,000 OpenArt credits, against about 30 US dollars of HeyGen per episode.
   - **Michael's call for a general tool (FLPT):** default to Kie.ai and Higgsfield, with OpenArt as an opt-in "film quality" upgrade.
   - Price the wrapper piece by piece in the spend gate.
+
+## 2026-10-12: re-cutting Part 5 (*A Modest Proposal*) from the user's 12 notes
+- **Re-cut economics.**
+  - 9 of 25 slides had byte-identical narration, so their voice and avatar clips came from cache for free. Their slide videos were re-rendered only for the PART 5 badge.
+  - Renumber hyperframes folders and media in descending order, so nothing collides.
+  - The 14 new clips (about 10.5 min of avatar video) cost **$25.77**. The dry run estimated 12.8 min ($31.50), because its 14.5 characters/s is deliberately slow.
+  - The paid run took 18 min, the final compose 1:47 and tightening about 2 min.
+  - The swizzle-stick still and the *Superiority* cartoon (6 images, 1 cut-out, a 480p draft and a 1080p hero) used 94 Higgsfield credits.
+- **Fact-check the user's own notes, not only ours.** The user's brief merged two stories from one week: REA (a reverse-engineering toolkit) and ArtCraft (seven open-source Adobe rebuilds). A YouTuber was credited with the wrong one. Also:
+  - `/loop` shipped the same day as Karpathy's autoresearch, so it wasn't "absorbed" from it.
+  - "The SEALs studied guerrilla tactics" isn't documented. "Built to fight guerrillas" is.
+  - "Thousands" of anti-slop skills is really hundreds.
+  - Say each correction plainly, with an accurate line that keeps the user's point.
+- **Check who a public-domain painting shows, not just its licence.** The famous Swamp Fox painting centres an enslaved man serving the meal, so we used a 1967 Navy photo for that half of the split instead. Also check which copy a date belongs to: the high-resolution copy was a different, earlier version.
+- **Build now, align last.** Launch the animators as soon as the paid run starts:
+  - Narration WAVs land in the first ~10 min. Each `.json`'s `item` and `created` fields identify it.
+  - The timeline comes last. Move the old one aside first, so its absence is the signal.
+  - This saved about 20 minutes.
+- **A usage cap killed all five subagents at once.** Resuming each with SendMessage kept its progress, and every one finished. Don't relaunch them fresh.
+- **`map_media.py` maps every `media/slide_NN.mp4`,** including stale v1 clips left at renumbered paths. Run it only after every animator reports, then check that each clip is the timeline duration minus one frame.
+- **Hold scripted beats when tightening.** Scribe dropped the "?" after "…one-prompt Interval? [long pause]", so the rule would have squeezed the beat to 0.6 s. `tighten.py --hold t=1.2` kept both scripted `[long pause]` beats at 1.2 s.
+  - Result: 43 s removed (3.3 %), the laugh cut, and words within 0.3 ms of their predicted spots. The `.mov` measured −3 ms voice-to-lips.
+- **`measure_av_sync.py` pairs clips by the slide numbers in `jobs.json`,** which go stale after renumbering. Trust only rows with correlation above 0.5. Its import lines had gone missing and are restored. To do: match clips by cache key.
+- **Use the user's final titles everywhere** (recap cards, guides), taken from their Desktop finals, not our working titles.
+- **The companion deck:** when a generated still lands, swap it into the deck's still slot with the same scrim as the video. Otherwise the deck keeps a "to come" placeholder.
+- **Finding a bad take the user didn't name.** The user said one segment's voice was "very wrong" without saying where.
+  - Per-sentence pitch against the approved slides found it: "About thirty-five hours of build" had a 222 Hz median, against the voice's normal 107–146 Hz.
+  - Timbre (MFCC) stayed in range, so look for register jumps, not only voice drift.
+  - Confirm the slide with the user before spending.
+- **HeyGen TTS is deterministic per text.** `--regen` with unchanged text returned byte-identical audio, bad reading and all.
+  - To get a new take, change the text minimally. Adding one `[short pause]` before the sentence fixed it.
+  - Check the new take's pitch in a voice-only run (`--slides N --no-avatar --final --yes`, cents) before rendering the avatar.
+- **Cache-key gap:** the padded WAV and the clip key use the narration's text hash plus frame count, not the audio itself.
+  - A new take of the same text and length would silently reuse the stale padded audio, and without `--regen-avatar`, the old clip.
+  - Changing the text sidesteps it. To do in the pipeline: key the padded WAV on the WAV's content hash.
+- **Re-voicing one slide after delivery** took about 40 min and cost $0.78 of avatar plus about 10¢ of voice:
+  1. Back up the take.
+  2. Make a variant text and check its pitch.
+  3. Dry run: it should show 1 clip.
+  4. Run `--final`.
+  5. Shift that slide's beats by each cue word's change in timing. This keeps the animator's hand tuning.
+  6. Set the slide's duration and re-render it.
+  7. Recompose and re-transcribe.
+  8. Re-tighten. Move the old `presentation_uncut.*` aside first, or `tighten.py` silently plans on the stale cut.
+  9. Rebuild the master, web parts, player and guide.
+
+## 2026-10-12: an addendum (*Sandcastles*, 10:19) to Part 5, from the user's 13 post-build notes
+- **Same flow at a smaller size.**
+  - Script, fact-check, images and deck took about 1.5 h in parallel. The paid run took 24 min ($25.35 for 18 clips).
+  - Four animators took about 45 min each. The cut scene and painted still used 177 Higgsfield credits.
+  - Composing, trimming, the masters and the player took about 15 min.
+- **Start the paid run before the deck exists.** The narration and avatar step needs a `slide_NN.png` per slide but not its content. Put blank stand-in cards in a separate folder and run `--final --slides-dir ../slides_placeholder`, then compose later with the real slides dir. That saved about 40 minutes.
+- **Screen every new take's pitch before the animators align** (per sentence against the approved range; median about 125 Hz, flag outside 100–160). It found nothing this time, but it's cheap insurance after Part 5's octave-jump take.
+- **Seamless slide-to-cut-scene joins.** The animator ended slide 14 on the cut scene's exact first frame, but the pipeline always fades to black around cut scenes.
+  - New media.json key on a cut scene: `"fade_in": 0`. The scene doesn't fade in and the slide before it doesn't fade out. The music still fades in by `fade`.
+  - The fade value is now part of the cut-scene segment's cache key.
+- **The user's notes need the same fact-check as ours,** and again it mattered:
+  - a third-party post paraphrased Chamath more strongly than he spoke;
+  - "100,000 years" of Neanderthal overlap is both too long and too short, depending on where;
+  - "carve nature at its joints" is Plato, and pulls against the Kant point it was illustrating.
+  - Present the safe wording, keep the user's point, and flag the legal tone for an audience of lawyers: a downloader tool named in narration, generalizations about firms.
+- **Screenshots of colleagues' posts become quote cards** with exact words, no profile photos and correct attribution. The chart in one was someone else's (Shaan Puri), not the poster's.
+
+## 2026-10-13: *The Response* (about 4½ min), a reply to the company's operating-model deck
+- **Smaller again:** 12 slides and two cut scenes. The paid run took 8 min ($10.56 for 12 clips); four animators took about 30–35 min each.
+- **A real clip arriving mid-run.** The user dropped in their own 9 s, 852×480 news clip for the opening slot and asked for it muted.
+  - Conform it (1920×1080, 30 fps, lanczos plus a light unsharp, silent stereo AAC) and set `"audio": "mute"` on the cut scene.
+  - Write it to a **new path** and switch media.json after the run. A running pipeline has already probed the old file's duration.
+  - A cut scene's length change shifts later slides' starts, not their durations, so the animators were unaffected.
+- **Pitch-screen false alarm on a one-word phrase.** A "Yes." read 208 Hz median because its vowel tail went creaky. A YIN contour showed a normal voiced core (104–123 Hz) and an aperiodic tail.
+  - Before re-voicing a short flagged phrase, check it with YIN. A real jump has a voiced core above 160 Hz with low aperiodicity.
+- **Room for the end card, free.** The last slide's tail (`LAST_TAIL_S`) is baked into its padded audio, so lengthening it re-renders the last avatar clip (paid).
+  - Instead, add a cut scene after the last slide that holds its final frame: `"fade_in": 0`, `"fade": 0.8`, `"audio": "mute"`, 2.6 s.
+  - The pipeline now fades the bubble out over the last 0.4 s of any slide that hard-cuts into a cut scene, so the presenter leaves before the card holds alone.
+- **One source of truth for cue words.** Three animators found FILMING_BRIEFS and the deck's `animation_notes.md` disagreeing (when a strike lands, where ruler marks fall, when a needle swings). Write the brief's cues from the notes, or say which one wins.
+- **`real-words.py` can misplace a phrase by seconds:** "That's the rhythm" landed with "September", 2.5 s early. It also ran 0.15–0.35 s late on mid-clause words.
+  - The animator corrected `words.json` against the loudness envelope and kept the original as `words.raw.json`.
+  - Don't re-run it over hand-corrected words.
+- **A 6 s still at a slide's end goes back to its animator.** The fix kept the last frame identical: a struck tag fades and sinks, then settles on "comes second", and the product card lifts and settles on "in people's hands".
+
+## 2026-10-13: *The Response* v2, from the user's four notes on v1 (a music bed, an inserted slide, two re-voices)
+- **Inserting a slide mid-deck is cache-safe.** Renumber the script, then `media/slide_NN.mp4`, `hyperframes/slide_NN/` and media.json, in reverse order.
+  - Narration is keyed by text. A clip's pad key depends only on its lead and tail, and only the first, last and around-a-cut-scene slides have special ones, so every unchanged slide reused its paid clip.
+  - Patch build-script self-paths with a regex that skips `om_slide_NN`, the other deck's prints. One generator still read a renamed beat file, which its animator caught.
+- **Paid run before the deck is rebuilt:** `--slides-dir ../slides_placeholder` with blank PNGs, one per script slide. That run cost $3.74 for 4 clips; nine slides reused theirs.
+- **Read the whole argument when the user changes one stance.** The recap slide restated two lines that the new notes contradicted ("Ship the mini apps first", "Complete beats correct"). Flag it, fix it in the same paid run, and say so in the approval message.
+- **Spoken ambiguity:** "The issue is complete" could be heard as "the problem is solved", so use the user's own phrasing, "The issue is, I don't think it has to be complete."
+- **A deck artifact can gain a newer version** from the Slides app or the type itself. Before republishing, read its `project/` files and compare them with local copies. Here all 13 were byte-identical, so there was nothing to merge.
+  - Publish with `root` set to the deck folder, `file_path` set to `project/deck.json` (a data file), and `files` listing only the new and changed slides. Untouched slides are kept.
+- **ElevenLabs Music doesn't follow seconds-level timing.** Asked for a held suspense from 3.5 s and a flourish at 8 s, it gave a steady theme, a big hit at 6.0 s and a decay. Measure the envelope before using it.
+  - Here the hit landed on Rubio's sip, which worked. Level it to the series' cut-scene −21 LUFS (two-pass loudnorm, TP −2).
+  - zsh reads `$off:l…` in a filter string as a modifier, so brace every variable: `${off}`.
+- **New `scripts/video/pitch_screen.py` (YIN, voiced frames only).** It replaces the scratch autocorrelation screen, which flagged one-word phrases from their unvoiced tails.
+  - It still flags Part 5's real bad take (213 Hz over a whole phrase) and passes the replacement take.
+- **Seams through an inserted slide:** the animator rebuilt slide 4's own markup and ran its beats to the end before slide 5's timeline, which gave a pixel-identical frame 0.
+  - An opening still under the self-correction ("let me be more precise…") got a pen glide, a card lift-and-settle, and a tap on the struck words.
+
+## 2026-10-13: *The Response* v3: one more inserted slide, and a clip dropped mid-slide
+- **A clip mid-slide.** The user wanted a Downton Abbey moment right after one line, inside slide 2. The pipeline only puts cut scenes between slides, and splitting the slide would have meant a renumber cascade plus re-voicing or cache surgery.
+  - Instead, the new `shadow-series/research/insert_clip.py` runs after `tighten.py --apply` and before `--edit-master` / `--web` / `build_player.py`. Those all read `output/presentation.mp4` and its timeline.
+  - It hard-cuts the clip in at a frame-snapped time and levels its sound with a two-pass loudnorm (−16 LUFS here).
+  - It extends the host slide's timeline entry, shifts everything after it, and records the clip under `"inserts"`. It isn't a chapter, so the player keeps the slide's chapter and transcript across it.
+  - It keeps `presentation_noinsert.*`. Re-apply after any re-tighten.
+  - Place it 0.3 s after the last word of the line: map that word's Scribe end through `tighten/plan.json`'s cuts to the tight time.
+- **Downloaded clips can open on a flash frame.** The user's clip opened with 5 frames (0.2 s) of the previous shot. Look at the first and last 8 frames of any supplied clip; `insert_clip.py --trim-start` drops them.
+- **`measure_av_sync.py` now matches clips to slides by sound.** It used to take the slide number stored in `cache/avatar/jobs.json`, which is the slide's number at render time. After two renumberings that compared slides with the wrong clips (correlation 0.03, offsets of ±300 ms), even though the video was fine.
+- **`verify_tight.py` is now in the skill's `scripts/video/`.** It cross-correlates 1.5 s windows. The 0.3 s MSE version flagged 7–10 ms "lags" on short words next to silence; the longer cross-correlation measured 0–0.3 ms on the same words.
+- **Fact-check the user's own framing before it goes on screen.** "OpenClaw essentially got bought" was really OpenAI hiring its creator, with the project moving to a foundation. Keep the user's words in the narration, and keep the screen literal: the receipt heading became SOMETIMES THEY GET SNAPPED UP, which covers a purchase and a hire.
+- **Tone softening, with the user's OK:** "Antigravity sucks" became "let's just say I'm not a fan" for a named Google product in a video that could travel. Offer it and say so; don't impose it.
+- **Fonts:** "→" isn't in the Plex Mono subset, so it fell back to Courier New, which HyperFrames silently swaps for JetBrains Mono. Declaring an `@font-face` for Courier New (system Courier New Bold) keeps the deck's arrow.
+- **Seams:** a visible SVG-masked element changes how Chrome draws unrelated content beneath it, which broke a pixel-exact seam (72 dB, not exact). Keep masked elements hidden until their reveal.
+
+## 2026-10-14: *A Curiosity Run*, someone else's FLPT talk remixed visually, keeping their avatar
+- **Keeping another presenter's avatar.** FLPT renders the same bubble geometry as ours: rounded 300 px, 4 px ring, margin 48, so the avatar square sits at 52,728.
+  - Lift their 300×300 square from their video frame-exact. Mask it with the pipeline's own `Bubble(...).ensure_artwork()` mask, and lay it over the same ring and shadow.
+  - Use their audio as the narration. Change only the gain (+3 dB here, to sit with the user's −15.4 LUFS voice; a loudnorm in linear mode would have gone dynamic on their peaks).
+  - Hide the bubble on cartoon slides with a time-expression alpha (`geq … alpha(X,Y)*vis(T)`): 0.4 s fades, as `"bubble": false` does.
+  - `flpt-showcase/presentation/compose/compose_alex_part.py` is the worked script.
+- **Slide timing from someone else's audio:**
+  - Split their Scribe words at the midpoints of the pauses between sentences, frame-snapped.
+  - Hand the animators per-slide `words.json` files already offset to slide time, with lead 0. No WAV or real-words.py needed.
+- **Joining parts:** decoded AAC is padded to whole 1024-sample frames, and ffmpeg's `concat` filter appends the next part after that padding, which put the second part's voice 9.7 ms late. Trim every part's sound sample-exact to its picture (`apad,atrim=end_sample=…`) before `concat`.
+  - Measure a joined part against its source with a 6 s cross-correlation: the compositor read 0.0 ms, the bad join +9.7, the fixed join +0.3.
+- **tighten.py fixes:**
+  - A cross-slide cut clamped to its whole window was 1–2 frames too long after rounding, and `place()` dropped it silently. No cross-slide pause had ever been cut. `n` is now capped to the window.
+  - Cross-slide cuts now spare the last 0.4 s of a slide whose next slide hides the bubble, so the bubble's fade-out survives.
+- **Hold pauses inside generated hero shots** with `--hold t=secs`. A 0.33 s cut scored jump 2.8, just under JUMP_MAX 3.0, would have stuttered the scribe's pen.
+- **From the agents:**
+  - Seedance 2.5 with the same image as start and end frame returns a frozen still.
+  - A 1080p finalize can add motion the 480p draft lacked (blinking LEDs).
+  - Chrome applies the gamma tag ffmpeg writes into PNGs; re-save stills without it before laying them next to footage.
+  - HyperFrames renders about 3 levels darker than the deck PNGs and draws glyphs thinner. Judge last frames against the deck HTML rendered through HyperFrames, not against the PNG.
+  - FLPT-style titles use Source Serif 4's optical-size (display) cut, so load the variable font with opsz in HyperFrames.
+  - "≈" and "→" fall outside the Plex and Source Serif latin subsets. Declare the fallback faces with `local()` so HyperFrames doesn't swap in its own.
+- **Spend:** the user's two intro clips cost $1.00 on HeyGen. Higgsfield came to 515 of a 600 cap: two Cosmos cartoons for 188 (17 NBP keyframes, 4 cut-outs, two 5 s heroes) and two 10 s / 9 s Seedance shots for 327.

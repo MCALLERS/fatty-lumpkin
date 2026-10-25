@@ -97,8 +97,13 @@ In `--draft`, missing media shows as a titled placeholder card, so timing can be
    - Send the clip to the user.
    - Compare the wallet before and after to learn the real rate.
 2. **Full run:** only on an explicit yes with the number stated. Run it in the background: `--final --yes > output/full_run.log 2>&1`.
-3. **Resuming:** runs pick up where they stopped. Finished clips are never billed twice, and slides without a clip get a still bubble (exit code 3).
-4. **After the run:** `--web`, then `build_player.py`, then republish the player page with the same `file_path`, so the URL stays the same.
+3. **Screen every new take's pitch** as soon as the narration WAVs land (before animators align to them):
+   `python3 scripts/video/pitch_screen.py cache/audio/heygen/<id>.wav …` (needs numpy; exit 1 if anything is flagged).
+   - It uses YIN on clearly voiced frames only. It flagged Part 5's octave-jump take at 213 Hz, and passed the one-word
+     "Yes." / "not tell." tails the old autocorrelation screen cried wolf on.
+   - Fix a real flag by changing the text slightly (e.g. add `[short pause]`): HeyGen's voice is deterministic per text.
+4. **Resuming:** runs pick up where they stopped. Finished clips are never billed twice, and slides without a clip get a still bubble (exit code 3).
+5. **After the run:** `--web`, then `build_player.py`, then republish the player page with the same `file_path`, so the URL stays the same.
 
 ## Editing later
 
@@ -149,7 +154,8 @@ Change a slide's text in `script.md`, then run `--final --slides N --yes`. Only 
 Use this when the user says some silences run "a bit too long", or wants laughs cut, after filming. It's free: nothing is re-voiced.
 1. **Transcribe the finished narration.** Run ElevenLabs Scribe on the mp4's audio, with word timestamps and `tag_audio_events=true` so laughs are tagged. Save the JSON as `output/tighten/scribe.json`. It costs cents.
 2. **Find each laugh's edges** with the loudness envelope (in 50 ms bins: words, silence, the laugh's bursts, a breath, silence). Cut the bursts, plus enough silence to leave a sentence gap of about 0.5–0.65 s.
-3. **Plan, then apply:** `python3 scripts/video/tighten.py <talk dir> [--laughs a-b,…]`, then the same with `--apply` (needs numpy). It works like this:
+3. **Plan, then apply:** `python3 scripts/video/tighten.py <talk dir> [--laughs a-b,…] [--hold t=secs,…]`, then the same with `--apply` (needs numpy). It works like this:
+   - **Holds:** check the plan against the script's `[long pause]` tags. A scripted beat ("Could someone… one-prompt Interval? [long pause]") would otherwise shrink like dead air, and to only 0.6 s if Scribe dropped the "?". `--hold t=1.2` keeps the pause containing master time t at 1.2 s (2026-10-12, Part 5 v2).
    - **Pauses inside a slide:** over 1.1 s shrink to 0.75 s at a sentence end or a "Hmm.", and to 0.6 s mid-sentence.
    - **Pauses across slides:** shrink to 1.0 s.
    - **Never cut** in cut scenes, a slide's first 0.4 s (the crossfade) or its last frame.

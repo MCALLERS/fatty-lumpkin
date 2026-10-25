@@ -1,0 +1,12 @@
+{
+  "style": "crosshatch",
+  "placement": "solo",
+  "duration": 7,
+  "hold": 0.5,
+  "beats": [
+    { "name": "plan", "t": 0.6 },
+    { "name": "build", "t": 2.1 },
+    { "name": "cross", "t": 3.7 },
+    { "name": "arrive", "t": 5.3 }
+  ]
+}

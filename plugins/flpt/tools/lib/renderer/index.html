@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: flpt:; media-src 'self' flpt:; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none';">
+<title>Fatty Lumpkin Presentation Tool</title>
+<!-- tokens.css comes first, through styles.css's @import (one copy: a second <link> would declare every font twice) -->
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="library.css">
+<link rel="stylesheet" href="ui-shell.css">
+<link rel="stylesheet" href="ui-storyboard.css">
+<link rel="stylesheet" href="ui-studio.css">
+<link rel="stylesheet" href="ui-sound.css">
+<link rel="stylesheet" href="ui-refs.css">
+<!-- Pause motion's mirror, before the first paint -->
+<script src="fx-boot.js"></script>
+</head>
+<body>
+<div class="titlebar" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="brand-mark" src="assets/pony-mark.png" alt="" width="30" height="30">
+    <span class="brand-name">Fatty Lumpkin <em>Presentation Tool</em></span>
+  </div>
+  <div class="topbar-end">
+    <nav class="topnav" aria-label="Views">
+      <button type="button" data-view="home" id="nav-home">Episodes</button>
+      <button type="button" data-view="library" id="nav-library">Library</button>
+      <button type="button" data-view="setup" id="nav-setup">Setup</button>
+    </nav>
+    <div class="slot" data-slot="topbar"></div>
+    <span class="motion-note muted" id="motion-note" role="status" data-content></span>
+    <button type="button" class="motion-toggle" id="motion-toggle" aria-pressed="false" aria-label="Pause motion" title="Pause motion">❚❚</button>
+  </div>
+</header>
+
+<!-- ═════════════ episodes home (S2), and the New episode sheet (S3) ═════════════ -->
+<div class="view" id="home-view" hidden>
+  <main class="page">
+    <div class="page-head">
+      <h1 class="h-page">Your episodes</h1>
+    </div>
+    <div id="episode-list" class="episode-list"></div>
+  </main>
+</div>
+
+<!-- the New episode sheet (S3): modal, over Home; its backdrop or Esc puts it away -->
+<dialog class="sheet" id="intake-sheet" aria-label="New episode">
+  <form class="card intake" id="intake">
+    <h2>New episode</h2>
+    <label>Title <input name="title" required maxlength="120" placeholder="e.g. Why would a law firm buy GPUs?"></label>
+    <label>The point <textarea name="point" rows="2" maxlength="600" placeholder="What should change in your audience's head?"></textarea></label>
+    <div class="row">
+      <label>Audience <input name="audience" maxlength="300" placeholder="e.g. our executive team"></label>
+      <label>Tone <input name="tone" maxlength="200" placeholder="smart, warm, a little wry"></label>
+    </div>
+    <div class="picks">
+      <fieldset class="chips" title="Minutes"><legend>Length</legend><span class="pills">
+        <label><input type="radio" name="minutes" value="3"><span>3</span></label><label><input type="radio" name="minutes" value="5" checked><span>5</span></label><label><input type="radio" name="minutes" value="8"><span>8</span></label><label><input type="radio" name="minutes" value="12"><span>12</span></label><label><input type="radio" name="minutes" value="15"><span>15</span></label><span class="unit">min</span></span>
+      </fieldset>
+      <fieldset class="chips"><legend>Bringing</legend><span class="pills">
+        <label title="An idea: the crew researches it"><input type="radio" name="bring" value="idea" checked><span>Idea</span></label><label title="Your notes or bullets"><input type="radio" name="bring" value="notes"><span>Notes</span></label><label title="A full script"><input type="radio" name="bring" value="script"><span>Script</span></label></span>
+      </fieldset>
+      <fieldset class="chips" id="intake-presenter" hidden></fieldset>
+    </div>
+    <div class="material">
+      <div class="intake-files"><label for="intake-material">Material</label><button type="button" class="ghost small" id="intake-attach">Attach</button><span class="staged" id="intake-files"></span></div>
+      <textarea id="intake-material" name="material" rows="3" maxlength="60000"></textarea>
+    </div>
+    <label>Verbal habits <input name="habits" maxlength="400" placeholder="Optional, e.g. &quot;It's like, x, y, z&quot;"></label>
+    <div class="actions"><p class="note" id="intake-note"></p><button type="button" class="ghost" id="intake-cancel">Cancel</button><button class="primary" type="submit" id="intake-create">Create</button></div>
+  </form>
+</dialog>
+
+<!-- ═════════════ one episode ═════════════ -->
+<div class="view" id="episode-view" hidden>
+  <div class="layout">
+    <nav class="steps" aria-label="Episode stages"><button type="button" class="back" id="episode-back">← Episodes</button><ol id="stage-list"></ol><p class="muted cost" id="episode-cost"></p></nav>
+    <div class="episode-col">
+      <div class="slot" data-slot="ribbon"></div>
+      <main id="episode-main" tabindex="-1"></main>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════ the Library (built by library.js) ═════════════ -->
+<div class="view" id="library-view" hidden></div>
+
+<!-- ═════════════ setup wizard ═════════════ -->
+<div class="view" id="setup-view">
+<div class="layout">
+  <nav class="steps" aria-label="Setup steps">
+    <ol id="step-list"></ol>
+  </nav>
+
+  <main id="main" tabindex="-1">
+
+    <!-- ───────────── welcome (S0): the valley, live (ui-hero.js) ───────────── -->
+    <section class="screen welcome" data-name="welcome">
+      <div class="welcome-stage" role="img" aria-label="A chestnut pony with a scroll, in a green valley"></div>
+      <div class="welcome-text fx-rise">
+        <h1>Fatty Lumpkin<br><em>Presentation Tool</em></h1>
+        <button class="primary large" data-go="tools">Start</button>
+        <p class="hud trust" data-trust>⚑ Nothing is spent without your yes.</p>
+      </div>
+    </section>
+
+    <!-- ───────────── tools ───────────── -->
+    <section class="screen" data-name="tools">
+      <header class="step-head"><img class="vignette step-art" src="assets/vignettes/lantern.svg" alt=""><h2>Tools</h2></header>
+      <fieldset class="choice">
+        <legend>Where should they come from?</legend>
+        <label title="Exact versions, checked before use. No Homebrew, no admin password."><input type="radio" name="toolmode" value="pinned"> <span><strong>Install FLPT's own tools</strong> (recommended)</span></label>
+        <label><input type="radio" name="toolmode" value="system"> <span><strong>Use tools already on this Mac</strong> (Homebrew, Google Chrome).</span></label>
+      </fieldset>
+      <ul class="checklist" id="tool-list"></ul>
+      <p class="note" id="tools-note"></p>
+      <div class="actions">
+        <button class="primary" id="tools-install">Set up tools</button>
+        <button id="tools-recheck">Check again</button>
+        <button class="ghost" data-go="keys" id="tools-next" disabled>Next</button>
+      </div>
+    </section>
+
+    <!-- ───────────── keys ───────────── -->
+    <section class="screen" data-name="keys">
+      <header class="step-head"><img class="vignette step-art" src="assets/vignettes/key-ring.svg" alt=""><div><h2>Keys</h2><p class="hud trust" data-trust>⚑ Keys stay in the macOS Keychain. The crew never sees them.</p></div></header>
+      <div class="banner" id="import-banner" hidden>
+        <p>Found an existing <code>avatar-presentation</code> setup on this Mac.</p>
+        <button id="import-legacy">Import its keys and presenter</button>
+      </div>
+      <div id="key-list"></div>
+      <details class="optional"><summary>More keys</summary><div id="key-list-optional"></div></details>
+      <div class="actions"><button class="ghost" data-go="tools">Back</button><button class="primary" data-go="presenter" id="keys-next">Next</button></div>
+    </section>
+
+    <!-- ───────────── presenter ───────────── -->
+    <section class="screen" data-name="presenter">
+      <h2>Your presenter</h2>
+      <p class="current" id="presenter-current"></p>
+      <div class="actions"><button class="primary" id="load-looks">Show my HeyGen looks (free)</button></div>
+      <div class="looks" id="looks"></div>
+      <div class="voice-row" id="voice-row" hidden>
+        <label for="voice-pick">Voice</label>
+        <select id="voice-pick"></select>
+        <button type="button" class="ghost small" id="voice-play" aria-label="Hear this voice">▶</button>
+        <audio id="voice-audio"></audio>
+      </div>
+      <p class="note" id="voice-note"></p>
+      <div class="actions"><button class="ghost" data-go="keys">Back</button><button class="primary" data-go="check" id="presenter-next">Next</button></div>
+    </section>
+
+    <!-- ───────────── check ───────────── -->
+    <section class="screen moment" data-name="check">
+      <img class="vignette step-art" src="assets/vignettes/stethoscope-pony.svg" alt="">
+      <h2>Free system check</h2>
+      <div class="actions"><button class="primary" id="run-check">Run the check</button></div>
+      <div class="result" id="check-result"></div>
+      <div class="actions"><button class="ghost" data-go="presenter">Back</button><button class="ghost" data-go="sample" id="check-next">Next</button></div>
+    </section>
+
+    <!-- ───────────── sample ───────────── -->
+    <section class="screen moment" data-name="sample">
+      <img class="vignette step-art" src="assets/vignettes/reel.svg" alt="">
+      <h2>A free sample video</h2>
+      <div class="actions"><button class="primary" id="run-draft">Make the free sample</button></div>
+      <div class="result" id="draft-result"></div>
+      <div class="paid" id="paid" hidden>
+        <h3>Your own presenter</h3>
+        <p class="muted">Slide 1 · <span id="paid-estimate"></span></p>
+        <button id="run-paid">Estimate and approve…</button>
+        <div class="result" id="paid-result"></div>
+      </div>
+      <div class="actions"><button class="ghost" data-go="check">Back</button><button class="ghost" data-go="done" id="sample-next">Finish</button></div>
+    </section>
+
+    <!-- ───────────── done ───────────── -->
+    <section class="screen moment" data-name="done">
+      <img class="vignette step-art trot" src="assets/vignettes/trotting-pony.svg" alt="">
+      <h2>You're set up</h2>
+      <div class="actions"><button class="primary" data-view="home" id="done-new">New episode</button></div>
+    </section>
+
+    <!-- ───────────── about ───────────── -->
+    <section class="screen" data-name="about">
+      <h2>About</h2>
+      <p class="muted" id="about-version"></p>
+      <div class="cc-note">
+        <p><b>Prefer Claude Code?</b> FLPT is also a plugin, on your Claude subscription.</p>
+        <code>/plugin marketplace add MCALLERS/fatty-lumpkin</code>
+        <code>/plugin install flpt@fatty-lumpkin</code>
+      </div>
+    </section>
+  </main>
+</div>
+</div>
+
+<!-- a slide, larger -->
+<dialog class="zoom" id="zoom" aria-label="Slide preview">
+  <img id="zoom-img" alt="">
+  <p class="zoom-cap"><span id="zoom-cap"></span><button type="button" class="ghost small" id="zoom-close">Close</button></p>
+</dialog>
+
+<!-- live log for any running job -->
+<aside class="log" id="log" hidden>
+  <header><span id="log-title">Working…</span><button class="ghost small" id="log-cancel">Stop</button></header>
+  <pre id="log-lines" aria-live="polite"></pre>
+</aside>
+
+<!-- slots that sit over a place in a panel (FLPT_UI.anchor): outside every view, so no rebuild touches them -->
+<div class="slot-layer" id="slot-layer">
+  <div class="slot" data-slot="stage" data-anchored hidden></div>
+</div>
+
+<script src="app.js"></script>
+<script src="episodes.js"></script>
+<script src="library.js"></script>
+<!-- the V2 screens: each registers itself with window.FLPT_UI (app.js) -->
+<script src="ui-stage.js"></script>
+<script src="ui-modules.js"></script>
+<script src="ui-sound.js"></script>
+<script src="ui-ribbon.js"></script>
+<script src="ui-storyboard.js"></script>
+<script src="ui-livemotion.js"></script>
+<script src="ui-studio.js"></script>
+<script src="ui-refs.js"></script>
+<script src="ui-share.js"></script>
+<script src="ui-presenter.js"></script>
+<script src="ui-likeness.js"></script>
+<script src="ui-signin.js"></script>
+<script src="ui-approval.js"></script>
+<script src="ui-hero.js"></script>
+<script src="ui-desk.js"></script>
+<!-- the Style Gallery's side of the main window: the top bar's ◱, the inspector's STYLE slot, its events (W3-01) -->
+<script src="gallery.js"></script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+{
+  "id": "pulse-112",
+  "name": "Pulse 112",
+  "about": "A minor, i-VI-III-VII, 112.5 BPM: a beat is 16 frames, an 8th is 8 frames at 30 fps.",
+  "bpm": 112.5,
+  "beatsPerBar": 4,
+  "offset": 0,
+  "barsPerChord": 1,
+  "progression": [
+    {
+      "name": "Am7",
+      "root": 45,
+      "pad": [
+        57,
+        60,
+        64,
+        67
+      ],
+      "arp": [
+        69,
+        72,
+        76,
+        79
+      ]
+    },
+    {
+      "name": "Fmaj7",
+      "root": 41,
+      "pad": [
+        57,
+        60,
+        64,
+        65
+      ],
+      "arp": [
+        65,
+        69,
+        72,
+        76
+      ]
+    },
+    {
+      "name": "Cadd9",
+      "root": 48,
+      "pad": [
+        55,
+        60,
+        62,
+        64
+      ],
+      "arp": [
+        67,
+        72,
+        74,
+        76
+      ]
+    },
+    {
+      "name": "G6",
+      "root": 43,
+      "pad": [
+        55,
+        59,
+        62,
+        64
+      ],
+      "arp": [
+        67,
+        71,
+        74,
+        79
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "name": "intro",
+      "bars": 2,
+      "layers": [
+        "pad",
+        "pluckSparse"
+      ]
+    },
+    {
+      "name": "a",
+      "bars": 4,
+      "layers": [
+        "pad",
+        "pluck",
+        "bass",
+        "hats",
+        "kickHalf"
+      ]
+    },
+    {
+      "name": "build",
+      "bars": 2,
+      "layers": [
+        "pad",
+        "pluck",
+        "bass",
+        "hats",
+        "riser"
+      ]
+    },
+    {
+      "name": "b",
+      "bars": 4,
+      "layers": [
+        "pad",
+        "pluck",
+        "bass",
+        "hats",
+        "kick",
+        "snare",
+        "subDrop"
+      ]
+    },
+    {
+      "name": "outro",
+      "bars": 2,
+      "layers": [
+        "pad",
+        "pluckSparse"
+      ]
+    }
+  ],
+  "instruments": {
+    "pad": {
+      "gainDb": -13,
+      "attack": 0.6,
+      "release": 1.4,
+      "cutoff": 1100,
+      "q": 0.8,
+      "detune": 0.11,
+      "lfo": 0.11,
+      "send": 0.35
+    },
+    "pluck": {
+      "gainDb": -9,
+      "t60": 1.1,
+      "bright": 0.55,
+      "dur": 0.9,
+      "octave": 0,
+      "spread": 0.4,
+      "send": 0.3,
+      "sparse": 0.35,
+      "patterns": [
+        [
+          0,
+          1,
+          2,
+          3,
+          2,
+          1,
+          2,
+          3
+        ],
+        [
+          0,
+          2,
+          1,
+          3,
+          0,
+          2,
+          1,
+          3
+        ],
+        [
+          0,
+          -1,
+          2,
+          1,
+          3,
+          -1,
+          2,
+          1
+        ],
+        [
+          3,
+          2,
+          1,
+          0,
+          1,
+          2,
+          3,
+          2
+        ]
+      ]
+    },
+    "bass": {
+      "gainDb": -12,
+      "drive": 2.4,
+      "decay": 0.16,
+      "cutoff": 480,
+      "pattern": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2
+      ]
+    },
+    "hats": {
+      "gainDb": -24,
+      "freq": 7800,
+      "dec": 0.035,
+      "ghost": 0.35,
+      "pan": 0.3,
+      "send": 0.08
+    },
+    "kick": {
+      "gainDb": -10,
+      "f0": 125,
+      "f1": 46,
+      "fdec": 0.035,
+      "adec": 0.15
+    },
+    "snare": {
+      "gainDb": -18,
+      "freq": 1900,
+      "dec": 0.08,
+      "send": 0.3
+    },
+    "riser": {
+      "gainDb": -19,
+      "bars": 2,
+      "from": 300,
+      "to": 7000,
+      "saw": 0.25,
+      "send": 0.45
+    },
+    "subDrop": {
+      "gainDb": -9
+    }
+  },
+  "reverb": {
+    "room": 0.78,
+    "damp": 0.45,
+    "wet": 0.32,
+    "width": 1,
+    "predelay": 0.02
+  },
+  "master": {
+    "rmsDb": -20,
+    "peakDb": -3
+  }
+}

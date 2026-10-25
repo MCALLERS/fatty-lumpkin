@@ -15,11 +15,21 @@
 // together again for each run, timed to that run's voice (assemble.js, ffmpeg only), and media.json gets its entry;
 // a cut scene with a finished clip gets its entry between its slides. One without a clip has none, so a run never
 // stops for a missing file: the cartoon's title card and the film without the cut scene stand in until it's made.
+//
+// Live Motion scenes (Motion Solo and Duet, and a Cosmos drawn in code) get media.json entries marked `flpt-scene`.
+// An older FLPT (0.7.x) doesn't know that note, so it keeps those entries as the user's own: a Motion Solo's
+// "bubble": false survives it, and it never films (or bills) an avatar for one. Interstitials and cut scenes drawn
+// in code are spliced into the film afterwards, so they never appear in media.json at all. A scene's folder
+// (hyperframes/slide_NN or jsscene_<id> with scene.json) is the Live Motion crew's: it's never composed, swept or
+// retimed here; render() moves the scene folders with their slides first (livemotion.sync), and the flow's afterRender
+// (ext/livemotion.js) times, scores and renders them to the same voice and hands their clips back for media.json.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const scenes = require('./scenes');
 const assemble = require('./assemble');
+const modules = require('./modules');
+const references = require('./references'); // nothing a run puts in the film is a reference
 
 const FPS = 30;
 const RATE = 15; // characters a second, the measured pace of both voices (the HeyGen voice and the draft's `say`)
@@ -28,6 +38,8 @@ const HOLD = 0.5; // the clip ends on this much stillness, so freeze-padding is 
 const MOTION_NOTE = 'flpt-motion'; // marks the media.json entries FLPT manages
 const CARTOON_NOTE = 'flpt-cartoon'; // a cartoon FLPT put together (a slide entry, managed like the moving slides)
 const CUT_NOTE = 'flpt-cutscene'; // a cut scene FLPT put together (an entry in "cutscenes")
+const SCENE_NOTE = 'flpt-scene'; // a Live Motion scene's slide (Motion Solo, Duet, a Cosmos drawn in code)
+const STEREO_MARKER = 'FLPT_STEREO_V1'; // the pipeline copy's patch that reads a slide entry's "stereo"
 
 const DOS = new Set(['in', 'out', 'focus', 'unfocus', 'dim', 'pulse', 'count', 'to']);
 const ANIMS = new Set(['rise', 'fade', 'pop', 'draw', 'wipe', 'grow', 'words']);
@@ -82,6 +94,14 @@ function writeAtomic(file, text) {
 
 function templateDir(engineRoot) {
   return path.join(engineRoot, 'skills', 'avatar-presentation', 'templates', 'hyperframes');
+}
+
+/**
+ * FLPT's own tween engine (engine/runtime/flpt-tween): the seekable subset of GSAP's timeline the beat engine runs on.
+ * Every moving slide FLPT makes carries this copy, never GSAP (W3-12).
+ */
+function tweenFile(engineRoot) {
+  return path.join(engineRoot, 'runtime', 'flpt-tween', 'flpt-tween.js');
 }
 
 // ── reading the deck and the script ─────────────────────────────────────────────────────────────────────────────
@@ -330,6 +350,128 @@ function vendoredFonts(engineRoot) {
   return { css: rules.join('\n'), files, families: Object.values(VENDORED_FAMILIES) };
 }
 
+// The episode's own copy of its deck's fonts (W4-03): presentation/assets/fonts/ with fonts.json beside the files.
+const FONTS_SCHEMA = 'flpt.fonts/1';
+const fontsDir = (dir) => path.join(dir, 'presentation', 'assets', 'fonts');
+const FONT_NAME = /^[A-Za-z0-9_-]{1,64}\.(woff2|woff|ttf|otf)$/;
+const faceHrefs = (faces) => (Array.isArray(faces) ? faces : []).map((f) => (f && typeof f === 'object' ? f.href : f)).filter((h) => typeof h === 'string' && FONT_CSS_RE.test(h));
+const fileSha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+
+// The descriptors a snapshot's @font-face may hold, each with the only shape of value it may take (src: FACE_SRC).
+const FACE_DESCRIPTORS = {
+  'font-family': /^(['"])[A-Za-z0-9 _-]{1,64}\1$|^[A-Za-z0-9 _-]{1,64}$/,
+  'font-style': /^(normal|italic|oblique( -?\d{1,2}deg){0,2})$/,
+  'font-weight': /^(normal|bold|\d{1,4}( \d{1,4})?)$/,
+  'font-stretch': /^(normal|(ultra-|extra-|semi-)?(condensed|expanded)|\d{1,3}(\.\d+)?%( \d{1,3}(\.\d+)?%)?)$/,
+  'font-display': /^(auto|block|swap|fallback|optional)$/,
+  'unicode-range': /^U\+[0-9A-Fa-f?]{1,6}(-[0-9A-Fa-f]{1,6})?( ?, ?U\+[0-9A-Fa-f?]{1,6}(-[0-9A-Fa-f]{1,6})?)*$/,
+};
+const FACE_SRC = /^url\( ?(['"]?)assets\/fonts\/([A-Za-z0-9_-]{1,64}\.(?:woff2|woff|ttf|otf))\1 ?\)(?: format\( ?(['"]?)(woff2|woff|truetype|opentype)\3 ?\))?$/;
+
+/**
+ * A snapshot's stylesheet, rebuilt from its @font-face rules alone: each descriptor one of FACE_DESCRIPTORS with a value
+ * of its shape, and one src, a file of the snapshot's own (`names`). Anything else (another rule, descriptor or value)
+ * → null. → { css, families }
+ */
+function fontFaceCss(css, names) {
+  const body = String(css).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [];
+  const families = [];
+  let at = 0;
+  for (const m of body.matchAll(/@font-face\s*\{([^{}]*)\}/g)) {
+    if (body.slice(at, m.index).trim()) return null;
+    at = m.index + m[0].length;
+    const decls = new Map();
+    for (const d of m[1].split(';').map((s) => s.trim()).filter(Boolean)) {
+      const i = d.indexOf(':');
+      const prop = i > 0 ? d.slice(0, i).trim().toLowerCase() : '';
+      const value = d.slice(i + 1).trim().replace(/\s+/g, ' ');
+      if (decls.has(prop)) return null;
+      if (prop === 'src') {
+        const s = value.match(FACE_SRC);
+        if (!s || !names.has(s[2])) return null;
+        decls.set(prop, `url(assets/fonts/${s[2]})${s[4] ? ` format('${s[4]}')` : ''}`);
+      } else if (FACE_DESCRIPTORS[prop] && FACE_DESCRIPTORS[prop].test(value)) {
+        decls.set(prop, prop === 'font-family' ? `'${value.replace(/^['"]|['"]$/g, '')}'` : value);
+      } else {
+        return null;
+      }
+    }
+    if (!decls.has('font-family') || !decls.has('src')) return null;
+    const family = decls.get('font-family').slice(1, -1);
+    if (!families.includes(family)) families.push(family);
+    rules.push(`@font-face { ${[...decls].map(([k, v]) => `${k}: ${v}`).join('; ')}; }`);
+  }
+  if (body.slice(at).trim() || !rules.length) return null;
+  return { css: rules.join('\n'), families };
+}
+
+/**
+ * The snapshot in fonts.json, when it's for exactly these faces and every file is there with its SHA-256; its
+ * stylesheet is rebuilt from its @font-face rules (fontFaceCss: only font descriptors, only its own files), never
+ * taken as written. Else null.
+ */
+function readFontSnapshot(dir, hrefs) {
+  const rec = readJson(path.join(fontsDir(dir), 'fonts.json'), null);
+  if (!rec || rec.schema !== FONTS_SCHEMA || !Array.isArray(rec.faces) || JSON.stringify(rec.faces) !== JSON.stringify(hrefs)) return null;
+  if (typeof rec.css !== 'string' || !Array.isArray(rec.files) || !rec.files.length || !Array.isArray(rec.families)) return null;
+  const names = new Set();
+  const files = [];
+  for (const f of rec.files) {
+    if (!f || !FONT_NAME.test(String(f.name)) || !/^[0-9a-f]{64}$/.test(String(f.sha256))) return null;
+    const p = path.join(fontsDir(dir), f.name);
+    if (!exists(p) || fileSha(p) !== f.sha256) return null;
+    names.add(f.name);
+    files.push({ name: f.name, path: p });
+  }
+  const face = fontFaceCss(rec.css, names);
+  return face ? { css: face.css, files, families: face.families, snapshot: true } : null;
+}
+
+/**
+ * Copy the fetched faces into the episode and write fonts.json (atomically, last), its stylesheet as fontFaceCss
+ * rebuilds it, so every render reads the same; older font files there go.
+ */
+function writeFontSnapshot(dir, hrefs, fetched) {
+  // a name or a stylesheet the snapshot can't hold: use the cache as before
+  if (fetched.files.some((f) => !FONT_NAME.test(f.name))) return { ...fetched, snapshot: false };
+  const face = fontFaceCss(fetched.css, new Set(fetched.files.map((f) => f.name)));
+  if (!face) return { ...fetched, snapshot: false };
+  const fonts = { ...fetched, ...face };
+  const out = fontsDir(dir);
+  fs.mkdirSync(out, { recursive: true });
+  const files = [];
+  for (const f of fonts.files) {
+    const to = path.join(out, f.name);
+    if (!exists(to) || fileSha(to) !== fileSha(f.path)) { fs.copyFileSync(f.path, `${to}.tmp`); fs.renameSync(`${to}.tmp`, to); }
+    files.push({ name: f.name, path: to, sha256: fileSha(to), bytes: fs.statSync(to).size });
+  }
+  const keep = new Set(files.map((f) => f.name));
+  for (const n of fs.readdirSync(out)) if (FONT_NAME.test(n) && !keep.has(n)) fs.rmSync(path.join(out, n), { force: true });
+  writeAtomic(path.join(out, 'fonts.json'), `${JSON.stringify({ schema: FONTS_SCHEMA, faces: hrefs, families: fonts.families, css: fonts.css,
+    files: files.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })), at: new Date().toISOString() }, null, 2)}\n`);
+  return { css: fonts.css, files: files.map(({ name, path: p }) => ({ name, path: p })), families: fonts.families, snapshot: true };
+}
+
+/**
+ * The deck's fonts for this episode, from its own snapshot (presentation/assets/fonts/, fonts.json): the faces are
+ * fetched once (localFonts, through the font cache), then kept with the episode, so the Mac app, the plugin and the web
+ * draw the same files on every render, whatever a cache or Google Fonts holds later. Faces that changed make a new
+ * snapshot. Without faces that can be fetched, the method's own fonts (they ship with the engine; not snapshotted).
+ * → { css, files: [{ name, path }], families, snapshot }
+ */
+async function episodeFonts(dir, { engineRoot, fontCacheDir, fetchImpl } = {}) {
+  const deck = readDeck(dir);
+  const hrefs = faceHrefs(deck.faces);
+  if (hrefs.length) {
+    const snap = readFontSnapshot(dir, hrefs);
+    if (snap) return snap;
+    const got = fontCacheDir ? await localFonts(deck.faces, fontCacheDir, fetchImpl) : null;
+    if (got) return writeFontSnapshot(dir, hrefs, got);
+  }
+  return { ...vendoredFonts(engineRoot), snapshot: false };
+}
+
 /**
  * Drop named fallback fonts (Georgia, Arial…) from every font-family list: the deck's own faces always load here, and
  * HyperFrames would otherwise go looking for the fallbacks on the web. The picture doesn't change.
@@ -393,7 +535,7 @@ ${ENGINE_CSS}
 <div id="slide" data-composition-id="slide" data-start="0" data-width="1920" data-height="1080" data-fps="${FPS}" data-duration="${duration}">
 ${section.trim()}
 </div>
-<script src="assets/gsap.min.js"></script>
+<script src="assets/flpt-tween.js"></script>
 <script src="beats.js"></script>
 ${hand ? '<script src="assets/hand.js"></script>\n' : ''}<script src="assets/live-slide.js"></script>
 <script>${hand ? 'Hand.apply(document.getElementById("slide")); ' : ''}window.__timelines["slide"] = LiveSlide.build(window.__SLIDE__);</script>
@@ -407,6 +549,7 @@ ${hand ? '<script src="assets/hand.js"></script>\n' : ''}<script src="assets/liv
  * (one beat per build, first-guess times), the engine, the fonts and the pictures. Returns { slides, problems }.
  */
 const MARKER = 'flpt-motion.json'; // in every folder FLPT makes; a folder without it is the user's own animation
+const SCENE_FILE = 'scene.json'; // a Live Motion scene's record (livemotion.js): its folder is the scene crew's
 const hfDir = (dir, n) => path.join(dir, 'presentation', 'hyperframes', `slide_${pad2(n)}`);
 const sha = (file) => { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } };
 
@@ -416,24 +559,46 @@ function userVideoSlides(dir) {
   return new Set(Object.entries(media.slides || {}).filter(([, v]) => !isOurs(v)).map(([k]) => Number(k)));
 }
 
-/** The user's own HyperFrames slides (presentation/hyperframes/slide_NN without FLPT's marker), by number. */
+/**
+ * The user's own HyperFrames slides (presentation/hyperframes/slide_NN without FLPT's marker), by number. A Live Motion
+ * scene's folder (it has scene.json, livemotion.js) isn't one: retime.py never renders it; livemotion does, through the
+ * flow's afterRender.
+ */
 function bespokeSlides(dir) {
   const root = path.join(dir, 'presentation', 'hyperframes');
   let names = [];
   try { names = fs.readdirSync(root); } catch { return []; }
   return names.map((d) => d.match(/^slide_(\d{2})$/)).filter(Boolean).map((m) => Number(m[1]))
-    .filter((n) => exists(path.join(hfDir(dir, n), 'beats.json')) && !exists(path.join(hfDir(dir, n), MARKER)));
+    .filter((n) => exists(path.join(hfDir(dir, n), 'beats.json')) && !exists(path.join(hfDir(dir, n), MARKER)) && !isSceneFolder(hfDir(dir, n)));
 }
 
+/** A Live Motion scene's folder (slide_NN or jsscene_<id> with FLPT's scene.json): never the engine's, never retimed. */
+const isSceneFolder = (folder) => exists(path.join(folder, SCENE_FILE));
+
 /**
- * May FLPT write media/slide_NN.mp4? Yes when there's nothing there, or what's there is a clip FLPT rendered itself
- * (its hash is in the folder's marker). Anything else is the user's, and stays.
+ * May FLPT write media/slide_NN.mp4? Yes when there's nothing there, or what's there is a clip FLPT rendered itself:
+ * its hash is in the folder's marker, or in a Live Motion scene's record (scene.json `rendered.sha`, in a slide's
+ * folder or set aside in parked/). Anything else is the user's, and stays.
  */
 function clipIsOurs(dir, n) {
   const clip = clipPath(dir, n);
   if (!exists(clip)) return true;
   const mark = readJson(path.join(hfDir(dir, n), MARKER), {}) || {};
-  return Boolean(mark.clip) && mark.clip === sha(clip);
+  const h = sha(clip);
+  return (Boolean(mark.clip) && mark.clip === h) || sceneClipShas(dir).has(h);
+}
+
+/** The hashes of the clips Live Motion scenes rendered, from their records (slide folders and parked ones). */
+function sceneClipShas(dir) {
+  const root = path.join(dir, 'presentation', 'hyperframes');
+  const list = (d) => { try { return fs.readdirSync(d); } catch { return []; } };
+  const folders = [...list(root).filter((n) => /^slide_\d{2}$/.test(n)).map((n) => path.join(root, n)), ...list(path.join(root, 'parked')).map((n) => path.join(root, 'parked', n))];
+  const out = new Set();
+  for (const f of folders) {
+    const r = readJson(path.join(f, SCENE_FILE), null);
+    if (r && r.schema === 'flpt.scene/1' && r.rendered && typeof r.rendered.sha === 'string' && /^[0-9a-f]{64}$/.test(r.rendered.sha)) out.add(r.rendered.sha);
+  }
+  return out;
 }
 
 /**
@@ -456,12 +621,14 @@ async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [], sk
   const problems = [];
   const userVideo = userVideoSlides(dir);
   const bespoke = new Set(bespokeSlides(dir));
-  const slides = plan(dir).slides.filter((s) => !userVideo.has(s.n) && !bespoke.has(s.n) && !skip.includes(s.n));
+  // a Live Motion scene's slide is the scene crew's: never composed from builds, its folder never replaced
+  const live = new Set([...sceneSlides(dir), ...plan(dir).slides.map((s) => s.n).filter((n) => isSceneFolder(hfDir(dir, n)))]);
+  const slides = plan(dir).slides.filter((s) => !userVideo.has(s.n) && !bespoke.has(s.n) && !skip.includes(s.n) && !live.has(s.n));
   sweep(dir, new Set([...slides.map((s) => s.n), ...keep]));
   if (!slides.length) return { slides, bespoke: [...bespoke].filter((n) => !userVideo.has(n)), problems };
   const T = templateDir(engineRoot);
   const engineAssets = path.join(T, 'examples', 'whiteboard-sketch', 'assets'); // engine 1.1: live slides + the pen
-  const fonts = (await localFonts(deck.faces, fontCacheDir, fetchImpl)) || vendoredFonts(engineRoot);
+  const fonts = await episodeFonts(dir, { engineRoot, fontCacheDir, fetchImpl }); // the episode's own copy (W4-03)
   const said = narrations(dir);
   const done = [];
   for (const s of slides) {
@@ -473,7 +640,8 @@ async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [], sk
     const old = readJson(path.join(out, MARKER), {}) || {};
     fs.rmSync(out, { recursive: true, force: true });
     fs.mkdirSync(path.join(out, 'assets', 'fonts'), { recursive: true });
-    for (const f of ['gsap.min.js', 'live-slide.js']) fs.copyFileSync(path.join(engineAssets, f), path.join(out, 'assets', f));
+    fs.copyFileSync(path.join(engineAssets, 'live-slide.js'), path.join(out, 'assets', 'live-slide.js'));
+    fs.copyFileSync(tweenFile(engineRoot), path.join(out, 'assets', 'flpt-tween.js'));
     for (const f of fonts.files) fs.copyFileSync(f.path, path.join(out, 'assets', 'fonts', f.name));
     const html = sanitizeFonts(localBlobs(section, deck, out, problems, s.id), fonts.families);
     const missing = [...new Set(s.beats.flatMap((b) => [].concat(b.target || [])))]
@@ -496,38 +664,97 @@ async function compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep = [], sk
 
 const clipPath = (dir, n) => path.join(dir, 'presentation', 'media', `slide_${pad2(n)}.mp4`);
 const mediaFile = (dir) => path.join(dir, 'presentation', 'media.json');
-const isOurs = (v) => Boolean(v && typeof v === 'object' && (v.note === MOTION_NOTE || v.note === CARTOON_NOTE));
+const isOurs = (v) => Boolean(v && typeof v === 'object' && (v.note === MOTION_NOTE || v.note === CARTOON_NOTE || v.note === SCENE_NOTE));
 // What the pipeline reads as "bubble": false (load_media in generate_presentation_video.py).
 const bubbleOff = (v) => Boolean(v && typeof v === 'object' && 'bubble' in v
   && (typeof v.bubble === 'string' ? ['false', 'no', '0', 'off', 'hide', 'hidden'].includes(v.bubble.trim().toLowerCase()) : !v.bubble));
 
-/** The Cosmos cartoon slides, by number (deck order): narrated with the presenter's bubble hidden. */
-function cosmosSlides(dir) {
-  const { order, modules } = readDeck(dir);
-  const entries = (modules && modules.slides) || {};
-  return order.map((id, i) => (entries[id] && entries[id].module === 'cosmos' ? i + 1 : 0)).filter(Boolean);
+/** Each slide of the deck with its modules.json entry (or null): [{ n, id, entry }], numbered in deck order. */
+function deckSlides(dir) {
+  const { order, modules: map } = readDeck(dir);
+  const entries = (map && map.slides) || {};
+  return order.map((id, i) => {
+    const e = Object.prototype.hasOwnProperty.call(entries, id) ? entries[id] : null;
+    return { n: i + 1, id, entry: e && typeof e === 'object' && !Array.isArray(e) ? e : null };
+  });
 }
 
 /**
- * The slides the pipeline will narrate without the bubble, so with no avatar clip to make or pay for: the Cosmos
- * cartoons (unless the user has an entry of their own for one), and any slide the user marked "bubble": false.
+ * The slides narrated without the presenter's bubble, by number (deck order): every slide whose module hides it
+ * (modules.META: Cosmos, Motion Solo) or whose modules.json entry says "bubble": false. Filming makes no avatar clip
+ * for them, and bills their narration as voice only.
+ */
+function hiddenBubbleSlides(dir) {
+  return deckSlides(dir).filter((s) => modules.hidesBubble(s.entry)).map((s) => s.n);
+}
+
+/** The Live Motion scene slides, by number: Motion Solo, Motion Duet and a Cosmos drawn in code (flpt-scene entries). */
+function sceneSlides(dir) {
+  return deckSlides(dir).filter((s) => modules.isScene(s.entry)).map((s) => s.n);
+}
+
+/** The Cosmos cartoon slides the Scenes step generates, by number (a Cosmos drawn in code is a scene instead). */
+function cartoonSlides(dir) {
+  return deckSlides(dir).filter((s) => s.entry && s.entry.module === 'cosmos' && modules.makeOf(s.entry) === 'generate').map((s) => s.n);
+}
+
+/** Deprecated: the generated Cosmos cartoon slides (cartoonSlides). The slides without the bubble: hiddenBubbleSlides. */
+const cosmosSlides = cartoonSlides;
+
+/**
+ * The slides the pipeline will narrate without the bubble, so with no avatar clip to make or pay for: every slide
+ * that hides it (hiddenBubbleSlides: Cosmos, Motion Solo…) unless the user has an entry of their own for one, and any
+ * slide the user marked "bubble": false.
  */
 function noBubbleSlides(dir) {
   const user = Object.entries((readJson(mediaFile(dir), {}) || {}).slides || {}).filter(([, v]) => !isOurs(v));
   const out = new Set(user.filter(([, v]) => bubbleOff(v)).map(([k]) => Number(k)).filter((n) => Number.isInteger(n) && n > 0));
-  for (const n of cosmosSlides(dir)) if (!user.some(([k]) => Number(k) === n)) out.add(n);
+  for (const n of hiddenBubbleSlides(dir)) if (!user.some(([k]) => Number(k) === n)) out.add(n);
   return [...out].sort((a, b) => a - b);
+}
+
+/** Does the episode's copy of the pipeline read a slide entry's "stereo" (its FLPT_STEREO_V1 patch)? */
+function pipelineStereo(dir) {
+  try { return fs.readFileSync(path.join(dir, 'presentation', 'video', 'generate_presentation_video.py'), 'utf8').includes(STEREO_MARKER); } catch { return false; }
+}
+
+/** A scene's clip as a run reports it ({ video, audio, volume }), or null: a path inside presentation/ that's there. */
+function sceneClipOf(dir, spec) {
+  if (!spec || typeof spec !== 'object' || typeof spec.video !== 'string' || !spec.video) return null;
+  const rel = spec.video;
+  if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..') || !exists(path.join(dir, 'presentation', rel))) return null;
+  const volume = Number(spec.volume);
+  return { video: rel, audio: spec.audio === 'mix' ? 'mix' : 'mute', volume: Number.isFinite(volume) && volume >= 0 ? volume : null };
+}
+
+/**
+ * A Live Motion scene's media.json entry (PLAN §2.14): its clip once it's made (`clip`: { video, audio, volume }), the
+ * hidden bubble on a Motion Solo or a Cosmos drawn in code (with or without a clip, so no avatar is ever filmed for
+ * it), and the `flpt-scene` note. A clip with sound mixes at its volume (1 unless the run says otherwise) and is
+ * "stereo" only when the pipeline copy reads that key; a muted one has neither. Null for a Duet with no clip yet. No
+ * `lead` is ever written: it would move the narration (and, on a bubble slide, re-bill the avatar).
+ */
+function sceneEntry(clip, { hidden = false, stereo = false } = {}) {
+  const e = {};
+  if (clip) {
+    Object.assign(e, { video: clip.video, fit: 'cover', pad: 'freeze' });
+    if (clip.audio === 'mix') Object.assign(e, { audio: 'mix', volume: clip.volume != null ? clip.volume : 1 }, stereo ? { stereo: true } : {});
+    else e.audio = 'mute';
+  }
+  if (hidden) e.bubble = false;
+  return Object.keys(e).length ? { ...e, note: SCENE_NOTE } : null;
 }
 
 /**
  * Write FLPT's own entries in media.json, keeping every entry FLPT didn't make (the user's own cut scenes and video
  * slides) exactly as it is: the moving slides' clips (slide numbers → media/slide_NN.mp4; `mix` maps a slide to the
  * volume of a clip that carries sound), the cartoons put together for this run (`cartoons`: slide number →
- * media/cartoon_<id>.mp4), "bubble": false for every Cosmos cartoon slide (with or without a clip), and every cut
- * scene whose clip is made, between its slides. FLPT's entries are marked with a note; with nothing of FLPT's, there
- * are none.
+ * media/cartoon_<id>.mp4), the Live Motion scenes (`scenes`: slide number → { video, audio, volume }, written as
+ * `flpt-scene` entries), "bubble": false for every slide that hides the bubble (with or without a clip), and every
+ * generated cut scene whose clip is made, between its slides. FLPT's entries are marked with a note; with nothing of
+ * FLPT's, there are none.
  */
-function writeMedia(dir, numbers, { mix = {}, cartoons = {} } = {}) {
+function writeMedia(dir, numbers, { mix = {}, cartoons = {}, scenes: sceneClips = {} } = {}) {
   const file = mediaFile(dir);
   // A media.json someone broke by hand stays as it is (the pipeline names the problem): FLPT never rewrites the user's file.
   if (exists(file) && readJson(file, null) === null) return;
@@ -535,25 +762,37 @@ function writeMedia(dir, numbers, { mix = {}, cartoons = {} } = {}) {
   const slides = {};
   for (const [k, v] of Object.entries(media.slides || {})) if (!isOurs(v)) slides[k] = v;
   const clips = new Set(numbers);
-  const cosmos = new Set(cosmosSlides(dir));
+  const hidden = new Set(hiddenBubbleSlides(dir));
+  const live = new Set(sceneSlides(dir));
+  const cosmos = new Set(cartoonSlides(dir));
   // A cartoon's clip goes only on its own slide (the deck may have moved it), and only while the file is there.
   const { order } = readDeck(dir);
   const cartoon = Object.fromEntries(Object.entries(cartoons).filter(([n, rel]) => cosmos.has(Number(n)) && order[Number(n) - 1]
     && rel === path.join('media', `cartoon_${order[Number(n) - 1]}.mp4`) && exists(path.join(dir, 'presentation', rel))));
-  for (const n of [...new Set([...clips, ...cosmos])].sort((a, b) => a - b)) {
+  const stereo = pipelineStereo(dir);
+  for (const n of [...new Set([...clips, ...hidden, ...live])].sort((a, b) => a - b)) {
     if (slides[String(n)]) continue; // the user's own entry for that slide wins
+    if (live.has(n)) {
+      // A scene's clip, from the run that made it, else the slide's own moving clip; never a flpt-motion entry.
+      const clip = sceneClipOf(dir, sceneClips[n])
+        || (clips.has(n) ? { video: `media/slide_${pad2(n)}.mp4`, audio: mix[n] != null ? 'mix' : 'mute', volume: mix[n] != null ? mix[n] : null } : null);
+      const e = sceneEntry(clip, { hidden: hidden.has(n), stereo });
+      if (e) slides[String(n)] = e;
+      continue;
+    }
     const e = {};
     if (cartoon[n]) Object.assign(e, { video: cartoon[n], fit: 'cover', pad: 'freeze', audio: 'mute' });
     else if (clips.has(n)) {
       Object.assign(e, { video: `media/slide_${pad2(n)}.mp4`, fit: 'cover', pad: 'freeze' },
         mix[n] != null ? { audio: 'mix', volume: mix[n] } : { audio: 'mute' });
     }
-    if (cosmos.has(n)) e.bubble = false;
+    if (hidden.has(n)) e.bubble = false;
     slides[String(n)] = { ...e, note: cartoon[n] ? CARTOON_NOTE : MOTION_NOTE };
   }
   const next = { ...media, slides };
   if (!Object.keys(slides).length) delete next.slides;
-  // Cut scenes: the user's own as they are, then FLPT's, each with its clip (never one whose file isn't made yet).
+  // Cut scenes: the user's own as they are, then FLPT's, each with its clip (never one whose file isn't made yet, and
+  // never one drawn in code: that one is spliced into the film, so its neighbours keep their timing).
   if (media.cutscenes == null || Array.isArray(media.cutscenes)) {
     const theirs = (media.cutscenes || []).filter((c) => !(c && typeof c === 'object' && c.note === CUT_NOTE));
     const taken = new Set(theirs.map((c) => String((c && c.id) || '').toLowerCase()));
@@ -566,12 +805,14 @@ function writeMedia(dir, numbers, { mix = {}, cartoons = {} } = {}) {
   writeAtomic(file, `${JSON.stringify(next, null, 2)}\n`);
 }
 
-/** FLPT's entries brought up to date with the deck (which slides are cartoons, which cut scenes are made), keeping its clips as they are. */
+/** FLPT's entries brought up to date with the deck (which slides are cartoons or scenes, which cut scenes are made), keeping its clips as they are. */
 function refreshMedia(dir) {
   const ours = Object.entries((readJson(mediaFile(dir), {}) || {}).slides || {}).filter(([, v]) => isOurs(v) && v.video);
-  const mix = Object.fromEntries(ours.filter(([, v]) => v.audio === 'mix').map(([k, v]) => [Number(k), v.volume]));
+  const moving = ours.filter(([, v]) => v.note === MOTION_NOTE);
+  const mix = Object.fromEntries(moving.filter(([, v]) => v.audio === 'mix').map(([k, v]) => [Number(k), v.volume]));
   const cartoons = Object.fromEntries(ours.filter(([, v]) => v.note === CARTOON_NOTE).map(([k, v]) => [Number(k), v.video]));
-  writeMedia(dir, ours.filter(([, v]) => v.note !== CARTOON_NOTE).map(([k]) => Number(k)), { mix, cartoons });
+  const sceneClips = Object.fromEntries(ours.filter(([, v]) => v.note === SCENE_NOTE).map(([k, v]) => [Number(k), { video: v.video, audio: v.audio, volume: v.volume }]));
+  writeMedia(dir, moving.map(([k]) => Number(k)), { mix, cartoons, scenes: sceneClips });
 }
 
 /** Is this a clip the pipeline can use as-is? (What render.mjs promises: 1920x1080, 30 fps, no sound.) */
@@ -617,6 +858,7 @@ function readInset(dir, inset) {
   let file;
   try { file = fs.realpathSync(path.resolve(pres, rel)); } catch { return { rel, problem: `clip ${rel} isn't there` }; }
   if (!file.startsWith(fs.realpathSync(pres) + path.sep) || !fs.statSync(file).isFile()) return { rel, problem: `clip ${rel} isn't a file inside this episode` };
+  if (references.isReference(file)) return { rel, problem: `clip ${rel} is a reference, and references stay private` };
   const r = inset.rect && typeof inset.rect === 'object' ? inset.rect : {};
   const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
   const [x0, y0, w0, h0] = [r.x, r.y, r.w, r.h].map(num);
@@ -632,9 +874,15 @@ function readInset(dir, inset) {
   return { rel, file, rect, from, to, sound, cue };
 }
 
-/** The newest timeline of this kind of run (as retime.py picks it): slide n's place on screen, and the cut scenes. */
+/**
+ * This kind of run's own timeline, as retime.py picks it (FLPT_RETIME_TL_V1): presentation.timeline.json or
+ * draft_presentation.timeline.json by name (Refine writes presentation_refined/_tight beside them), else the newest of
+ * its kind. Slide n's place on screen, and the cut scenes.
+ */
 function timelineOf(dir, which) {
   const out = path.join(dir, 'presentation', 'video', 'output');
+  const pinned = path.join(out, which === 'draft' ? 'draft_presentation.timeline.json' : 'presentation.timeline.json');
+  if (exists(pinned)) return readJson(pinned, null);
   const names = (() => { try { return fs.readdirSync(out); } catch { return []; } })()
     .filter((f) => f.endsWith('.timeline.json') && f.includes('draft') === (which === 'draft'));
   const newest = names.map((f) => path.join(out, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
@@ -811,6 +1059,8 @@ async function renderCartoon(dir, which, { piece, inputs }, { retime, probe, ffm
   const timing = await cartoonTiming(dir, which, piece, { retime, engineRoot, signal });
   if (!timing) return fail('it isn\'t in this run\'s timeline');
   const pres = path.join(dir, 'presentation');
+  // nothing that goes into the film is ever a reference (they stay private, W1-12)
+  try { for (const f of [inputs.card, inputs.hero && inputs.hero.file, ...inputs.beats.map((b) => b.file)].filter(Boolean)) references.assertNotReference(path.join(pres, f)); } catch (e) { return fail(e.message.replace(/\.$/, '')); }
   const card = exists(path.join(pres, inputs.card)) ? path.join(pres, inputs.card) : null;
   onLine(`Slide ${piece.n}: putting the cartoon together${which === 'preview' ? '' : ` to the ${which === 'draft' ? 'draft voice' : 'real voice'}`}…`);
   let hero = null;
@@ -853,10 +1103,11 @@ async function assembleScene(dir, key, { probe, ffmpeg, onLine = () => {}, signa
     if (!r.ok) throw new Error(r.problems[0]);
     out = { file: path.join(pres, inputs.out), problems: r.problems };
   } else {
+    for (const sh of inputs.shots) references.assertNotReference(path.join(pres, sh.file));
     onLine(`${piece.title}: joining ${inputs.shots.length} shots…`);
     const r = await assemble.cutscene({ out: path.join(pres, inputs.out), shots: inputs.shots.map((s) => ({ file: path.join(pres, s.file), seconds: s.seconds })), run: ffmpeg, probe, signal });
     scenes.markClip(dir, key, { inputs: inputs.key, seconds: r.seconds, lufs: r.lufs });
-    out = { file: path.join(pres, inputs.out), seconds: r.seconds, problems: [] };
+    out = { file: path.join(pres, inputs.out), seconds: r.seconds, problems: r.problems || [] }; // the stem check's, from assemble.cutscene (W2-03 handoff 6)
   }
   refreshMedia(dir);
   return out;
@@ -867,16 +1118,22 @@ async function assembleScene(dir, key, { probe, ffmpeg, onLine = () => {}, signa
  * 'final' (the real voice), then play the video insets, then put the Scenes step's cartoons together to the same voice.
  * `retime` runs a method script (retime.py, real-words.py) with the project's Python; `probe` is ffprobe; `ffmpeg`
  * runs the toolchain's ffmpeg. Without HyperFrames (`hyperframes: false`) the slides stay still, and only the insets
- * and cartoons play. Returns { rendered: [n], failed: [n], problems: [text] } and updates media.json to the clips
- * that are good.
+ * and cartoons play. `afterRender(dir, which, rendered)`, when given, runs last (the Live Motion scenes, timed to the
+ * same voice) and returns { mix, scenes } to merge into media.json (see writeMedia); if it throws, media.json still
+ * gets what did render, and the error goes on up. Returns { rendered: [n], failed: [n], problems: [text] } and
+ * updates media.json to the clips that are good.
  */
-async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime, probe, ffmpeg, hyperframes = true, onLine = () => {}, signal }) {
+async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime, probe, ffmpeg, hyperframes = true, afterRender, onLine = () => {}, signal }) {
+  // Live Motion folders follow their slides first (a moved slide takes its scene along; one that left is parked)
+  try { for (const note of require('./livemotion').sync(dir)) onLine(note); } catch (e) { onLine(`! Live Motion: ${String(e && e.message ? e.message : e).slice(0, 200)}`); }
   const userVideo = userVideoSlides(dir);
   const bespokeAll = new Set(bespokeSlides(dir));
   // A cartoon replaces its title card's animation and any inset; the user's own slides stay theirs.
   const cartoons = scenes.readyCartoons(dir).filter(({ piece }) => !userVideo.has(piece.n) && !bespokeAll.has(piece.n));
   const toons = cartoons.map(({ piece }) => piece.n);
-  const insets = insetSlides(dir).filter((s) => !userVideo.has(s.n) && !bespokeAll.has(s.n) && !toons.includes(s.n));
+  // a scene's slide plays its scene (an inset there would replace its folder)
+  const scenesHere = new Set(sceneSlides(dir));
+  const insets = insetSlides(dir).filter((s) => !userVideo.has(s.n) && !bespokeAll.has(s.n) && !toons.includes(s.n) && !scenesHere.has(s.n) && !isSceneFolder(hfDir(dir, s.n)));
   const keep = insets.map((s) => s.n);
   let composed = { slides: [], bespoke: [], problems: [] };
   if (hyperframes) composed = await compose(dir, { engineRoot, fontCacheDir, fetchImpl, keep, skip: toons });
@@ -888,15 +1145,27 @@ async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime,
   const rendered = [];
   const failed = [];
   let r = null;
+  // what render.mjs names on a slide that flpt-tween can't move (its "✗ … FlptTweenUnsupported: …" lines), by slide (W3-12)
+  const unmoved = new Map();
   if (numbers.length) {
     onLine(`Moving slides: timing ${numbers.length} to the ${which === 'draft' ? 'draft voice' : 'real voice'} and rendering them…`);
     for (const n of slides.map((s) => s.n)) fs.rmSync(clipPath(dir, n), { force: true }); // FLPT's own (checked in compose)
     const args = [path.join(templateDir(engineRoot), 'retime.py'), path.join(dir, 'presentation'), '--slides', numbers.join(',')];
     if (which === 'draft') args.push('--draft');
-    r = await retime(args, { onLine, signal });
+    let current = null;
+    const watch = (line) => {
+      const head = /^\s*── slide (\d+)\b/.exec(String(line));
+      if (head) current = Number(head[1]);
+      const named = /^\s*✗ (.*FlptTweenUnsupported: .*)$/.exec(String(line));
+      if (named && current !== null) { if (!unmoved.has(current)) unmoved.set(current, new Set()); unmoved.get(current).add(named[1].trim()); }
+      onLine(line);
+    };
+    r = await retime(args, { onLine: watch, signal });
     for (const n of numbers) (await clipOk(clipPath(dir, n), probe) ? rendered : failed).push(n);
   }
-  if (failed.length) problems.push(`Slide${failed.length > 1 ? 's' : ''} ${failed.join(', ')} stay${failed.length > 1 ? '' : 's'} still: the animation didn't render${r && r.code === 0 ? '' : ' (see the log)'}.`);
+  const unnamed = failed.filter((n) => !unmoved.has(n));
+  if (unnamed.length) problems.push(`Slide${unnamed.length > 1 ? 's' : ''} ${unnamed.join(', ')} stay${unnamed.length > 1 ? '' : 's'} still: the animation didn't render${r && r.code === 0 ? '' : ' (see the log)'}.`);
+  for (const n of failed.filter((x) => unmoved.has(x))) problems.push(`Slide ${n} stays still: ${[...unmoved.get(n)].join('; ')}.`);
   const mix = {};
   const played = {}; // when each inset plays in its slide, for the clip guide
   for (const s of insets) {
@@ -927,19 +1196,33 @@ async function render(dir, which, { engineRoot, fontCacheDir, fetchImpl, retime,
     problems.push(...res.problems);
     if (res.ok) made[c.piece.n] = c.inputs.out;
   }
-  writeMedia(dir, rendered, { mix, cartoons: made });
-  return { rendered: [...rendered, ...Object.keys(made).map(Number)].sort((a, b) => a - b), failed, problems: [...new Set(problems)] };
+  let extra = {};
+  let hookError = null;
+  if (typeof afterRender === 'function' && !(signal && signal.aborted)) {
+    try { extra = (await afterRender(dir, which, [...rendered])) || {}; } catch (e) { hookError = e; }
+  }
+  const sceneClips = extra.scenes && typeof extra.scenes === 'object' ? extra.scenes : {};
+  writeMedia(dir, rendered, { mix: { ...mix, ...(extra.mix && typeof extra.mix === 'object' ? extra.mix : {}) }, cartoons: made, scenes: sceneClips });
+  if (hookError) throw hookError;
+  if (Array.isArray(extra.problems)) problems.push(...extra.problems.map(String));
+  const slidesNow = (readJson(mediaFile(dir), {}) || {}).slides || {};
+  const live = Object.keys(sceneClips).map(Number).filter((n) => { const e = slidesNow[String(n)]; return e && e.note === SCENE_NOTE && e.video; });
+  return { rendered: [...new Set([...rendered, ...Object.keys(made).map(Number), ...live])].sort((a, b) => a - b), failed, problems: [...new Set(problems)] };
 }
 
 /**
- * Forget the clips in media.json (before a run whose timing they'd get wrong), keeping everything else, the
- * cartoons' hidden bubbles (the paid run must never make an avatar clip for them) and the finished cut scenes.
+ * Forget the clips in media.json (before a run whose timing they'd get wrong), keeping everything else, the hidden
+ * bubbles of the cartoons and Motion Solo scenes (the paid run must never make an avatar clip for them) and the
+ * finished cut scenes.
  */
 function clearMedia(dir) { writeMedia(dir, []); }
 
-module.exports = { plan, compose, render, writeMedia, clearMedia, refreshMedia, cosmosSlides, noBubbleSlides, narrations, provisional,
-  beatFrom, localFonts, vendoredFonts, sanitizeFonts, extractSection, clipPath, checkBuilds, checkCues, checkInsets, insetSlides, readInset,
-  insetPlayed, cueStart, cartoonTiming, assembleScene, MOTION_NOTE, CARTOON_NOTE, CUT_NOTE, BASE_CSS, INSET_VOLUME,
+module.exports = { plan, compose, render, writeMedia, clearMedia, refreshMedia, hiddenBubbleSlides, sceneSlides, cartoonSlides, cosmosSlides,
+  noBubbleSlides, sceneEntry, isOurs, pipelineStereo, narrations, provisional,
+  beatFrom, localFonts, vendoredFonts, episodeFonts, readFontSnapshot, faceHrefs, fontFaceCss, sanitizeFonts, extractSection, clipPath, checkBuilds, checkCues, checkInsets, insetSlides, readInset,
+  insetPlayed, cueStart, cartoonTiming, assembleScene, MOTION_NOTE, CARTOON_NOTE, CUT_NOTE, SCENE_NOTE, STEREO_MARKER, BASE_CSS, INSET_VOLUME,
   // for the animator crew (animators.js)
-  readDeck, hfDir, MARKER, bespokeSlides, userVideoSlides, timelineOf, narrationWav, localBlobs, page, templateDir, clipOk, sha, norm,
+  readDeck, hfDir, MARKER, bespokeSlides, userVideoSlides, timelineOf, narrationWav, localBlobs, page, templateDir, tweenFile, clipOk, sha, norm,
+  // for Live Motion (livemotion.js)
+  isSceneFolder, clipIsOurs, SCENE_FILE,
   FPS, RATE, LEAD };

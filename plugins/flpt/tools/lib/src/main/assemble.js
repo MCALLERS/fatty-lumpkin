@@ -4,19 +4,23 @@
 //               beats, the hero beat playing its shot; film grain and a vignette over it all. Silent, 1920×1080,
 //               30 fps, exactly the slide's length: the pipeline plays it in place of the slide, under the narration.
 //   cutscene()  the shots joined (each cut to its planned length, a 40 ms de-click at every join), the scene's own
-//               sound brought to -21 LUFS in two passes and cut back to the picture, then conformed: 1920×1080, 30 fps,
-//               x264, AAC 48 kHz stereo, an exact number of frames. The pipeline plays it between two slides.
+//               sound measured with ebur128 and brought to -21 LUFS with volume (a limiter only when a peak would pass
+//               -2 dBTP), checked as the mixer checks a stem and cut back to the picture, then conformed: 1920×1080,
+//               30 fps, x264, AAC 48 kHz stereo, an exact number of frames. The pipeline plays it between two slides.
+//               (Not loudnorm: its first pass reads short percussive clips 0.3–0.55 LU low and its linear second pass
+//               falls back to dynamic levelling near the peak ceiling, so it missed -21 ± 0.5; spike K4, W1-08.)
 // `run(args, { signal })` runs ffmpeg and resolves { code, err }; `probe(file)` is ffprobe's JSON. Both come from the
 // app (or the plugin), so the toolchain's own ffmpeg is the one used.
 const fs = require('fs');
 const path = require('path');
+const mixer = require('./mixer');
 
 const FPS = 30;
 const SR = 48000;
 const W = 1920;
 const H = 1080;
 const T = { wipe: 0.7, card: 1.5, beat: 1.6 }; // an ink-wipe's length; the least time the card and each beat stay up
-const LOUD = { I: -21, TP: -2, LRA: 11, quiet: -60 }; // the method's cut-scene level; below `quiet` it's left alone
+const LOUD = { I: -21, TP: -2, quiet: -60, passes: 6 }; // the method's cut-scene level; below `quiet` it's left alone
 const ENCODE = ['-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', String(FPS), '-keyint_min', String(FPS),
   '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
 // The ink-wipe: the next picture sweeps in from the left behind a wavering, brush-like edge (xfade's P runs 1 → 0).
@@ -135,47 +139,86 @@ const durationOf = (info) => {
   return Number((info && info.format && info.format.duration) || (v && v.duration)) || 0;
 };
 
-/** The cut scene's graph: its shots cut to length and joined; `sound` adds the level (loudnorm's second pass). */
-function cutsceneGraph(shots, { loud = null } = {}) {
+/**
+ * The cut scene's graph: its shots cut to length and joined. `video` gives [v] (the picture), `audio` gives [a] (the
+ * joined sound at its own level, exactly the picture's length; a silent shot's silence comes from the `extra` inputs).
+ */
+function cutsceneGraph(shots, { video = true, audio = true } = {}) {
   const graph = [];
   const extra = [];
   let n = shots.length;
   shots.forEach((s, i) => {
-    const samples = s.frames * (SR / FPS);
-    graph.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${FPS},scale=${W}:${H}:force_original_aspect_ratio=increase:${TO_709},crop=${W}:${H},setsar=1,format=yuv420p,`
-      + `tpad=stop_mode=clone:stop_duration=1,trim=end_frame=${s.frames},setpts=PTS-STARTPTS[v${i}]`);
-    const src = s.audio ? `[${i}:a]` : `[${n}:a]`;
-    if (!s.audio) { extra.push('-f', 'lavfi', '-i', `anullsrc=r=${SR}:cl=stereo`); n += 1; }
-    const end = s.frames / FPS;
-    graph.push(`${src}aresample=${SR},aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,apad,atrim=end_sample=${samples},`
-      + `afade=t=in:d=0.04,afade=t=out:st=${f3(Math.max(0, end - 0.04))}:d=0.04[a${i}]`);
+    if (video) {
+      graph.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${FPS},scale=${W}:${H}:force_original_aspect_ratio=increase:${TO_709},crop=${W}:${H},setsar=1,format=yuv420p,`
+        + `tpad=stop_mode=clone:stop_duration=1,trim=end_frame=${s.frames},setpts=PTS-STARTPTS[v${i}]`);
+    }
+    if (audio) {
+      const samples = s.frames * (SR / FPS);
+      const src = s.audio ? `[${i}:a]` : `[${n}:a]`;
+      if (!s.audio) { extra.push('-f', 'lavfi', '-i', `anullsrc=r=${SR}:cl=stereo`); n += 1; }
+      const end = s.frames / FPS;
+      graph.push(`${src}aresample=${SR},aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,apad,atrim=end_sample=${samples},`
+        + `afade=t=in:d=0.04,afade=t=out:st=${f3(Math.max(0, end - 0.04))}:d=0.04[a${i}]`);
+    }
   });
-  graph.push(`${shots.map((s, i) => `[v${i}][a${i}]`).join('')}concat=n=${shots.length}:v=1:a=1[v][ac]`);
   const total = shots.reduce((t, s) => t + s.frames, 0) * (SR / FPS);
-  if (loud) {
-    graph.push(`[ac]loudnorm=I=${LOUD.I}:TP=${LOUD.TP}:LRA=${LOUD.LRA}:measured_I=${loud.input_i}:measured_TP=${loud.input_tp}:measured_LRA=${loud.input_lra}`
-      + `:measured_thresh=${loud.input_thresh}:offset=${loud.target_offset}:linear=true,aresample=${SR},atrim=end_sample=${total},apad=whole_len=${total}[a]`);
-  } else {
-    graph.push(`[ac]atrim=end_sample=${total},apad=whole_len=${total}[a]`);
-  }
+  if (video) graph.push(`${shots.map((s, i) => `[v${i}]`).join('')}concat=n=${shots.length}:v=1:a=0[v]`);
+  if (audio) graph.push(`${shots.map((s, i) => `[a${i}]`).join('')}concat=n=${shots.length}:v=0:a=1,atrim=end_sample=${total},apad=whole_len=${total}[a]`);
   return { graph: graph.join(';'), extra };
 }
 
-/** loudnorm's first-pass numbers from ffmpeg's output, or null. */
-function loudnormJson(text) {
-  const s = String(text || '');
-  const i = s.lastIndexOf('{');
-  const j = s.lastIndexOf('}');
-  if (i < 0 || j < i) return null;
-  try {
-    const m = JSON.parse(s.slice(i, j + 1));
-    return ['input_i', 'input_tp', 'input_lra', 'input_thresh', 'target_offset'].every((k) => m[k] != null && m[k] !== '') ? m : null;
-  } catch { return null; }
+/**
+ * The level's filter chain: the gain, then a limiter only when it's given (a peak would pass -2 dBTP), exactly
+ * `samples`. The limiter works 4× oversampled, so it holds the true peak (what ebur128 reads between the samples), not
+ * just the sample peak: a click brought up 17 dB otherwise overshoots the ceiling by 2 dB or more.
+ */
+function levelChain({ gainDb = 0, limitDbfs = null, samples }) {
+  const limit = limitDbfs == null ? ''
+    : `,aresample=${SR * 4},alimiter=limit=${Math.pow(10, limitDbfs / 20).toFixed(5)}:attack=2:release=50:level=disabled:latency=1,aresample=${SR}`;
+  return `volume=${gainDb.toFixed(3)}dB${limit},atrim=end_sample=${samples},apad=whole_len=${samples},asetpts=PTS-STARTPTS`;
+}
+
+const failed = (r) => (r.err ? `: ${String(r.err).trim().split('\n').slice(-2).join(' ')}` : '.');
+
+/**
+ * The joined sound (`src`, a WAV) at -21 LUFS in `out` (24-bit WAV, exactly `samples`), as the mixer levels a stem
+ * (K4): measured with ebur128, the gain applied with volume, a limiter only when the gain would push the true peak
+ * past -2 dBTP. Under the limiter the loudness no longer follows the gain one for one, so the gain is corrected from
+ * the last two passes (at most six) until the sound is within 0.1 LU and its peak under the ceiling. A scene quieter
+ * than -60 LUFS isn't levelled (silence stays silence, not hiss at -21). → { pre, check, gainDb, limitDbfs, passes, levelled }
+ */
+async function levelSound({ run, src, out, samples, signal }) {
+  const pre = await mixer.measure(run, src, { signal });
+  if (!(Number.isFinite(pre.I) && pre.I > LOUD.quiet)) return { pre, check: pre, gainDb: 0, limitDbfs: null, passes: 0, levelled: false };
+  let gain = LOUD.I - pre.I;
+  let limit = Number.isFinite(pre.TP) && pre.TP + gain > LOUD.TP ? LOUD.TP - 0.5 : null;
+  let check = null;
+  let passes = 0;
+  let last = null; // the previous pass's { gain, I } (same limit), for the slope
+  while (passes < LOUD.passes) {
+    passes += 1;
+    const r = await run(['-y', '-v', 'error', '-i', src, '-af', levelChain({ gainDb: gain, limitDbfs: limit, samples }), '-ar', String(SR), '-ac', '2', '-c:a', 'pcm_s24le', out], { signal });
+    if (r.code !== 0 || !fs.existsSync(out)) throw new Error(`ffmpeg couldn't level the cut scene's sound${failed(r)}`);
+    check = await mixer.measure(run, out, { signal });
+    if (passes === LOUD.passes) break;
+    if (check.TP != null && check.TP > LOUD.TP) { // peaks: limit lower
+      limit = (limit == null ? LOUD.TP - 0.5 : limit) - (check.TP - LOUD.TP) - 0.1;
+      last = null;
+      continue;
+    }
+    if (!Number.isFinite(check.I) || Math.abs(check.I - LOUD.I) <= 0.1) break;
+    // the limiter cost loudness: the next gain from the slope of the last two passes (1 LU per dB without a limiter)
+    const slope = last && Math.abs(gain - last.gain) > 1e-3 ? Math.min(1, Math.max(0.2, (check.I - last.I) / (gain - last.gain))) : 1;
+    last = { gain, I: check.I };
+    gain += Math.max(-12, Math.min(12, (LOUD.I - check.I) / slope));
+  }
+  return { pre, check, gainDb: +gain.toFixed(3), limitDbfs: limit == null ? null : +limit.toFixed(2), passes, levelled: true };
 }
 
 /**
- * A cut scene clip from its approved shots: [{ file, seconds }]. Returns { frames, seconds, lufs } (lufs: the
- * scene's sound before levelling, or null when it's silent).
+ * A cut scene clip from its approved shots: [{ file, seconds }]. Returns { frames, seconds, lufs (the scene's sound
+ * before levelling, or null when it's silent), level: { I, TP, gainDb, limitDbfs, passes }, problems (the stem
+ * check's: none when the sound sits at -21 ± 0.5 LUFS, true peak ≤ -2 dBTP, exactly the picture's length) }.
  */
 async function cutscene({ out, shots, run, probe, signal }) {
   if (!shots.length) throw new Error('A cut scene needs its shots.');
@@ -193,25 +236,31 @@ async function cutscene({ out, shots, run, probe, signal }) {
   }
   const inputs = ready.flatMap((s) => ['-i', s.file]);
   const frames = ready.reduce((t, s) => t + s.frames, 0);
-  // Pass 1: how loud the joined sound is.
-  const g1 = cutsceneGraph(ready);
-  const m = await run(['-hide_banner', '-nostdin', '-nostats', ...inputs, ...g1.extra, '-filter_complex', `${g1.graph};[v]nullsink;[a]loudnorm=I=${LOUD.I}:TP=${LOUD.TP}:LRA=${LOUD.LRA}:print_format=json[m]`,
-    '-map', '[m]', '-f', 'null', '-'], { signal });
-  const meas = m.code === 0 ? loudnormJson(m.err) : null;
-  const level = meas && Number(meas.input_i) > LOUD.quiet ? meas : null; // a silent scene stays silent, not hiss at -21
-  // Pass 2: the levelled sound, cut back to the picture, and the conform.
-  const g2 = cutsceneGraph(ready, { loud: level });
+  const samples = frames * (SR / FPS);
   const tmp = `${out}.${process.pid}.tmp.mp4`;
+  const join = `${out}.${process.pid}.join.wav`;
+  const stem = `${out}.${process.pid}.stem.wav`;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   try {
-    const r = await run(['-y', '-v', 'error', ...inputs, ...g2.extra, '-filter_complex', g2.graph, '-map', '[v]', '-map', '[a]', '-r', String(FPS), '-frames:v', String(frames),
+    // 1. The joined sound, at its own level (float: nothing clips before the gain).
+    const ga = cutsceneGraph(ready, { video: false });
+    const j = await run(['-y', '-v', 'error', ...inputs, ...ga.extra, '-filter_complex', ga.graph, '-map', '[a]', '-c:a', 'pcm_f32le', '-ar', String(SR), '-ac', '2', join], { signal });
+    if (j.code !== 0 || !fs.existsSync(join)) throw new Error(`ffmpeg couldn't join the cut scene's sound${failed(j)}`);
+    // 2. Levelled to -21 LUFS, then checked as every stem is.
+    const lv = await levelSound({ run, src: join, out: stem, samples, signal });
+    const sound = lv.levelled ? stem : join;
+    const ok = await mixer.stemOk(run, sound, { frames, level: 'interstitial', music: lv.levelled, signal });
+    // 3. The picture conformed, with that sound.
+    const gv = cutsceneGraph(ready, { audio: false });
+    const r = await run(['-y', '-v', 'error', ...inputs, '-i', sound, '-filter_complex', gv.graph, '-map', '[v]', '-map', `${ready.length}:a:0`, '-r', String(FPS), '-frames:v', String(frames),
       '-preset', 'slow', ...ENCODE, '-c:a', 'aac', '-b:a', '192k', '-ar', String(SR), '-ac', '2', '-movflags', '+faststart', tmp], { signal });
-    if (r.code !== 0 || !fs.existsSync(tmp)) throw new Error(`ffmpeg couldn't put the cut scene together${r.err ? `: ${String(r.err).trim().split('\n').slice(-2).join(' ')}` : '.'}`);
+    if (r.code !== 0 || !fs.existsSync(tmp)) throw new Error(`ffmpeg couldn't put the cut scene together${failed(r)}`);
     fs.renameSync(tmp, out);
+    return { frames, seconds: frames / FPS, lufs: lv.levelled ? lv.pre.I : null,
+      level: { I: lv.check.I, TP: lv.check.TP, gainDb: lv.gainDb, limitDbfs: lv.limitDbfs, passes: lv.passes }, problems: ok.problems };
   } finally {
-    fs.rmSync(tmp, { force: true });
+    for (const f of [tmp, join, stem]) fs.rmSync(f, { force: true });
   }
-  return { frames, seconds: frames / FPS, lufs: level ? Number(level.input_i) : null };
 }
 
-module.exports = { cartoon, cutscene, cartoonArgs, beatStarts, cutsceneGraph, loudnormJson, FPS, LOUD, T };
+module.exports = { cartoon, cutscene, cartoonArgs, beatStarts, cutsceneGraph, levelChain, levelSound, FPS, LOUD, T };

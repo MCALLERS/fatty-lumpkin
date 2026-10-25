@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flpt.style/1",
+  "title": "style.json",
+  "description": "A Live Motion style (PLAN §2.14). Readers ignore fields they don't know; app/src/main/style-lint.js checks the same rules (a test keeps the two in step).",
+  "type": "object",
+  "required": ["schema", "id", "version", "name", "runtime", "files"],
+  "properties": {
+    "schema": { "const": "flpt.style/1" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$" },
+    "version": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,5})$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "line": { "type": "string", "maxLength": 80 },
+    "runtime": { "type": "string", "pattern": "^flpt-live@\\^?(0|[1-9][0-9]{0,3})(\\.(0|[1-9][0-9]{0,4})){0,2}$" },
+    "minApp": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,5})$" },
+    "frame": {
+      "type": "object",
+      "required": ["w", "h", "fps"],
+      "properties": { "w": { "const": 1920 }, "h": { "const": 1080 }, "fps": { "const": 30 } }
+    },
+    "duetSafe": { "type": "boolean" },
+    "ones": { "type": "boolean" },
+    "tags": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string", "minLength": 1, "maxLength": 24 },
+          { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 24 } }
+        ]
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "paper": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "inks": { "type": "array", "maxItems": 12, "items": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" } },
+        "type": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 48 } }
+      }
+    },
+    "fonts": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": ["family", "file", "licence"],
+        "properties": {
+          "family": { "type": "string", "minLength": 1, "maxLength": 48 },
+          "file": { "type": "string", "pattern": "\\.([Tt][Tt][Ff]|[Oo][Tt][Ff]|[Ww][Oo][Ff][Ff]2?)$", "maxLength": 200 },
+          "licence": { "enum": ["OFL-1.1", "Apache-2.0"] },
+          "licenceFile": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "vocab": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 24 } },
+        "pace": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "easing": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "sound": {
+      "type": "object",
+      "properties": {
+        "score": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$" },
+        "sfx": { "enum": ["off", "soft", "on"] }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": ["msPerFrame"],
+      "properties": { "msPerFrame": { "type": "number", "minimum": 0, "maximum": 5000 } }
+    },
+    "files": {
+      "type": "object",
+      "required": ["kit", "spec", "starter"],
+      "properties": {
+        "kit": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "spec": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "starter": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "demo": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "kitExt": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "media": {
+      "type": "object",
+      "properties": {
+        "poster": { "enum": ["poster.jpg", "poster-tall.jpg", "loop.mp4", "loop-tall.mp4"] },
+        "loop": { "enum": ["poster.jpg", "poster-tall.jpg", "loop.mp4", "loop-tall.mp4"] },
+        "loopTall": { "enum": ["poster.jpg", "poster-tall.jpg", "loop.mp4", "loop-tall.mp4"] }
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["shipped", "mine", "shared", "episode"] },
+        "parent": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9-]{0,47}@[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "from": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 },
+        "fromEpisode": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 },
+        "fromShot": { "type": ["string", "null"], "minLength": 1, "maxLength": 160 },
+        "refsUsed": { "type": "boolean" },
+        "rendered": { "type": ["object", "null"] }
+      }
+    },
+    "credit": { "type": "string", "maxLength": 160 },
+    "licence": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "licenceFile": { "type": "string", "maxLength": 200 },
+    "authors": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 80 } },
+    "api": {
+      "description": "Generated by FLPT from the kit's code (styles.js apiSummary): function and parameter names, and a doc of 80 ASCII characters at most.",
+      "type": "array",
+      "maxItems": 120,
+      "items": {
+        "type": "object",
+        "required": ["fn"],
+        "properties": {
+          "fn": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "kind": { "enum": ["function", "value"] },
+          "params": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1, "maxLength": 64 } },
+          "doc": { "type": "string", "maxLength": 80 }
+        }
+      }
+    },
+    "share": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["none", "exported", "submitted", "staged", "published", "rejected"] },
+        "at": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "eyebrow": "Team meeting",               # small label above the title
     "subtitle": "One-line description of the talk",
     "deck_url": "",                          # the Slides artifact link; leave "" to hide the link
+    "links": [],                             # optional extra links: [{"label", "text", "url"}] (https only)
     "media_note": "",                        # replaces the disclosure's "cut scenes are AI-generated" sentence,
                                              # e.g. to also cover cartoons or archival footage
 }
@@ -144,6 +145,11 @@ def main():
     page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
     deck_link = (f'<span>Slides: <a href="{html.escape(cfg["deck_url"])}" target="_blank" rel="noopener">open the deck</a></span>'
                  if cfg.get("deck_url") else "")
+    # optional extra links beside the deck link, e.g. "links": [{"label": "Paper", "text": "arXiv 2610.11715", "url": "https://…"}]
+    for ln in cfg.get("links") or []:
+        if str(ln.get("url", "")).startswith("https://"):
+            deck_link += (f' <span>{html.escape(ln.get("label", "Link"))}: <a href="{html.escape(ln["url"])}" target="_blank" '
+                          f'rel="noopener">{html.escape(ln.get("text") or ln["url"])}</a></span>')
     for k, v in (("__PAGE_TITLE__", cfg["page_title"]), ("__TITLE__", cfg["title"]),
                  ("__EYEBROW__", cfg["eyebrow"]), ("__SUBTITLE__", cfg["subtitle"])):
         page = page.replace(k, html.escape(v))

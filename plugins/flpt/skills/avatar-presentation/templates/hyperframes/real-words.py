@@ -39,6 +39,145 @@ def voiced_spans(wav, noise_db=-40, min_sil=0.22):
     if t < dur: spans.append((t, dur))
     return [(a, b) for a, b in spans if b - a > 0.05]
 
+# FLPT_CUE_SNAP_V1 (engine/tools/patches/43_cue_snap.py): each beat's cue word, snapped to faster-whisper's start for it
+# when the two agree within FLPT_SNAP_S. Only with FLPT's own whisper (FLPT_WHISPER_PYTHON, FLPT_WHISPER_MODEL); offline.
+import os  # noqa: E402
+FLPT_SNAP_S = 0.3
+FLPT_WHISPER = """
+import json, os, sys, wave
+os.environ["HF_HUB_OFFLINE"] = "1"
+import numpy as np
+from faster_whisper import WhisperModel
+with wave.open(sys.argv[1], "rb") as f:
+    pcm = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+m = WhisperModel(sys.argv[2], device="cpu", compute_type="int8")
+segs, info = m.transcribe(pcm, language="en", word_timestamps=True, beam_size=5, condition_on_previous_text=False)
+json.dump([{"text": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)} for s in segs for w in s.words], sys.stdout)
+"""
+
+
+def flpt_norm(t):
+    return re.findall(r"[^\W_]+", str(t).lower().replace("’", "").replace("'", ""))
+
+
+def flpt_cues(txt):
+    """The cues of the beats.json beside the narration text, in order."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(txt)), "beats.json"), encoding="utf-8") as f:
+            beats = json.load(f).get("beats") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [b["cue"] for b in beats if isinstance(b, dict) and isinstance(b.get("cue"), str) and b["cue"].strip()]
+
+
+def flpt_heard(wav):
+    """The words faster-whisper hears in the narration ([{text, start, end}]), or (None, why not)."""
+    import tempfile
+    py, model = os.environ.get("FLPT_WHISPER_PYTHON", ""), os.environ.get("FLPT_WHISPER_MODEL", "")
+    if not (os.path.isabs(py) and os.path.isfile(py) and os.path.isabs(model) and os.path.exists(model)):
+        return None, "no whisper in FLPT's toolchain"
+    env = {k: v for k, v in os.environ.items() if not re.search(r"KEY|TOKEN|SECRET|CREDENTIAL", k)}
+    env.update({"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
+    with tempfile.TemporaryDirectory(prefix="flpt-snap-") as td:
+        w16 = os.path.join(td, "16k.wav")
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", wav, "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", w16], capture_output=True)
+        if r.returncode != 0:
+            return None, "ffmpeg couldn't read the narration"
+        try:
+            r = subprocess.run([py, "-I", "-c", FLPT_WHISPER, w16, model], capture_output=True, text=True, timeout=900, env=env)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return None, f"whisper didn't run ({e.__class__.__name__})"
+    if r.returncode != 0:
+        last = (r.stderr or "").strip().splitlines()
+        return None, f"whisper stopped ({last[-1][:120] if last else r.returncode})"
+    try:
+        heard = json.loads(r.stdout)
+    except ValueError:
+        return None, "whisper's answer wasn't readable"
+    return [w for w in heard if isinstance(w, dict) and isinstance(w.get("text"), str)
+            and isinstance(w.get("start"), (int, float))], None
+
+
+def flpt_cue_snap(res, wav, txt):
+    """real-words.py's words with each cue word at whisper's start, where they agree within FLPT_SNAP_S."""
+    cues = flpt_cues(txt)
+    if not cues or not res:
+        return res
+    heard, why = flpt_heard(wav)
+    if heard is None:
+        print(f"cue snap: skipped ({why})")
+        return res
+    st, so, ht, ho = [], [], [], []  # tokens, and for each (its word, whether it starts that word)
+    for i, w in enumerate(res):
+        for k, t in enumerate(flpt_norm(w["text"])):
+            st.append(t)
+            so.append((i, k == 0))
+    for j, w in enumerate(heard):
+        for k, t in enumerate(flpt_norm(w["text"])):
+            ht.append(t)
+            ho.append((j, k == 0))
+    n, m = len(st), len(ht)
+    D = [[0] * (m + 1) for _ in range(n + 1)]  # longest common subsequence: the script's tokens against what was heard
+    for a in range(n - 1, -1, -1):
+        Da, Dn = D[a], D[a + 1]
+        for b in range(m - 1, -1, -1):
+            Da[b] = Dn[b + 1] + 1 if st[a] == ht[b] else max(Dn[b], Da[b + 1])
+    match, a, b = [-1] * n, 0, 0
+    while a < n and b < m:
+        if st[a] == ht[b]:
+            match[a] = b
+            a += 1
+            b += 1
+        elif D[a + 1][b] >= D[a][b + 1]:
+            a += 1
+        else:
+            b += 1
+    first = {}  # each word's first token
+    for x, (i, starts) in enumerate(so):
+        if starts:
+            first.setdefault(i, x)
+
+    def find(want, from_word):  # as align-beats.mjs finds a cue: its tokens in a row, from a word on
+        start = next((x for x, (i, _s) in enumerate(so) if i >= from_word), n)
+        return next((so[x][0] for x in range(start, n - len(want) + 1) if st[x:x + len(want)] == want), None)
+
+    moved, far, unmatched, biggest, ptr = 0, 0, 0, 0.0, 0
+    for cue in cues:
+        want = flpt_norm(cue)
+        i = find(want, ptr) if want else None
+        if i is None and want:
+            i = find(want, 0)  # out of order: align-beats.mjs looks again from the start
+        if i is None:
+            unmatched += 1
+            continue
+        ptr = i + 1
+        hb = match[first[i]]
+        # not heard, heard mid-word, or whisper's first word (it pins that one to the start of the audio): left as aligned
+        if hb < 0 or not ho[hb][1] or ho[hb][0] == 0:
+            unmatched += 1
+            continue
+        hs = float(heard[ho[hb][0]]["start"])
+        if abs(hs - res[i]["start"]) > FLPT_SNAP_S:
+            far += 1
+            continue
+        lo = res[i - 1]["start"] + 0.01 if i > 0 else 0.0
+        hi = res[i + 1]["start"] - 0.01 if i + 1 < len(res) else max(res[i]["end"], hs + 0.05)
+        if hi < lo:  # no room between its neighbours: as aligned
+            continue
+        new = round(min(max(hs, lo), hi), 3)
+        if abs(new - res[i]["start"]) >= 0.0005:
+            moved += 1
+            biggest = max(biggest, abs(new - res[i]["start"]))
+        res[i]["start"] = new
+        if res[i]["end"] < new + 0.02:
+            res[i]["end"] = round(min(new + 0.05, res[i + 1]["start"]) if i + 1 < len(res) else new + 0.05, 3)
+        if i > 0 and res[i - 1]["end"] > new:
+            res[i - 1]["end"] = new
+    print(f"cue snap: {moved} of {len(cues)} cue words moved to the voice as heard (largest {round(biggest * 1000)} ms); "
+          f"{far} heard over {round(FLPT_SNAP_S * 1000)} ms away, kept; {unmatched} not matched")
+    return res
+
+
 def main():
     wav, txt, out_path = sys.argv[1:4]
     noise = float(sys.argv[4]) if len(sys.argv) > 4 else -32
@@ -114,6 +253,7 @@ def main():
             e = a + (cum[w+1] - cum[i]) / tot * (b - a)
             out[w] = (round(s, 3), round(e, 3))
     res = [{"text": words[w], "start": out[w][0], "end": out[w][1]} for w in range(N)]
+    res = flpt_cue_snap(res, wav, txt)  # FLPT_CUE_SNAP_V1
     json.dump(res, open(out_path, "w"), indent=0)
     for k, i0, j0 in seg:
         print(f"[{spans[k][0]:6.2f}-{spans[k][1]:6.2f}] " + " ".join(words[w] for w in range(i0, j0)))
