@@ -4,8 +4,8 @@ The Fatty Lumpkin Presentation Tool's method as a Claude Code plugin: Loom-style
 
 ## Install
 ```
-/plugin marketplace add MCALLERS/fatty-lumpkin
-/plugin install flpt@fatty-lumpkin
+/plugin marketplace add MCALLERS/fatty-lumpkin-presentation-tool
+/plugin install flpt@fatty-lumpkin-presentation-tool
 ```
 Then run `/flpt:setup`, and `/flpt:new` to start an episode.
 
