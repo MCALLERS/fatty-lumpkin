@@ -16,14 +16,15 @@
 //        repeat render didn't;
 //      direct: render-direct.mjs (the pinned shell through puppeteer-core, each on-twos pair drawn once);
 // 4. the checks render.mjs makes for a slide: ffprobe 1920×1080, 30/1, the exact frame count; the last `hold` seconds
-//    still (PSNR ≥ 45 dB between the hold's start and the last frame); --check-frames writes 4 stills and the hold pair;
+//    still (PSNR ≥ 45 dB between the hold's start and the last frame, per keyframe run: holdStill, B12); --check-frames
+//    writes 4 stills and the hold's frames;
 // 5. --audio muxes a stem built elsewhere (AAC 192k, padded or trimmed to the picture): audio never comes from the page.
 // Prints one JSON summary; exit 0 only when every check passes.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { FPS, toolchain, renderEnv, wrapped, probe, psnr, parseArgs, isMain } from './lib.mjs';
+import { FPS, toolchain, renderEnv, wrapped, probe, psnr, keyframes, parseArgs, isMain } from './lib.mjs';
 import { buildPage } from './page.mjs';
 import { lintFolder } from './lint.mjs';
 import { renderDirect } from './render-direct.mjs';
@@ -48,6 +49,45 @@ function lastFrame(tc, video, png) {
   const r = spawnSync(tc.ffmpeg, ['-v', 'error', '-y', '-sseof', '-0.2', '-i', video, '-update', '1', '-q:v', '1', png], { encoding: 'utf8' });
   if (r.status !== 0 || !existsSync(png)) throw new Error(`no last frame: ${r.stderr}`);
   return png;
+}
+
+/** Frame n as a PNG, or null (a video shorter than planned has none: ffmpeg writes nothing and says nothing). */
+function frameNo(tc, video, n, png) {
+  rmSync(png, { force: true }); // never an older render's frame
+  const r = spawnSync(tc.ffmpeg, ['-v', 'error', '-y', '-i', video, '-vf', `select=eq(n\\,${n})`, '-frames:v', '1', png], { encoding: 'utf8' });
+  return r.status === 0 && existsSync(png) ? png : null;
+}
+
+/** What the hold check asks: 45 dB between the hold's start and its end, within one keyframe's run of frames. */
+export const HOLD_DB = 45;
+/** Across a keyframe the encoder starts the picture afresh: the frames either side of it, through HOLD_BLUR. */
+export const SEAM_DB = 40;
+export const HOLD_BLUR = 1.5;
+
+/**
+ * Is the last `hold` seconds still (B12)? The hold's start (0.1 s in) against its last frame, as before; but where
+ * the encoder put a keyframe inside the hold, two separate lossy encodes of the same still picture differ by grain
+ * (37 dB on a Riso piece at 509 frames, a keyframe at 500), so each run of frames between keyframes is checked on its
+ * own (HOLD_DB), and each keyframe seam through a light blur (SEAM_DB): motion anywhere in the hold still fails.
+ */
+export function holdStill(tc, video, pg, fdir, stem, frames = pg.frames) {
+  const lastN = Math.min(pg.frames, frames || pg.frames) - 1; // a short render (the probe says so too): its own last frame
+  const hsN = Math.max(0, Math.min(lastN, Math.round((pg.duration - pg.hold + 0.1) * FPS)));
+  const ks = keyframes(tc, video).filter((k) => k > hsN && k <= lastN);
+  const at = new Map();
+  const f = (n) => { if (!at.has(n)) at.set(n, frameNo(tc, video, n, join(fdir, n === hsN ? `${stem}_holdstart.png` : `${stem}_hold_f${n}.png`))); return at.get(n); };
+  const measure = (a, b, o) => { const x = f(a), y = f(b); return x && y ? psnr(tc, x, y, o) : NaN; };
+  const dbOf = (x) => (Number.isNaN(x) ? null : Number.isFinite(x) ? +x.toFixed(1) : 'inf');
+  const runs = [];
+  [hsN, ...ks].forEach((a, i, all) => { const b = i + 1 < all.length ? all[i + 1] - 1 : lastN; if (b > a) runs.push(measure(a, b)); });
+  const seams = ks.map((k) => measure(k - 1, k, { blur: HOLD_BLUR }));
+  const worst = runs.length ? runs.reduce((m, x) => (Number.isNaN(x) || x < m ? x : m), Infinity) : Infinity;
+  const badRun = Number.isNaN(worst) || worst < HOLD_DB;
+  const badSeam = seams.findIndex((x) => !(x >= SEAM_DB));
+  const ok = !badRun && badSeam < 0;
+  const why = ok ? null : Number.isNaN(worst) || (badSeam >= 0 && Number.isNaN(seams[badSeam])) ? 'its frames couldn\'t be measured'
+    : badRun ? `${dbOf(worst)} dB` : `${dbOf(seams[badSeam])} dB across the keyframe at frame ${ks[badSeam]}`;
+  return { ok, psnr_db: dbOf(worst), keyframes: ks, seams_db: seams.map(dbOf), why };
 }
 
 export async function renderScene(opts) {
@@ -144,11 +184,10 @@ export async function renderScene(opts) {
       mkdirSync(fdir, { recursive: true });
       const last = lastFrame(tc, tmpOut, join(fdir, `${stem}_last.png`));
       if (holdCheck) {
-        const hs = frameAt(tc, tmpOut, Math.max(0, pg.duration - pg.hold + 0.1), join(fdir, `${stem}_holdstart.png`));
-        const db = psnr(tc, hs, last);
-        res.hold_psnr_db = Number.isFinite(db) ? +db.toFixed(1) : 'inf';
-        if (Number.isFinite(db) && db < 45) issues.push(`the last ${pg.hold}s isn't still (${db.toFixed(1)} dB)`);
-        step('hold', { ok: !(Number.isFinite(db) && db < 45), psnr_db: res.hold_psnr_db, seconds: pg.hold });
+        const h = holdStill(tc, tmpOut, pg, fdir, stem, p.frames);
+        res.hold_psnr_db = h.psnr_db;
+        if (!h.ok) issues.push(`the last ${pg.hold}s isn't still (${h.why})`);
+        step('hold', { ok: h.ok, psnr_db: h.psnr_db, seconds: pg.hold, ...(h.keyframes.length ? { keyframes: h.keyframes, seams_db: h.seams_db } : {}) });
       }
       if (o.checkFrames) {
         const times = o.framesAt ? o.framesAt.map(Number) : [0.2, 0.45, 0.7].map((f) => +(pg.duration * f).toFixed(2));

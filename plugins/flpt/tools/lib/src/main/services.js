@@ -10,6 +10,8 @@ const { execFile } = require('child_process');
 
 const { createSettings } = require('./settings');
 const { createVault } = require('./vault');
+/** A first Keychain call this long had a person answer macOS's password question. */
+const KEYCHAIN_ASKED_MS = 1500;
 const { createRedactor } = require('./redact');
 const { engineRoot, appDirs } = require('./paths');
 const toolchain = require('./toolchain');
@@ -102,13 +104,24 @@ function createServices(o) {
 
   s.sampleDir = () => sample.createSampleProject(settings.read().projectsDir).dir;
 
+  // An update's first start: macOS may ask for the login password before the Keychain hands FLPT its keys. Said
+  // once, on Home, when that first Keychain call waited (KEYCHAIN_ASKED_MS) for a person.
+  let keychainAsked = null;
   s.state = () => {
-    const st = settings.read();
+    const vaultAvailable = vault.available();
+    const keys = vault.status();
+    let st = settings.read();
+    if (keychainAsked == null) {
+      const updated = st.lastVersion !== o.version && (st.lastVersion != null || Object.values(keys).some((k) => k && k.set));
+      keychainAsked = Boolean(updated && (vault.firstKeychainMs() || 0) >= (o.keychainAskedMs || KEYCHAIN_ASKED_MS));
+      if (o.version && st.lastVersion !== o.version) st = settings.write({ lastVersion: o.version });
+    }
     return {
       version: o.version,
       settings: st,
-      vaultAvailable: vault.available(),
-      keys: vault.status(),
+      vaultAvailable,
+      keys,
+      keychainAsked,
       tools: s.lastDetect,
       presenter: s.pipeline.readPresenter(),
       sample: { dir: s.sampleDir(), scaffolded: exists(path.join(s.sampleDir(), 'presentation', 'video', '.venv', 'bin', 'python')) },

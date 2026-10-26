@@ -9,6 +9,7 @@
 //   GET  /api/events                the session's event stream (sse.js), read with fetch
 //   POST /api/upload?name=          one file from the page → an upload token (uploads.js)
 //   POST /api/approve · /api/dialog the answers to approvals and dialogs (approvals.js)
+//   POST /api/internal/<what>       web only: the Worker's own calls, no page's (grants, vault; below)
 //   GET  /files/<media>?p=&v=       a picture, video or sound inline, anything else as a download (files.js)
 // No cookies anywhere: a session token travels in the X-FLPT-Session header on every call, upload, answer and on the
 // event stream; /files URLs carry the session's media token in their path instead (an <img> can't send a header).
@@ -46,6 +47,10 @@ const API_CSP = "default-src 'none'; frame-ancestors 'none'";
 const RPC_LIMIT = 8 * 1024 * 1024; // the contract's largest argument is 4 MB of JSON (an intake)
 const SMALL_LIMIT = 64 * 1024;
 const SESSION = /^[A-Za-z0-9_-]{43}$/;
+// web: what the Worker tells its container that no page can (web/worker/lib/internal.js): grants after a cold start,
+// the vault's view after a key change. Each names itself in X-FLPT-Internal.
+const INTERNAL = new Set(['grants', 'vault']);
+const GRANT = /^([a-z]{2,20}) ([A-Za-z0-9._~-]{16,256})$/;
 
 const token = (n = 32) => crypto.randomBytes(n).toString('base64url');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -91,6 +96,21 @@ function readBody(req, limit) {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
+}
+
+/**
+ * web: the grant a yes from the Worker carries (routes/approve.js: X-FLPT-Capability "<provider> <capability>",
+ * X-FLPT-Job, X-FLPT-Expires in ms): { provider, capability, jobId, expiresAt }, null when there's none, { bad: true }
+ * when it's there but isn't one (then the yes stands for nothing: approvals answers it as a no).
+ */
+function grantOf(headers = {}) {
+  const raw = headers['x-flpt-capability'];
+  if (raw === undefined) return null;
+  const m = GRANT.exec(String(raw));
+  const expiresAt = Number(headers['x-flpt-expires']);
+  if (!m || !Number.isFinite(expiresAt) || expiresAt <= 0) return { bad: true };
+  const job = String(headers['x-flpt-job'] || '');
+  return { provider: m[1], capability: m[2], jobId: /^[A-Za-z0-9_-]{1,64}$/.test(job) ? job : null, expiresAt };
 }
 
 async function readJson(req, limit) {
@@ -231,6 +251,7 @@ async function createHttp(o) {
       return json(res, 405, { ok: false, error: 'not allowed' });
     }
     if (p === '/api/contract' && req.method === 'GET') return json(res, 200, o.contract.describe());
+    if (p.startsWith('/api/internal/')) return internal(req, res, p.slice('/api/internal/'.length));
     const s = sessionOf(req);
     if (!s) return json(res, 401, { ok: false, error: 'No session.' });
     s.at = Date.now();
@@ -252,13 +273,32 @@ async function createHttp(o) {
     if (p === '/api/approve') {
       const body = await readJson(req, SMALL_LIMIT);
       if (mode === 'web' && !authorized(req)) return json(res, 403, { ok: false, error: 'not allowed' });
-      return json(res, 200, approvals.answer(body || {}, { session: s.id }));
+      // web: the Worker's yes brings its job's capability, granted to the host before the approval settles, so the
+      // flow that resumes on the yes finds the grant live (a grant that doesn't take makes the yes a no)
+      const g = mode === 'web' ? grantOf(req.headers) : null;
+      const onYes = g && typeof host.grant === 'function'
+        ? () => { if (g.bad) throw new Error('not a grant'); host.grant(g.provider, g.capability, { expiresAt: g.expiresAt, jobId: g.jobId }); } : null;
+      return json(res, 200, approvals.answer(body || {}, { session: s.id, onYes }));
     }
     if (p === '/api/dialog') {
       const body = await readJson(req, SMALL_LIMIT);
       return json(res, 200, approvals.reply(body || {}, { session: s.id }));
     }
     return json(res, 404, { ok: false, error: 'not found' });
+  }
+
+  /**
+   * web: one of the Worker's own calls. handle() has checked it is the Worker's (its per-start secret, the user); it
+   * must also name itself (X-FLPT-Internal), carry no session and come from no browser (no Sec-Fetch-*): the Worker
+   * passes no page's request here, and strips these headers from every page's (lib/proxy.js).
+   */
+  async function internal(req, res, what) {
+    if (mode !== 'web' || !INTERNAL.has(what) || !host.internal || typeof host.internal[what] !== 'function') return json(res, 404, { ok: false, error: 'not found' });
+    if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'not allowed' });
+    const browser = Object.keys(req.headers).some((k) => k.startsWith('sec-fetch-'));
+    if (!authorized(req) || req.headers['x-flpt-internal'] !== what || req.headers['x-flpt-session'] !== undefined || browser) return json(res, 403, { ok: false, error: 'not allowed' });
+    const body = await readJson(req, SMALL_LIMIT);
+    return json(res, 200, { ok: true, ...(await host.internal[what](body && typeof body === 'object' ? body : {})) });
   }
 
   function files(req, res, url) {
@@ -319,4 +359,4 @@ async function createHttp(o) {
   };
 }
 
-module.exports = { createHttp, webPage, webCsp, BASE_HEADERS };
+module.exports = { createHttp, webPage, webCsp, grantOf, BASE_HEADERS };

@@ -954,7 +954,7 @@ function createFlow(d) {
       }
       const error = res.error ? d.redact(String(res.error)).slice(0, 400) : null;
       episode.setStage(dir, stageId, { status: res.ok ? 'review' : 'error', sessionId: res.sessionId, report: res.report ? d.redact(res.report).slice(0, 8000) : null, error, costUsd: res.costUsd, qa });
-      return { ok: res.ok, error, costUsd: res.costUsd };
+      return { ok: res.ok, error, costUsd: res.costUsd, ...(res.keyRefused ? { keyRefused: true } : {}) };
     } catch (e) {
       const error = said(e);
       episode.setStage(dir, stageId, { status: 'error', error });
@@ -1464,7 +1464,7 @@ function createFlow(d) {
         // video insets and cartoons need only ffmpeg: they still play (and an extension's afterRender still runs)
         if (!(p.insets || []).length && !(p.cartoons || []).length && !extra) return [];
       }
-      const r = await d.motion.render(dir, which, { onLine, signal, hyperframes, ...(extra ? { afterRender } : {}) });
+      const r = await d.motion.render(dir, which, { onLine, signal, hyperframes, ...(extra ? { afterRender: (a, w, rr) => afterRender(a, w, rr, onLine) } : {}) });
       animators.noteClips(dir, r.rendered);
       for (const p of r.problems) onLine(`! ${p}`);
       return r.rendered;
@@ -1480,9 +1480,9 @@ function createFlow(d) {
    * Each extension's afterRender, merged for motion.render: { mix, scenes } (slide number → …; a later extension's
    * entry for a slide wins) and their problems, said in the log.
    */
-  async function afterRender(dir, which, rendered) {
+  async function afterRender(dir, which, rendered, onLine = () => {}) {
     const out = { mix: {}, scenes: {}, problems: [] };
-    for (const { ext: id, value } of await hooks.collect('afterRender', { dir, which, rendered: [...rendered] })) {
+    for (const { ext: id, value } of await hooks.collect('afterRender', { dir, which, rendered: [...rendered], onLine })) {
       if (!isPlain(value)) throw new ext.HookError(id, 'afterRender', new Error('it must answer with { mix, scenes }'));
       if (isPlain(value.mix)) Object.assign(out.mix, value.mix);
       if (isPlain(value.scenes)) Object.assign(out.scenes, value.scenes);
@@ -1549,6 +1549,7 @@ function createFlow(d) {
    * run has no keys and no network, so it can't spend anything. If it doesn't work out, the film keeps its stills.
    */
   async function addMotionToFilm(dir, onLine, signal) {
+    onLine('Timing the moving slides to the voice…');
     const moving = await moveSlides(dir, 'final', onLine, signal);
     if (!moving.length || (signal && signal.aborted)) { if (d.motion) d.motion.clear(dir); return 0; }
     const outs = [d.pipeline.finalOutput(dir), d.pipeline.editMasterOutput(dir)].filter(exists);
@@ -1569,6 +1570,15 @@ function createFlow(d) {
     }
     return moving.length;
   }
+
+  /** The film's phases, from the lines of its run (the pipeline's step titles, and FLPT's own). */
+  const FILM_PHASES = [ // in the order a run says them
+    [/^To film: /, 'Getting ready to film'], [/^\s*(DRAFT|FINAL) .*load slides/, 'Getting the slides and script ready'], [/^\s*Narration —/, 'Making the voice'],
+    [/^\s*Presenter bubble —/, 'Filming the presenter'], [/^\s*Composite \(/, 'Compositing the slides'],
+    [/^\s*Editing master/, 'Making the editing master'], [/^\s*Web copies/, 'Making the web copies'], [/^\s*Verify —/, 'Checking the film'],
+    [/^Timing the moving slides/, 'Timing the moving slides to the voice'], [/^Rendering .*Live Motion/, 'Rendering Live Motion at the film\'s timing'],
+    [/^Putting the film together/, 'Putting the film together'],
+  ];
 
   async function film(dir, onLine = () => {}, signal) {
     dir = guard(dir);
@@ -1591,8 +1601,19 @@ function createFlow(d) {
     const unpaid = providers.filter((p) => !tokens[p] || !d.broker.isLive(tokens[p], p));
     if (!free && unpaid.length) throw new Error(`The ${unpaid.map((p) => PROVIDER_NAMES[p]).join(' and ')} budget isn't approved (or was already used). Approve the spend again.`);
     if (keyless && typeof d.pipeline.cartoonFinal !== 'function') throw new Error('This FLPT can\'t film that presenter yet.');
+    // where the film is, for its panel ("Compositing the slides · 3 min"): FLPT's own steps, and the pipeline's
+    // never backwards: putting the film together runs the pipeline's steps again, under its own name
+    let at = -1;
+    const phase = (name, i = Infinity) => {
+      const cur = (readState(dir).stages.film || {}).phase;
+      if (cur === name) return;
+      at = Math.max(at, i === Infinity ? FILM_PHASES.length : i);
+      try { episode.setStage(dir, 'film', { phase: name, phaseAt: new Date().toISOString() }); } catch { /* the record as it was */ }
+    };
+    const log = onLine;
+    onLine = (line) => { const i = FILM_PHASES.findIndex(([re]) => re.test(String(line))); if (i > at) phase(FILM_PHASES[i][1], i); log(line); };
     return exclusive(dir, async () => {
-      episode.setStage(dir, 'film', { status: 'running', error: null });
+      episode.setStage(dir, 'film', { status: 'running', error: null, phase: 'Rendering the slides', phaseAt: new Date().toISOString() });
       try {
         const r1 = await d.pipeline.render(dir, { onLine, signal });
         if (r1.code !== 0) { episode.setStage(dir, 'film', { status: 'error', error: 'The slides didn\'t render.' }); return { ok: false, lines: r1.lines.slice(-10) }; }
@@ -1657,7 +1678,7 @@ function createFlow(d) {
         }
         const ok = r.code === 0 && exists(d.pipeline.finalOutput(dir));
         const moving = ok ? await addMotionToFilm(dir, onLine, signal) : 0;
-        if (ok) await hooks.notify('afterFilm', { dir });
+        if (ok) { phase('Splicing in the pieces between slides'); await hooks.notify('afterFilm', { dir, onLine }); }
         const error = ok ? null : signal && signal.aborted ? 'Stopped.'
           : keyless ? 'Filming didn\'t finish. Nothing was spent.'
             : free ? 'It couldn\'t be put together from what was already filmed, so filming needs an approval. Nothing was spent.' : 'Filming didn\'t finish. See the log.';

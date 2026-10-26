@@ -6,6 +6,7 @@
 .lm-wall-view { display: grid; gap: 18px; }
 .lm-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lm-gap { flex: 1; }
+.lm-fast[aria-pressed="true"] { color: var(--gold); border-color: var(--gold); }
 .lm-count { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); }
 .lm-count.live { color: var(--gold); }
 .lm-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: lm-pulse var(--d-5) var(--ease) infinite; }
@@ -37,7 +38,8 @@ html.fx-paused .lm-open:hover, html.fx-paused .lm-open:focus-visible { transform
 .lm-card .lm-anchor { position: absolute; inset: 0; width: 100%; }
 .lm-meta { display: grid; gap: 3px; min-width: 0; }
 .lm-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lm-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-line, .lm-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-step { color: var(--gold); }
 .lm-line.bad { color: var(--red); }
 .lm-acts { display: flex; gap: 6px; }
 .lm-cost { margin: 0; }

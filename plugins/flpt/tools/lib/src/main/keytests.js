@@ -18,7 +18,7 @@ async function call(fetchImpl, url, headers) {
   }
 }
 
-const bad = (status) => ({ ok: false, detail: status === 401 || status === 403 ? 'The key was rejected.' : `Unexpected reply (HTTP ${status}).` });
+const bad = (status) => (status === 401 || status === 403 ? { ok: false, refused: true, detail: 'The key was rejected.' } : { ok: false, detail: `Unexpected reply (HTTP ${status}).` });
 
 const TESTS = {
   async ANTHROPIC_API_KEY(key, f) {

@@ -1,6 +1,6 @@
 {
   "name": "flpt",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Fatty Lumpkin Presentation Tool: Loom-style talks your own AI presenter gives over a deck where every slide moves. The method (playbook, workstreams, episode wrapper, delivery) with its pipeline scripts, and the episode flow for Claude Code (/flpt:new).",
   "author": { "name": "Bombadillo AI" }
 }

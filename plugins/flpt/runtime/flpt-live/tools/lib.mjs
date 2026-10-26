@@ -89,9 +89,18 @@ export function probe(tc, file) {
   };
 }
 
-/** Mean PSNR (dB) between two pictures or videos of the same size; Infinity when identical. */
-export function psnr(tc, a, b, { aArgs = [], bArgs = [] } = {}) {
-  const r = spawnSync(tc.ffmpeg, ['-v', 'info', ...aArgs, '-i', a, ...bArgs, '-i', b, '-lavfi', '[0:v]format=rgb24[a];[1:v]format=rgb24[b];[a][b]psnr', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 << 20 });
+/** The keyframes of a video, as frame numbers from its first shown frame (from the packets: nothing is decoded). */
+export function keyframes(tc, file) {
+  const j = JSON.parse(execFileSync(tc.ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=start_time:packet=pts_time,flags', '-of', 'json', file], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+  const start = Number(((j.streams || [])[0] || {}).start_time) || 0; // a file without an edit list starts late (B-frames)
+  return (j.packets || []).filter((p) => p.flags && p.flags.includes('K') && p.pts_time != null && p.pts_time !== 'N/A')
+    .map((p) => Math.round((Number(p.pts_time) - start) * FPS)).sort((x, y) => x - y);
+}
+
+/** Mean PSNR (dB) between two pictures or videos of the same size; Infinity when identical. blur: a Gaussian σ on both first. */
+export function psnr(tc, a, b, { aArgs = [], bArgs = [], blur = 0 } = {}) {
+  const f = blur ? `format=rgb24,gblur=sigma=${blur}` : 'format=rgb24';
+  const r = spawnSync(tc.ffmpeg, ['-v', 'info', ...aArgs, '-i', a, ...bArgs, '-i', b, '-lavfi', `[0:v]${f}[a];[1:v]${f}[b];[a][b]psnr`, '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 64 << 20 });
   const m = (r.stderr || '').match(/average:(inf|[\d.]+)/);
   return m ? (m[1] === 'inf' ? Infinity : parseFloat(m[1])) : NaN;
 }

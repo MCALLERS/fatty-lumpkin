@@ -64,13 +64,14 @@ module.exports = {
       const lines = livemotion.planningLines(dir).map(({ label, usd }) => ({ label, usd }));
       return lines.length ? { lines } : null;
     },
-    async afterRender(ctx, { dir, which }) {
+    async afterRender(ctx, { dir, which, onLine = () => {} }) {
       const pieces = livemotion.pieces(dir);
       if (!pieces.length) return null;
       const made = pieces.filter((p) => { const r = livemotion.recordOf(dir, p); return r && r.key === p.key && r.ok; });
       if (!made.length) return null;
       if (!canRender(ctx.d)) return { problems: ['Live Motion scenes need HyperFrames, so they show their posters for now.'] };
       const deps = depsFrom(ctx.d, dir);
+      onLine(`Rendering ${made.length === 1 ? 'the Live Motion piece' : `${made.length} Live Motion pieces`} at this voice's timing…`);
       const out = await livemotion.renderNarrated(dir, which, deps);
       // the checks again at this run's timing (G1: the crew's ran on the draft's): a failure is "needs a look" on the
       // wall and in the Studio, never a silent ok; a pass clears it

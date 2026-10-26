@@ -212,6 +212,17 @@
   }
 
   // ── a card ──
+  const STEP = { waiting: 'Waiting for a crew', writing: 'Writing the scene', rendering: 'Rendering draft', revising: 'Revising draft', finishing: 'Finishing' };
+  /** A running piece's step and what's left: "Rendering draft 3 · about 6 min left" (main's scenecrew.stepOf). */
+  function stepLine(pr, now = Date.now()) {
+    if (!pr || !STEP[pr.step]) return null;
+    const head = pr.step === 'rendering' || pr.step === 'revising' ? `${STEP[pr.step]} ${pr.draft}` : STEP[pr.step];
+    if (pr.step === 'waiting' || !pr.startedAt) return head;
+    const left = Math.round((Number(pr.minutes) || 15) - (now - Date.parse(pr.startedAt)) / 60000);
+    return `${head} · ${left >= 1 ? `about ${left} min left` : 'a few more minutes'}`;
+  }
+  UI.components.liveMotionStep = stepLine;
+
   function card(ctx, p, running) {
     const v = ctx.view;
     const live = p.status === 'running';
@@ -230,10 +241,11 @@
     const line = lines.get(`${ctx.dir}\n${p.key}`);
     const meta = el('div', { class: 'lm-meta' },
       el('span', { class: 'hud lm-label', title: p.title || '' }, label),
+      live ? el('span', { class: 'lm-step hud' }, stepLine(p.progress) || 'Working') : null,
       live ? el('span', { class: 'lm-line muted', 'data-content': '' }, line || '') : (p.error && p.status === 'failed' ? el('span', { class: 'lm-line muted bad', 'data-content': '', title: p.error }, p.error)
         : p.note ? el('span', { class: 'lm-line muted', 'data-content': '' }, p.note) : null));
     const acts = [];
-    const busyNow = busy.has(ctx.dir) || running;
+    const busyNow = busy.has(ctx.dir) || running || Boolean(v.running); // other work in this episode too
     if (!live && ['ok', 'stale', 'failed'].includes(p.status) && ctx.status !== 'approved') {
       acts.push(el('button', { type: 'button', class: 'ghost small', disabled: busyNow, title: p.capUsd ? `Up to ${usd(p.capUsd)} of Claude usage` : '', onclick: () => againOne(ctx, p) }, 'Again'));
     }
@@ -248,6 +260,19 @@
     open.addEventListener('focus', () => { if (!live) startHover(n, p); });
     open.addEventListener('blur', () => { if (hover && hover.card === n) endHover(); });
     return n;
+  }
+
+  // ── the panel ──
+  /** Live Motion's crew from the settings: 'opus', or 'sonnet' (the wall's Faster). */
+  const crewOf = () => (typeof S !== 'undefined' && S && S.settings && S.settings.liveCrew === 'sonnet' ? 'sonnet' : 'opus');
+  /**
+   * About how long the crews take: 15 minutes a round of `parallel` pieces on Opus (measured: 4 pieces, 3 at a time,
+   * 20 min), 9 on Sonnet (estimated, storyboard.CREW_MINUTES.pieceFast).
+   */
+  function aboutMinutes(n, parallel, fast = false) {
+    const per = fast ? 9 : 15;
+    const hi = Math.max(per, Math.round((n / (Number(parallel) || 3)) * per));
+    return `about ${Math.round(hi * 0.75)}–${hi} min`;
   }
 
   // ── the panel ──
@@ -277,13 +302,21 @@
     if (ctx.status !== 'approved') {
       if (running) acts.push(el('button', { type: 'button', class: 'ghost', onclick: () => stopAll(ctx, pieces) }, 'Stop'));
       else if (!jazzing) {
-        if (todo.length) acts.push(el('button', { type: 'button', class: 'primary', disabled: Boolean(mine), onclick: () => makeAll(ctx, pieces) }, cost ? `Make all · up to ${usd(cost)}` : 'Make all'));
+        if (todo.length) acts.push(el('button', { type: 'button', class: 'primary', disabled: Boolean(mine) || Boolean(v.running), onclick: () => makeAll(ctx, pieces) }, cost ? `Make all · up to ${usd(cost)}` : 'Make all'));
         if (made.length) acts.push(el('button', { type: 'button', class: todo.length ? 'ghost' : 'primary', disabled: Boolean(mine), onclick: () => approveAll(ctx, pieces) }, 'Approve all'));
         else acts.push(el('button', { type: 'button', class: 'ghost', disabled: Boolean(mine), onclick: () => ctx.approve('animate') }, 'Skip'));
       }
     }
     const count = el('span', { class: `hud lm-count${running ? ' live' : ''}` }, running ? el('i', { class: 'lm-dot' }) : null, `${ready} of ${pieces.length} ready`);
-    root.append(el('div', { class: 'lm-bar' }, count, el('span', { class: 'lm-gap' }), ...acts));
+    // before Make all, beside its "up to $": how long, and how many when not all ("2 to make · about 11–15 min")
+    const ahead = !running && !jazzing && ctx.status !== 'approved' && todo.length
+      ? el('span', { class: 'hud muted lm-ahead' }, [todo.length !== pieces.length ? `${todo.length} to make` : null, aboutMinutes(todo.length, v.livemotion && v.livemotion.parallel, crewOf() === 'sonnet')].filter(Boolean).join(' · '))
+      : null;
+    // Faster: Sonnet's crews instead of Opus's, the same caps (an app setting: Jazz's runs use it too)
+    const fast = ahead && flpt.saveSettings ? el('button', { type: 'button', class: 'ghost small lm-fast', 'aria-pressed': String(crewOf() === 'sonnet'), disabled: Boolean(mine),
+      title: crewOf() === 'sonnet' ? 'Sonnet\'s crews: quicker. The same caps.' : 'Opus\'s crews. Faster uses Sonnet\'s, with the same caps.',
+      onclick: async () => { const r = await flpt.saveSettings({ liveCrew: crewOf() === 'sonnet' ? 'opus' : 'sonnet' }); if (r && r.settings) S.settings = r.settings; ctx.render(); } }, 'Faster') : null;
+    root.append(el('div', { class: 'lm-bar' }, count, ahead, el('span', { class: 'lm-gap' }), fast, ...acts));
     if (!avail && pieces.some((p) => p.source === 'animator' && p.status === 'todo')) root.append(el('p', { class: 'note' }, 'Animations need HyperFrames (Setup → Tools).'));
     root.append(el('div', { class: 'lm-wall' }, ...pieces.map((p) => card(ctx, p, running))));
     if (ctx.record && ctx.record.costUsd != null && ctx.status !== 'todo' && !running) root.append(el('p', { class: 'muted lm-cost' }, `Last run: ${usd(ctx.record.costUsd)} of Claude usage.`));

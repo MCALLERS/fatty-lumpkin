@@ -1,6 +1,6 @@
 {
   "name": "flpt-server",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "flpt-server: FLPT's screens and core over HTTP (the web container's entry, the plugin's Desk, local web QA). Its version moves in lockstep with the app, the plugin and the Worker (tools/release/bump.mjs)."
 }

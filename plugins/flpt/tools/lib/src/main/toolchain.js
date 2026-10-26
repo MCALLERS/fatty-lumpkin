@@ -38,8 +38,8 @@ const TOOLS = [
   { id: 'ffmpeg', label: 'ffmpeg and ffprobe', why: 'renders and mixes every video', required: true },
   { id: 'python', label: 'Python 3 with numpy and requests', why: 'runs the video pipeline', required: true },
   { id: 'chrome', label: 'Chrome', why: 'turns slides into pictures', required: true },
-  { id: 'node', label: 'Node.js', why: 'moving slides', required: false },
-  { id: 'hyperframes', label: 'HyperFrames', why: 'moving slides', required: false },
+  { id: 'node', label: 'Node.js', why: 'moving slides and Live Motion', required: true },
+  { id: 'hyperframes', label: 'HyperFrames', why: 'moving slides and Live Motion', required: true },
   { id: 'rhubarb', label: 'Rhubarb Lip Sync', why: 'the cartoon presenter\'s lip sync', required: false },
 ];
 

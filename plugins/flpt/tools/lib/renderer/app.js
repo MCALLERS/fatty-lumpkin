@@ -180,6 +180,7 @@ addEventListener('focus', () => { motion.away = false; syncMotion(); });
 
 let S = null; // app state from the main process
 const session = { tests: {}, checkPassed: false, sampleMade: false, sampleOutput: null, currentJob: null, step: null };
+let onWeb = false; // flpt.app.caps().surface 'web': the keys are FLPT's web vault's, the tools the image's, no Mac to import
 
 FLPT_UI.setupSteps.unshift(
   { id: 'welcome', label: 'Welcome', done: () => S.settings.seenWelcome,
@@ -194,6 +195,13 @@ FLPT_UI.setupSteps.unshift(
   { id: 'about', label: 'About', extra: true, show: () => { $('#about-version').textContent = S.version ? `Version ${S.version}` : ''; } },
 );
 const stepOf = (id) => FLPT_UI.setupSteps.find((st) => st && st.id === id);
+
+/** A refused Anthropic key (the free test at start, or a crew's refusal): one line on Home until a test passes. */
+function keyRefused(on) {
+  session.keyRefused = on;
+  if (on) session.tests.ANTHROPIC_API_KEY = false;
+  if (!$('#home-view').hidden && typeof renderHome === 'function') renderHome();
+}
 
 // ── views: setup, home (episodes), episode ─────────────────────────────────────────────────────────────────────
 
@@ -331,6 +339,7 @@ function keyRow(k) {
     if (!r.ok) { msg.className = 'msg bad'; msg.textContent = r.error; return; }
     S.keys = r.keys;
     session.tests[k.name] = r.test.ok === null ? null : Boolean(r.test.ok);
+    if (k.name === 'ANTHROPIC_API_KEY' && (r.test.refused || r.test.ok === true)) keyRefused(Boolean(r.test.refused)); // offline says nothing
     renderKeys();
     const m = document.querySelector(`[data-key="${k.name}"] .msg`);
     if (m) { m.className = `msg ${r.test.ok === false ? 'bad' : 'ok'}`; m.textContent = r.test.detail; }
@@ -339,6 +348,7 @@ function keyRow(k) {
   const test = k.set ? el('button', { class: 'ghost', onclick: async () => {
     const r = await flpt.testKey(k.name);
     session.tests[k.name] = r.ok === null ? null : Boolean(r.ok);
+    if (k.name === 'ANTHROPIC_API_KEY' && (r.refused || r.ok === true)) keyRefused(Boolean(r.refused));
     msg.className = `msg ${r.ok === false ? 'bad' : 'ok'}`;
     msg.textContent = r.detail;
     renderSteps('keys');
@@ -352,7 +362,7 @@ function renderKeys() {
   const ks = Object.values(S.keys).filter((k) => !k.signin); // a sign-in (the FLPT voices') isn't a key to paste
   $('#key-list').replaceChildren(...ks.filter((k) => k.required).map(keyRow));
   $('#key-list-optional').replaceChildren(...ks.filter((k) => !k.required).map(keyRow));
-  $('#import-banner').hidden = !(S.importable && (S.importable.keysEnv || S.importable.presenterEnv));
+  $('#import-banner').hidden = onWeb || !(S.importable && (S.importable.keysEnv || S.importable.presenterEnv));
   if (!S.vaultAvailable) {
     $('#key-list').prepend(el('p', { class: 'note' }, 'macOS Keychain encryption isn\'t available right now, so keys can\'t be saved.'));
   }
@@ -515,8 +525,24 @@ $('#log-cancel').addEventListener('click', () => { if (session.currentJob) flpt.
 // ── start ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 // After every script has run (episodes.js registers the home view), not as soon as this file has.
+/** The web's own words where Setup speaks of the Mac (the caps the page already gets: surface 'web'). */
+function webWording() {
+  const trust = $('[data-name="keys"] [data-trust]');
+  if (trust) trust.textContent = '⚑ Keys stay in FLPT\'s vault, on its server. The crew never sees them.';
+  const where = $('[data-name="tools"] fieldset.choice'); // the image's own tools: nothing to choose
+  if (where) where.hidden = true;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const c = flpt.app && typeof flpt.app.caps === 'function' ? await flpt.app.caps() : null;
+    onWeb = Boolean(c && c.ok && c.value && c.value.surface === 'web');
+  } catch { onWeb = false; }
+  if (onWeb) webWording();
   S = await flpt.state();
   if (S.settings.ui && S.settings.ui.motion) setMotion(S.settings.ui.motion === 'paused'); // settings.json wins over the mirror
   showView(S.settings.setupComplete ? 'home' : 'setup');
+  // A key Anthropic stopped taking is found here, free (the model list), not at Bullets; offline says nothing.
+  const anth = S.keys && S.keys.ANTHROPIC_API_KEY;
+  if (!onWeb && anth && anth.set) flpt.testKey('ANTHROPIC_API_KEY').then((r) => { if (r && r.refused) keyRefused(true); }, () => {});
 });

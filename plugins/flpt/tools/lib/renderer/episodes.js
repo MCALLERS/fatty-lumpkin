@@ -64,7 +64,20 @@ const clock = (secs) => `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)
 const when = (iso) => { try { return new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 const host = (u) => { try { return new URL(u).host.replace(/^www\./, ''); } catch { return u; } };
 /** One message at the top of a stage. extra.restore: the refusal of a changed pipeline, with its Restore beside it. */
-function flash(dir, stage, text, bad = true, extra = null) { ep.flash = { dir, stage, text, bad, ...(extra || {}) }; }
+function flash(dir, stage, text, bad = true, extra = null) {
+  if (bad && BUSY.test(String(text))) { text = workingLine(dir); bad = false; } // a second click while it works: not an error
+  ep.flash = { dir, stage, text, bad, ...(extra || {}) };
+}
+// what main says when an episode's work is under way (flow.js, scenecrew.js)
+const BUSY = /^(Something is already running for this episode|The scene crews are already at work on this episode|The Live Motion crews are still drawing)\.$/;
+/** "Working: 3 of 4 ready." while Live Motion's crews draw, else "Working." */
+function workingLine(dir) {
+  const v = ep.view && ep.view.dir === dir ? ep.view : null;
+  const lm = v && v.livemotion && Array.isArray(v.livemotion.pieces) ? v.livemotion.pieces : [];
+  if (!lm.some((p) => p.status === 'running')) return 'Working.';
+  return `Working: ${lm.filter((p) => p.status === 'ok' || p.status === 'yours').length} of ${lm.length} ready.`;
+}
+FLPT_UI.components.busyLine = (dir, text) => (BUSY.test(String(text)) ? workingLine(dir) : null);
 // T18: a render or a film of an episode whose pipeline scripts changed is refused with this line (pipeline.js,
 // slidebox.js); Restore (flpt.pipeline.restore) puts FLPT's own copy back, free.
 const CHANGED = 'This episode\'s pipeline changed.';
@@ -173,12 +186,25 @@ function coverCard(x, cover) {
   return card;
 }
 
+/** The first required tool that's missing, in one line. */
+function missingTool(tools) {
+  const t = (tools.tools || []).find((x) => x.required && !x.ok);
+  return !t ? 'Setup → Tools needs a look.' : t.id === 'hyperframes' || t.id === 'node' ? 'Live Motion needs HyperFrames.' : `FLPT needs ${t.label}.`;
+}
+
 async function renderHome() {
   const box = $('#episode-list');
   const banner = S && !S.settings.setupComplete
     ? el('div', { class: 'banner' }, el('p', { title: 'Episodes need the tools and your keys: Anthropic for the crew, HeyGen for filming.' }, 'Setup isn\'t finished.'),
       el('button', { 'data-view': 'setup' }, 'Finish setup'))
-    : null;
+    : session.keyRefused
+      ? el('div', { class: 'banner', role: 'status' }, el('p', {}, 'Your Anthropic key was refused.'), el('button', { 'data-view': 'setup', onclick: () => { session.step = 'keys'; } }, 'Setup → Keys'))
+      : S && S.keychainAsked && !session.keychainSeen // the first start after an update: why macOS asked, once (then the rest)
+        ? el('div', { class: 'banner', role: 'status' }, el('p', {}, 'FLPT was updated, so macOS asked once for your Keychain password.'),
+          el('button', { class: 'ghost', onclick: () => { session.keychainSeen = true; renderHome(); } }, 'OK'))
+        : S && S.tools && !S.tools.ready // a Setup finished before HyperFrames was required (2.0.0)
+          ? el('div', { class: 'banner', role: 'status' }, el('p', {}, missingTool(S.tools)), el('button', { 'data-view': 'setup', onclick: () => { session.step = 'tools'; } }, 'Setup → Tools'))
+          : null;
   // the first tile: a new episode (the same sheet the empty page opens)
   const fresh = el('button', { type: 'button', class: 'ep-card ep-new', id: 'new-episode-btn', onclick: showIntake },
     el('span', { class: 'ep-cover' }, el('span', { class: 'plus', 'aria-hidden': 'true' }, '+')), el('span', { class: 'ep-title' }, 'New episode'));
@@ -303,13 +329,16 @@ async function refresh({ quiet = false } = {}) {
   if (ep.dir !== dir) return; // the user moved on meanwhile
   ep.view = v;
   if (!ep.stage || !v.stages.some((s) => s.id === ep.stage)) ep.stage = v.current;
-  const seen = JSON.stringify([v.state.stages, v.state.animations, v.running, v.slidesAt, v.videoAt, v.draftAt, v.scenes]);
+  // a running film's panel says its phase and its minutes: a new minute draws it again
+  const tick = ep.stage === 'film' && statusOf(v, 'film') === 'running' ? Math.floor(Date.now() / 60000) : 0;
+  const seen = JSON.stringify([v.state.stages, v.state.animations, v.running, v.slidesAt, v.videoAt, v.draftAt, v.scenes, tick]);
   renderRail();
   if (!quiet || seen !== ep.seen) renderStage();
   ep.seen = seen;
-  // A run this window didn't start (or one from before a reload): keep checking until it ends.
+  // A run this window didn't start (or one from before a reload), or a pipeline step it did (Film's phases): keep
+  // checking until it ends.
   clearTimeout(ep.poll);
-  if (v.running && !ep.inflight.has(dir) && !ep.busy.has(dir)) ep.poll = setTimeout(() => refresh({ quiet: true }), 4000);
+  if (v.running && !ep.inflight.has(dir)) ep.poll = setTimeout(() => refresh({ quiet: true }), 4000);
 }
 
 function statusOf(v, id) {
@@ -601,7 +630,10 @@ async function run(dir, stage, feedback) {
   try {
     const r = await call(flpt.runStage, dir, stage, feedback);
     if (r && r.cancelled) flash(dir, stage, 'Not approved, so nothing ran and nothing was spent.', false);
-    else if (r && !r.ok) flash(dir, stage, r.error || 'The crew stopped before finishing.');
+    else if (r && !r.ok) {
+      if (r.keyRefused) keyRefused(true);
+      if (!r.error) flash(dir, stage, 'The crew stopped before finishing.'); // else the stage says it, once
+    }
     else if (r) flash(dir, stage, `Done, for ${dollars(r.costUsd)}.`, false);
   } catch (e) {
     flash(dir, stage, e.message);
@@ -1337,7 +1369,9 @@ function filmPanel(v, rec, status) {
   const out = [];
   const spend = v.state.stages.spend;
   if (status === 'running') {
-    return [el('p', { class: 'note' }, 'Filming…')];
+    // the phase it's in, and for how long (flow.film writes them as they happen): never a frozen "Filming…"
+    const mins = rec.phaseAt ? Math.floor((Date.now() - Date.parse(rec.phaseAt)) / 60000) : 0;
+    return [el('p', { class: 'note', role: 'status' }, el('span', { class: 'hud' }, rec.phase ? `${rec.phase}${mins >= 1 ? ` · ${mins} min` : '…'}` : 'Filming…'))];
   }
   if (status === 'error' && rec.error === CHANGED) {
     // refused before anything was spent (the approval is kept): Restore, then Film it again

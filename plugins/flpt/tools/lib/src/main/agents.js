@@ -30,6 +30,26 @@ const READS = new Set(['Read', 'Glob', 'Grep']);
 const WRITES = new Set(['Write', 'Edit', 'MultiEdit']);
 const WEB = new Set(['WebSearch', 'WebFetch']);
 
+// The web image's Anthropic broker (W4-04): host-web sets it; nothing on the Mac or in the plugin, where the crew calls
+// Anthropic itself. { baseUrl, headers() → { name: value } | null }
+let edge = null;
+const EDGE_BASE = /^http:\/\/(anthropic\.internal|127\.0\.0\.1)(:\d{2,5})?$/;
+
+/** Every crew session's Anthropic base and extra headers from now on (null: Anthropic itself). → the base, or null */
+function setEdge(e) {
+  edge = e && EDGE_BASE.test(String(e.baseUrl || '')) ? { baseUrl: e.baseUrl, headers: typeof e.headers === 'function' ? e.headers : () => null } : null;
+  return edge ? edge.baseUrl : null;
+}
+
+/** A crew's environment for the broker: its base, and its headers (the job's capability) while there are any. */
+function edgeEnv() {
+  if (!edge) return {};
+  let h = null;
+  try { h = edge.headers(); } catch { h = null; }
+  const lines = Object.entries(h || {}).filter(([k, v]) => /^[A-Za-z0-9-]{1,64}$/.test(k) && /^[\x21-\x7e]{1,512}$/.test(String(v))).map(([k, v]) => `${k}: ${v}`);
+  return { ANTHROPIC_BASE_URL: edge.baseUrl, ...(lines.length ? { ANTHROPIC_CUSTOM_HEADERS: lines.join('\n') } : {}) };
+}
+
 /** Is p really inside root (followed through any link: the realpath of its deepest existing part)? */
 const within = (p, root) => writepolicy.within(p, root);
 
@@ -210,19 +230,31 @@ function sessionOptions({ presDir, engineRoot, model, tools = TOOLS, disallowed 
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', // no telemetry, error reports or update checks from the crew
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', // nothing carried from one session (or episode) to the next
       FLPT_SURFACE: 'app', // the app's own crew: the plugin's scene guard (to come, W2-12) stands down for it
+      ...edgeEnv(), // the web image: FLPT's Anthropic broker, and the job's capability while it's granted (W4-04)
     },
     ...(deps.executable ? { pathToClaudeCodeExecutable: deps.executable } : {}),
     ...(resume ? { resume } : {}),
   };
 }
 
+/** What a crew says when Anthropic refuses the key (the SDK's own words, "Invalid API key · Fix external API key", once). */
+const KEY_REFUSED = 'Your Anthropic key was refused. Setup → Keys.';
+const REFUSED_TEXT = /invalid api key|invalid x-api-key|authentication_error/i;
+/** The SDK's own message for a refused key (an assistant message carrying authentication_failed). */
+const refusalMessage = (msg) => msg.type === 'assistant' && msg.error === 'authentication_failed';
+/** A failed result whose words are a refusal (a successful one may well mention API keys: never that). */
+const refusedResult = (msg) => (msg.is_error || msg.subtype !== 'success') && REFUSED_TEXT.test(String(msg.result || ''));
+
 /** Run one session to its result, streaming its events (see runStage for what comes back). */
 async function runSession({ sdk, prompt, options, abort, onEvent = () => {} }) {
   let sessionId = null;
+  let refused = false;
   try {
     const q = sdk.query({ prompt, options });
     for await (const msg of q) {
       if (msg.session_id) sessionId = msg.session_id;
+      if (refusalMessage(msg)) { refused = true; continue; } // the SDK's own line for it would show twice
+      if (msg.type === 'assistant' && !msg.error) refused = false; // a retry that got through: the key works
       if (msg.type === 'system' && msg.subtype === 'init') {
         // init lists every skill the CLI discovered; only the enabled ones (SKILLS) reach the crew.
         onEvent({ kind: 'init', model: msg.model, tools: (msg.tools || []).length, skills: (msg.skills || []).filter((n) => SKILLS.includes(n)), plugins: (msg.plugins || []).map((p) => p.name || p) });
@@ -232,17 +264,21 @@ async function runSession({ sdk, prompt, options, abort, onEvent = () => {} }) {
           if (block.type === 'tool_use') onEvent({ kind: 'tool', name: block.name.replace(/^mcp__flpt__/, 'flpt.'), detail: summarizeInput(block.name, block.input) });
         }
       } else if (msg.type === 'result') {
+        if (refusedResult(msg)) refused = true;
+        else if (msg.subtype === 'success' && !msg.is_error) refused = false;
         const ok = msg.subtype === 'success' && !msg.is_error;
-        onEvent({ kind: 'result', ok, costUsd: msg.total_cost_usd, turns: msg.num_turns, subtype: msg.subtype });
-        return { ok, costUsd: msg.total_cost_usd || 0, costKnown: true, turns: msg.num_turns, sessionId, report: ok ? msg.result || '' : '',
-          error: ok ? null : (msg.subtype === 'error_max_budget_usd' ? 'This stage hit its spending cap.' : msg.subtype === 'error_max_turns' ? 'This stage ran out of turns.' : (msg.result || msg.subtype)) };
+        onEvent({ kind: 'result', ok, costUsd: msg.total_cost_usd, turns: msg.num_turns, subtype: msg.subtype, ...(refused ? { keyRefused: true } : {}) });
+        return { ok, costUsd: msg.total_cost_usd || 0, costKnown: true, turns: msg.num_turns, sessionId, report: ok ? msg.result || '' : '', ...(refused ? { keyRefused: true } : {}),
+          error: ok ? null : refused ? KEY_REFUSED : (msg.subtype === 'error_max_budget_usd' ? 'This stage hit its spending cap.' : msg.subtype === 'error_max_turns' ? 'This stage ran out of turns.' : (msg.result || msg.subtype)) };
       }
     }
-    return { ok: false, costUsd: 0, costKnown: false, sessionId, error: 'The agent stopped without a result.' };
+    return { ok: false, costUsd: 0, costKnown: false, sessionId, ...(refused ? { keyRefused: true } : {}), error: refused ? KEY_REFUSED : 'The agent stopped without a result.' };
   } catch (e) {
-    return { ok: false, costUsd: 0, costKnown: false, sessionId, error: abort.signal.aborted ? 'Stopped.' : String(e && e.message ? e.message : e).slice(0, 400) };
+    const text = String(e && e.message ? e.message : e);
+    if (refused || REFUSED_TEXT.test(text)) return { ok: false, costUsd: 0, costKnown: false, sessionId, keyRefused: true, error: KEY_REFUSED };
+    return { ok: false, costUsd: 0, costKnown: false, sessionId, error: abort.signal.aborted ? 'Stopped.' : text.slice(0, 400) };
   }
 }
 
-module.exports = { runStage, runSession, sessionOptions, policy, guarded, within, fill, stagePrompt, summarizeInput, plannerCaps, TOOLS, NEVER, SKILLS, READS,
+module.exports = { runStage, runSession, KEY_REFUSED, sessionOptions, setEdge, edgeEnv, policy, guarded, within, fill, stagePrompt, summarizeInput, plannerCaps, TOOLS, NEVER, SKILLS, READS,
   WRITES, WEB, PLANNER_TOOLS, CREW_STAGES };

@@ -12,7 +12,11 @@ const { estimate } = require('../broker');
 const heygen = require('../heygen');
 
 const LOCK_DIR = path.join(__dirname, '..', 'hyperframes'); // HyperFrames' pinned lockfile
-const SAMPLE = () => estimate([{ rate: 'heygen_avatar_s', qty: 15, label: 'Slide 1 with your avatar (about 15 s)' }]);
+// The paid sample films sample.js's slide 1 (219 characters, the same every time): about 15 s in the HeyGen voice, 16.1 s
+// of avatar with its tail, billed by the started second. Priced as it is filmed (W6-02a: the web's broker meters each
+// call, and the old 15 s with no voice came to less than the sample spends).
+const SAMPLE = () => estimate([{ rate: 'heygen_avatar_s', qty: 17, label: 'Slide 1 with your avatar (about 16 s)' },
+  { rate: 'heygen_tts_s', qty: 15, label: 'Its narration in your HeyGen voice (about 15 s)' }]);
 const exists = (p) => { try { fs.accessSync(p); return true; } catch { return false; } };
 const MEDIA = /\.(mp4|mov|m4v|png|jpe?g)$/i;
 
@@ -33,7 +37,7 @@ const settings = {
   ns: 'settings',
   methods: {
     set: { args: ['json?'], raw: true, expose: 'saveSettings', handler: (c, patch) => {
-      const allowed = ['seenWelcome', 'setupComplete', 'toolchainMode', 'providers'];
+      const allowed = ['seenWelcome', 'setupComplete', 'toolchainMode', 'providers', 'liveCrew'];
       const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => allowed.includes(k)));
       const value = c.settings.write(clean);
       return { settings: value, persisted: c.settings.persisted() };

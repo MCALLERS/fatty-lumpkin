@@ -1241,6 +1241,7 @@ function view(dir) {
       preview: exists(preview) ? path.relative(pres(dir), preview) : null, poster: p.n && exists(pres(dir, 'slides', `slide_${pad2(p.n)}.png`)) ? path.join('slides', `slide_${pad2(p.n)}.png`) : null,
       checks: mine ? rec.checks || null : null, unlisted: mine && rec.words ? rec.words.unlisted || [] : [], flagged: mine && rec.words ? rec.words.flagged || [] : [],
       renders: cs ? cs.renders : null, rounds: cs ? cs.rounds.filter((r) => r.fix).length : 0,
+      progress: status === 'running' ? require('./scenecrew').stepOf(dir, p.key) : null,
       costUsd: entry.costUsd == null ? null : entry.costUsd, error: entry.error || null, approved: Boolean(entry.approved), approvedBy: entry.approvedBy || null,
       capUsd: p.caps.usd, folder: p.folder,
       // what the last draft's or film's checks found at its timing, while the files are what was checked (G1)

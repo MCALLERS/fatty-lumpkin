@@ -58,8 +58,24 @@ const liveMotionOf = (c) => (c.liveMotion && typeof c.liveMotion.run === 'functi
  * something running) come back to the caller before any job opens; once it plays, its end is the job's and the event's.
  * → jazz
  */
+/** Live Motion's crews draw with HyperFrames: a plan with pieces is refused before Jazz starts, not part way. */
+const NEEDS_HF = 'Live Motion needs HyperFrames (Setup → Tools).';
+function needsTools(c, dir) {
+  if (typeof c.toolOf !== 'function') return null;
+  const hf = c.toolOf('hyperframes');
+  if (!hf || hf.ok) return null; // not looked for yet: the run's own check says
+  let st = null;
+  try { st = episode.read(dir); } catch { st = null; }
+  const stages = (st && st.stages) || {};
+  if ((stages.animate || {}).status === 'approved') return null; // Live Motion made, or skipped: nothing more to draw
+  if ((stages.storyboard || {}).skipped) return null; // no board plans it
+  let pieces = 0;
+  try { const board = require('../storyboard'); pieces = board.price(null, board.read(dir), {}).crew.pieces; } catch { pieces = 0; }
+  return pieces > 0 ? NEEDS_HF : null;
+}
+
 async function start(c, dir) {
-  const why = typeof c.flow.jazzRefusal === 'function' ? c.flow.jazzRefusal(dir) : null;
+  const why = needsTools(c, dir) || (typeof c.flow.jazzRefusal === 'function' ? c.flow.jazzRefusal(dir) : null);
   if (why) throw new Error(why);
   const job = typeof c.startJob === 'function' ? c.startJob('Let FLPT play jazz') : null;
   const p = c.flow.playThrough(dir, { liveMotion: liveMotionOf(c), notify: notifierOf(c), onLine: job ? job.onLine : () => {}, signal: job ? job.signal : undefined });
@@ -80,6 +96,8 @@ module.exports = {
     view: { args: ['episode'], handler: (c, dir) => c.flow.jazzView(dirOf(c, dir)) },
     approve: { args: ['episode'], handler: async (c, dir) => {
       const d = dirOf(c, dir);
+      const tools = needsTools(c, d);
+      if (tools) throw new Error(tools); // nothing approved, nothing spent
       const r = await c.flow.approveStoryboard(d, 'jazz');
       if (!r.ok) return { ok: false, cancelled: true };
       try { c.send('storyboard:changed', { dir: d }); } catch { /* no window */ }

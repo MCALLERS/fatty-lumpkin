@@ -62,8 +62,12 @@ function createVault({ dir, safeStorage }) {
     fs.renameSync(tmp, file);
   }
 
+  // How long the first Keychain call took: macOS asking for the login password (after an update) makes it long.
+  let firstMs = null;
+  const timed = (fn) => { if (firstMs != null) return fn(); const t0 = Date.now(); try { return fn(); } finally { firstMs = Date.now() - t0; } };
+
   function available() {
-    try { return Boolean(safeStorage && safeStorage.isEncryptionAvailable()); } catch { return false; }
+    try { return Boolean(safeStorage && timed(() => safeStorage.isEncryptionAvailable())); } catch { return false; }
   }
 
   function set(name, value) {
@@ -79,7 +83,7 @@ function createVault({ dir, safeStorage }) {
   function get(name) {
     const item = load().items[name] || load().items[Object.keys(ALIASES).find((k) => ALIASES[k] === name)];
     if (!item) return null;
-    try { return safeStorage.decryptString(Buffer.from(item.enc, 'base64')); } catch { return null; }
+    try { return timed(() => safeStorage.decryptString(Buffer.from(item.enc, 'base64'))); } catch { return null; }
   }
 
   function remove(name) {
@@ -135,7 +139,7 @@ function createVault({ dir, safeStorage }) {
     return imported;
   }
 
-  return { set, get, remove, status, env, allValues, importKeysEnv, available, file };
+  return { set, get, remove, status, env, allValues, importKeysEnv, available, firstKeychainMs: () => firstMs, file };
 }
 
 module.exports = { createVault, KEYS, ALIASES, requiredFor };

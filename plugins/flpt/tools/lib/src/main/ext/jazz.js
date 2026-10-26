@@ -281,9 +281,11 @@ function generatedPrice(board, shotId, routes = {}) {
  * chips: app and web, with a generation key, once the deck is built), code ('no-key' | 'surface' | null: why the plan
  * draws Cosmos and cut scenes in code) }.
  */
-function viewOf(dir, st, { caps = null, routes = {} } = {}) {
+function viewOf(dir, st, { caps = null, routes = {}, canRender = true } = {}) {
   const episode = require('../episode');
   const j = episode.jazzOf(st);
+  // a stop for a tool that's been installed since says nothing more (the note stayed after HyperFrames came, 2026-10-26)
+  if (canRender && j.why && NEEDS_HF.test(j.why)) j.why = null;
   const s = st && st.stages && isPlain(st.stages.storyboard) ? st.stages.storyboard : {};
   let board = null;
   try { board = s.skipped && s.status === 'approved' ? null : storyboard.read(dir); } catch { board = null; }
@@ -309,6 +311,10 @@ function viewOf(dir, st, { caps = null, routes = {} } = {}) {
 }
 
 /** The caps the storyboard plans with, from the flow's host (ext/storyboard.capsFor). */
+/** The stops a missing HyperFrames makes (api/livemotion.js, api/refs.js, flow.animateNow). */
+const NEEDS_HF = /needs? HyperFrames/;
+/** Can the host render (ext/livemotion's canRender: its HyperFrames, when it says)? */
+const rendersOf = (d) => !(d && d.motion && typeof d.motion.available === 'function' && !d.motion.available());
 const capsOf = (d) => { try { return require('./storyboard').capsFor(d || {}); } catch { return null; } };
 const routesOf = (d) => { try { return d && d.scenes && typeof d.scenes.routes === 'function' ? d.scenes.routes() : {}; } catch { return {}; } };
 
@@ -319,7 +325,7 @@ module.exports = {
     open(ctx, { dir, view }) {
       if (!isPlain(view) || !isPlain(view.state)) return view;
       let jazz = null;
-      try { jazz = viewOf(dir, view.state, { caps: capsOf(ctx.d), routes: routesOf(ctx.d) }); } catch (e) { ctx.log(`Jazz: ${String(e && e.message ? e.message : e).slice(0, 200)}`); }
+      try { jazz = viewOf(dir, view.state, { caps: capsOf(ctx.d), routes: routesOf(ctx.d), canRender: rendersOf(ctx.d) }); } catch (e) { ctx.log(`Jazz: ${String(e && e.message ? e.message : e).slice(0, 200)}`); }
       return { ...view, jazz, running: Boolean(view.running) || Boolean(playingOf(dir)) };
     },
     settle(ctx, { dir, st }) {

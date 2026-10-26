@@ -70,10 +70,10 @@ module.exports = {
         ctx.log(`! The draft keeps its pieces between slides out: ${said(e)}`);
       }
     },
-    async afterFilm(ctx, { dir }) {
+    async afterFilm(ctx, { dir, onLine = () => {} }) {
       const st = ctx.episode.read(dir);
       try {
-        await interstitials.materialise(dir, depsFrom(ctx.d, { title: (st && st.title) || '', onLine: (l) => ctx.log(l) }),
+        await interstitials.materialise(dir, depsFrom(ctx.d, { title: (st && st.title) || '', onLine: (l) => { ctx.log(l); onLine(l); } }),
           { read: (d) => ctx.episode.read(d), write: (d, next) => ctx.episode.write(d, next) });
       } catch (e) {
         ctx.log(`! The film keeps its pieces between slides out until Refine: ${said(e)}`);

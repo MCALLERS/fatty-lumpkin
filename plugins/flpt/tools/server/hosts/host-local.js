@@ -168,6 +168,11 @@ function createLocalHost(o) {
   });
 
   // ── every paid kind refused ──
+  // The web host (host-web.js, W6-02a) puts them back behind the Worker's grants: it alone asks for the core's own
+  // (takePaid), which never reach the host this returns, so local mode refuses them exactly as before.
+  if (typeof o.takePaid === 'function') {
+    o.takePaid({ authorize: services.broker.authorize, ...Object.fromEntries(['final', 'sampleFinal', 'looks', 'check'].map((k) => [k, services.pipeline[k]])) });
+  }
   services.broker.authorize = () => { throw new Error(REFUSED); };
   const refusedRun = async () => ({ code: 2, refused: true, lines: [REFUSED] });
   for (const k of ['final', 'sampleFinal', 'looks', 'check']) if (typeof services.pipeline[k] === 'function') services.pipeline[k] = refusedRun;

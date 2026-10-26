@@ -19,9 +19,9 @@
 //                                                            on the record (settle) to see it
 //   spendBlocked(ctx, { dir }) → string | null               why Spend can't be approved yet                 sync
 //   estimate(ctx, { dir, est }) → est                        the filming estimate, before it's shown or authorized
-//   afterRender(ctx, { dir, which, rendered }) → { mix, scenes, problems }   after a run's moving slides
+//   afterRender(ctx, { dir, which, rendered, onLine }) → { mix, scenes, problems }   after a run's moving slides
 //   afterDraft(ctx, { dir })                                 the free draft is made
-//   afterFilm(ctx, { dir })                                  the film is made
+//   afterFilm(ctx, { dir, onLine })                          the film is made (onLine: the job's log)
 //   refinePlan(ctx, { dir, plan }) → plan                    what Refine applies: plan.addons. plan.tighten (the
 //                                                            episode's tightening) is for reading only: its Scribe
 //                                                            price is asked before, so a changed one is ignored

@@ -959,7 +959,10 @@ async function runPieces(dir, { keys = null, feedback = '', title = '', model = 
     send('livemotion:changed', { dir: d });
     const results = await Promise.all(jobs.map(async (j) => {
       const { p, usd } = j;
-      const emit = (ev) => send('agent:event', { dir: d, stage: 'animate', piece: p.key, ...ev, text: ev.text ? redact(ev.text) : ev.text, detail: ev.detail ? redact(ev.detail) : ev.detail });
+      const say = (ev) => send('agent:event', { dir: d, stage: 'animate', piece: p.key, ...ev, text: ev.text ? redact(ev.text) : ev.text, detail: ev.detail ? redact(ev.detail) : ev.detail });
+      // its step for the card (stepOf): a new step tells the wall, so the card never sits on one tool's line
+      const emit = (ev) => { say(ev); if (step(d, p.key, ev)) send('livemotion:changed', { dir: d, key: p.key }); };
+      step(d, p.key, null, model);
       let res;
       try {
         const tools = deps.toolsFor(d, p.key, ctrl.signal);
@@ -984,6 +987,7 @@ async function runPieces(dir, { keys = null, feedback = '', title = '', model = 
         livemotion.noteLive(d, p, { status: done.ok ? 'ok' : 'failed', error: done.error ? redact(String(done.error)).slice(0, 400) : null, note: done.note || null,
           costUsd: r2((Number(prev.costUsd) || 0) + (Number(res.costUsd) || 0)), takes: livemotion.takesOf(d, p).map(({ n, at, costUsd, ok, preview }) => ({ n, at, costUsd, ok, preview })),
           current: rec && rec.take ? rec.take : null, sessionId: res.sessionId || null, report: res.report ? redact(res.report).slice(0, 8000) : null, approved: false });
+        steps.delete(`${d}\n${p.key}`);
         send('livemotion:changed', { dir: d, key: p.key });
         return { key: p.key, ok: done.ok, costUsd: res.costUsd || 0, error: done.error || null };
       } catch (e) {
@@ -1008,12 +1012,46 @@ async function runPieces(dir, { keys = null, feedback = '', title = '', model = 
   } finally {
     running.delete(d);
     busy.delete(d);
+    for (const k of [...steps.keys()]) if (k.startsWith(`${d}\n`)) steps.delete(k);
   }
 }
 const running = new Map(); // dir → AbortController
+
+// ── what each crew is doing now (the wall's cards: "Rendering draft 3 · about 6 min left") ──────────────────────────
+
+const steps = new Map(); // `${dir}\n${key}` → { step, draft, startedAt }
+const RENDER_TOOLS = new Set(['flpt.render_preview', 'flpt.snapshot']);
+/**
+ * A crew's event moves its piece's step: waiting (for one of the pool's PARALLEL sessions) → writing (its session
+ * began) → rendering (a draft render, counted as the crew's tools count them) → revising (it looked, and writes again)
+ * → finishing (done: the delivery render). ev null: waiting. → true when the step changed
+ */
+function step(dir, key, ev, model = 'opus') {
+  const k = `${dir}\n${key}`;
+  const was = steps.get(k);
+  if (!ev) { steps.set(k, { step: 'waiting', draft: 0, startedAt: null, model }); return true; }
+  const cur = was || { step: 'waiting', draft: 0, startedAt: null, model };
+  let next = cur.step;
+  let draft = cur.draft;
+  if (ev.kind === 'init') next = 'writing';
+  else if (ev.kind === 'tool' && RENDER_TOOLS.has(ev.name)) { next = 'rendering'; draft += 1; }
+  else if (ev.kind === 'tool' && ev.name === 'flpt.done') next = 'finishing';
+  else if (ev.kind === 'tool' && cur.step === 'rendering') next = 'revising';
+  else if (ev.kind === 'text' && cur.step === 'waiting') next = 'writing';
+  const startedAt = cur.startedAt || (next !== 'waiting' ? new Date().toISOString() : null);
+  if (was && next === cur.step && draft === cur.draft) return false;
+  steps.set(k, { step: next, draft, startedAt, model: cur.model });
+  return true;
+}
+/** A running piece's step, for livemotion.view: { step, draft, drafts (the cap), startedAt, minutes (a piece's usual) } or null. */
+function stepOf(dir, key) {
+  const s = steps.get(`${path.resolve(dir)}\n${key}`);
+  const m = require('./storyboard').CREW_MINUTES;
+  return s ? { ...s, drafts: livemotion.RENDERS.draft, minutes: s.model === 'sonnet' ? m.pieceFast : m.piece } : null;
+}
 /** Stop an episode's scene crews (each settles at what it really cost). → true when some were running */
 function cancel(dir) { const c = running.get(path.resolve(dir)); if (c) c.abort(); return Boolean(c); }
 const episode = () => require('./episode');
 
-module.exports = { makeTools, policy, lookHooks, readDenyFor, promptVars, runScene, finish, runPieces, cancel, isBusy, toMake, boxIssues, unlistedWords, knownWords, edgeDensity, wordsIn, checkPiece, pacingOf, momentsOf, showcaseStills,
+module.exports = { makeTools, policy, lookHooks, readDenyFor, promptVars, runScene, finish, runPieces, cancel, isBusy, step, stepOf, toMake, boxIssues, unlistedWords, knownWords, edgeDensity, wordsIn, checkPiece, pacingOf, momentsOf, showcaseStills,
   TOOLS, DISALLOWED, TOOL_NAMES, MIN_PASSES, KEEP_OUT };

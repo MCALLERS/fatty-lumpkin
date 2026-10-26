@@ -442,7 +442,10 @@
 
   // ── the crew: takes, Ask for changes, Again, Approve ──
   const running = () => Boolean(S.view && S.view.status === 'running');
-  function note(text, bad = false) { S.note = text || ''; S.bad = Boolean(text) && bad; if (root) paint(); }
+  function note(text, bad = false) {
+    const busy = bad && UI.components.busyLine ? UI.components.busyLine(S.dir, text) : null; // a click while crews work: not an error
+    S.note = busy || text || ''; S.bad = Boolean(text) && bad && !busy; if (root) paint();
+  }
 
   async function useTake(n) {
     if (S.busy || locked()) return;

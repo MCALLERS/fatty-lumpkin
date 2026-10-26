@@ -21,6 +21,8 @@ function defaults() {
     providers: { video: 'kie', stills: 'kie', filmQuality: false, v: 2 },
     libraryDir: '', // the Asset Library; '' = <projectsDir>/Library (see libraryDirOf), else an absolute folder
     ytDlpPath: '', // Clippy's yt-dlp; '' = FLPT's pinned copy, then PATH and the usual places (toolchain.findYtDlp)
+    liveCrew: 'opus', // Live Motion's scene crews: 'opus' | 'sonnet' (faster, the same caps; the wall's Faster, 2.0.1)
+    lastVersion: null, // the FLPT that last ran with these settings (services.state: the Keychain's question after an update)
     ui: { motion: 'on' }, // the screens' own preferences. Pause motion: 'on' | 'paused' (the page mirrors it to localStorage)
   };
 }
@@ -78,6 +80,8 @@ const SCHEMA = {
   libraryDir: (v) => (typeof v === 'string' && path.isAbsolute(v) ? path.resolve(v) : ''),
   ytDlpPath: (v) => (typeof v === 'string' && path.isAbsolute(v) ? path.resolve(v) : ''),
   ui: (v, d) => ({ motion: v && MOTION.includes(v.motion) ? v.motion : d.ui.motion }),
+  liveCrew: (v) => (v === 'sonnet' ? 'sonnet' : 'opus'),
+  lastVersion: (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+[\w.-]{0,24}$/.test(v) ? v : null),
 };
 
 function createSettings({ dir }) {

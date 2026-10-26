@@ -7,7 +7,8 @@
 // The id is a single-use nonce; the hash binds the answer to exactly what was shown (title, message, detail, button,
 // amount, expiry); an answer after `expires` (5 minutes) is refused and the request counts as a no. In web mode the
 // Worker's Durable Object checks the user's monthly ceiling and rate limit before the answer reaches the container
-// (W4-05); here the server only resolves what it asked. The Desk (approve: 'none') never spends: every confirm is no.
+// (W4-05); here the server only resolves what it asked, handing a yes's grant to the host first (web: onYes). The Desk
+// (approve: 'none') never spends: every confirm is no.
 // The same nonce-and-hash path carries the core's other two native dialogs, to the session that called:
 //   ask(opts)  a message box (delete this item?): dialog:ask { id, message, detail, buttons, defaultId, cancelId, hash }
 //              → POST /api/dialog { id, hash, response }            → { response }
@@ -125,9 +126,15 @@ function createApprovals({ bus, uploads = null, mode = 'modal', decorate = null,
     return p;
   }
 
-  /** POST /api/approve: { id, hash, yes }. */
-  function answer({ id, hash, yes } = {}, { session } = {}) {
+  /**
+   * POST /api/approve: { id, hash, yes }. onYes (web: the Worker's grant for this yes) runs once the answer is known to
+   * be this request's and before it settles; if it throws, the answer is a no (nothing was granted, so nothing runs).
+   */
+  function answer({ id, hash, yes } = {}, { session, onYes = null } = {}) {
     check(id, hash, session, 'confirm');
+    if (yes === true && onYes) {
+      try { onYes(); } catch { settle(id, false, 'declined (not granted)'); return { ok: false, error: 'Not approved.' }; }
+    }
     settle(id, yes === true, yes === true ? 'approved' : 'declined');
     return { ok: true };
   }

@@ -62,7 +62,7 @@ const CREW_USD = { storyboard: 2, live: 5, between: 3.5, mark: 4 };
 const BASE_STAGES = [['bullets', 'Bullets', 4], ['factcheck', 'Fact-check', 4], ['storyboard', 'Storyboard', CREW_USD.storyboard], ['deck', 'Deck', 8], ['script', 'Script', 4]];
 // Crew wall time: G0 measured 13.4 min for one piece; PARALLEL 3 pieces at a time; plus the stages before them and
 // the free draft (an estimate).
-const CREW_MINUTES = { piece: 15, parallel: 3, pipeline: 40 };
+const CREW_MINUTES = { piece: 15, pieceFast: 9, parallel: 3, pipeline: 40 }; // pieceFast: a Sonnet crew's, estimated (not yet measured)
 
 const LIVE = new Set(['motion-solo', 'motion-duet']);
 const PAID = new Set(['cosmos', 'cutscene']);

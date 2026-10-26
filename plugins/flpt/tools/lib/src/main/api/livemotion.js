@@ -96,7 +96,8 @@ module.exports = {
       if (!hf || !hf.ok) throw new Error('Live Motion needs HyperFrames (Setup → Tools).');
       const styles = plan.stylesOf(hostOf(c));
       const sdk = typeof c.loadSdk === 'function' ? await c.loadSdk() : await import('@anthropic-ai/claude-agent-sdk');
-      const r = await scenecrew.runPieces(d, { keys, feedback }, {
+      const model = c.settings && typeof c.settings.read === 'function' && c.settings.read().liveCrew === 'sonnet' ? 'sonnet' : 'opus'; // the wall's Faster: the same caps
+      const r = await scenecrew.runPieces(d, { keys, feedback, model }, {
         sdk, z: require('zod').z, apiKey, toolEnvPath: c.toolEnv().PATH, configDir: path.join(c.dirs.userData, 'claude'),
         executable: typeof c.agentExecutable === 'function' ? c.agentExecutable() : undefined, engineRoot: c.engineRoot, broker: c.broker, styles,
         reserve: (dd, pieces) => reserve(c, dd, pieces), toolsFor: toolsFor(c, styles), send: (ch, p) => c.send(ch, p), redact: c.redact,
