@@ -15,7 +15,7 @@
 //                its own music marked `music` (♪), and a bed placed under one `underMusic` (it sits at -32 LUFS); the
 //                captions choice (view.deliverOptions); the last splice's notes (view.splice)
 //   deliver      each Live Motion stem and its music in extras/; music-credits.txt with every CC BY track (Refine's
-//                beds and the scenes'), a paste-ready DESCRIPTION.txt, and the captions (presentation.srt) when chosen
+//                beds and the scenes'), a paste-ready DESCRIPTION.txt, and the captions (an SRT beside the video) when chosen
 // Nothing here spends: ffmpeg and the method's free scripts only.
 const fs = require('fs');
 const path = require('path');
@@ -114,8 +114,7 @@ module.exports = {
       const st = ctx.episode.read(dir);
       const d = ctx.d || {};
       const list = [...items, ...extras.liveItems(interstitials.liveFiles(dir), items)];
-      let out = null;
-      try { out = path.join(d.settings.read().deliverablesDir, ctx.episode.slugify(st.title)); } catch { out = null; }
+      const out = (st.stages.deliver && st.stages.deliver.folder) || null; // Deliver records it as it starts
       if (!out || !fs.existsSync(out)) return list;
       const t = interstitials.deliveredTimeline(dir, st);
       // Every CC BY track the delivered video plays, once: Refine's beds, the spliced pieces' and the scenes' music.
@@ -126,7 +125,7 @@ module.exports = {
       if (text) fs.writeFileSync(path.join(out, 'DESCRIPTION.txt'), text);
       else fs.rmSync(path.join(out, 'DESCRIPTION.txt'), { force: true });
       // The captions, when chosen: the script's words where the delivered video says them.
-      const srtFile = path.join(out, 'presentation.srt');
+      const srtFile = path.join(out, ctx.episode.deliveredNames(st.title).captions); // beside the video, by its name
       if (!captionsOn(st)) { fs.rmSync(srtFile, { force: true }); return list; }
       try {
         const python = await pythonFor(d, dir);

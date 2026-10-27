@@ -18,7 +18,17 @@ const scenes = require('./scenes');
 const storyboard = require('./storyboard');
 const livemotion = require('./livemotion');
 
-async function checkDeck(projectDir, { pipeline, chrome, engineRoot = null, projectsDir = null }) {
+/** check_deck, again when a read was cut short (an iCloud file still downloading): three tries, a second apart. */
+async function checkDeck(projectDir, deps, tries = 3) {
+  for (let i = 1; ; i++) {
+    try { return await checkDeckOnce(projectDir, deps); } catch (e) {
+      if (!/\bEINTR\b|interrupted system call/.test(String(e && e.message)) || i >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
+async function checkDeckOnce(projectDir, { pipeline, chrome, engineRoot = null, projectsDir = null }) {
   const deckDir = path.join(projectDir, 'presentation', 'deck', 'project');
   if (!fs.existsSync(path.join(deckDir, 'deck.json'))) return 'There is no deck/project/deck.json yet. Write the deck first.';
   // without Chrome the layout can't be checked, but the plan can

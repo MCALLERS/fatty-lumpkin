@@ -1086,7 +1086,41 @@ const LABELS = {
   private: 'A private address',
   files: 'Pictures or a video only',
   unreadable: 'These files didn\'t open',
+  source: 'That file couldn\'t be read', // the user's original: not on this Mac (iCloud), gone, or not ours to read
+  tools: 'ffmpeg isn\'t set up (Setup → Tools)',
+  library: 'The Library folder couldn\'t be written',
 };
+
+// Reading a file iCloud keeps only in the cloud (a "dataless" file on an iCloud Desktop or Documents) can be
+// interrupted while macOS downloads it: these codes are tried again before a copy counts as failed.
+const TRANSIENT = new Set(['EINTR', 'EAGAIN', 'ETIMEDOUT', 'EDEADLK', 'ECANCELED', 'EBUSY']);
+// A write the Library's folder refused (full, read-only, not ours).
+const LIBRARY_CODES = new Set(['ENOSPC', 'EROFS', 'EDQUOT', 'EACCES', 'EPERM']);
+
+/** An error that knows which LABELS entry says it (reason) and what happened (its message, for the log only). */
+class Refused extends Error {
+  constructor(reason, message) { super(message); this.reason = reason; }
+}
+
+/**
+ * The user's original copied in (a clone where the disk can, else a plain copy), tried again on an interruption.
+ * Throws Refused('source') when it still won't read, Refused('library') when the Library's folder won't take it.
+ */
+async function copyIn(src, dest, { tries = 4, waitMs = 250, copy = fs.promises.copyFile } = {}) {
+  for (let i = 1; ; i++) {
+    try {
+      await copy(src, dest, i === 1 ? fs.constants.COPYFILE_FICLONE : 0);
+      return;
+    } catch (e) {
+      try { fs.rmSync(dest, { force: true }); } catch { /* nothing there */ }
+      if (TRANSIENT.has(e && e.code) && i < tries) { await new Promise((r) => setTimeout(r, waitMs * i)); continue; }
+      let readable = true;
+      try { fs.accessSync(src, fs.constants.R_OK); } catch { readable = false; }
+      const where = readable && LIBRARY_CODES.has(e && e.code) ? 'library' : 'source';
+      throw new Refused(where, `copying ${path.basename(src)}: ${e && e.code ? `${e.code} ` : ''}${e && e.message ? e.message : e}`);
+    }
+  }
+}
 
 /** A short label for a capture that didn't make a reference. */
 function labelFor(report) {
@@ -1188,7 +1222,7 @@ function createReferences({ library, media = {}, tools = {}, sandbox = null, all
           const r = e.report;
           return { status: r.status, reasons: r.blocked || r.errors, label: labelFor(r), ...(r.status === 'stopped' ? {} : { offer: 'upload' }) };
         }
-        log(`references: capture failed: ${e.message}`);
+        log(`references: capture failed: ${e && e.code ? `${e.code} ` : ''}${e && e.message ? e.message : e}`);
         return { status: 'error', label: LABELS.error, offer: 'upload' };
       } finally {
         if (proxy) await proxy.close().catch(() => {});
@@ -1205,10 +1239,18 @@ function createReferences({ library, media = {}, tools = {}, sandbox = null, all
     const video = files.find((p) => VIDEO_RE.test(p));
     const pictures = video ? [] : files.filter((p) => IMAGE_RE.test(p)).slice(0, MAX_PICTURES);
     if (!video && !pictures.length) return { status: 'refused', reason: 'files', label: LABELS.files };
-    const ff = (args, folder) => {
-      let [prog, argv] = [t().ffmpeg || 'ffmpeg', args];
+    // ffmpeg named by its full path (the toolchain's, else a system one): with PATH=/usr/bin:/bin a bare name never runs
+    const runs = (p) => typeof p === 'string' && path.isAbsolute(p) && isFile(p);
+    if (!runs(t().ffmpeg) || (video && !runs(t().ffprobe))) {
+      log(`references: no ffmpeg (${t().ffmpeg || 'none'}, ${t().ffprobe || 'none'})`);
+      return { status: 'refused', reason: 'tools', label: LABELS.tools };
+    }
+    const ff = async (args, folder) => {
+      let [prog, argv] = [t().ffmpeg, args];
       if (sandboxed()) [prog, argv] = sandbox.wrap(prog, argv, { writable: [folder] });
-      return collect(spawn(prog, argv, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', TMPDIR: sandboxed() ? sandbox.tmpdir() : os.tmpdir(), LANG: 'en_US.UTF-8' } }), 1 << 16);
+      const r = await collect(spawn(prog, argv, { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', TMPDIR: sandboxed() ? sandbox.tmpdir() : os.tmpdir(), LANG: 'en_US.UTF-8' } }), 1 << 16);
+      if (r.code === 127 && !r.out.length) throw new Refused('tools', `ffmpeg didn't start: ${r.err}`);
+      return r;
     };
     const name = String(title || '').trim() || require('./library').titleFromFilename(video || pictures[0]);
     return oneAtATime(async () => {
@@ -1219,13 +1261,13 @@ function createReferences({ library, media = {}, tools = {}, sandbox = null, all
           fs.mkdirSync(path.join(folder, 'frames'));
           if (video) {
             const src = path.join(folder, `source${path.extname(video).toLowerCase()}`);
-            await fs.promises.copyFile(video, src, fs.constants.COPYFILE_FICLONE);
+            await copyIn(video, src);
             // The analysis copy: at most 20 s, 30 fps, H.264, at most 1920×1080's pixel count (FIT: never enlarged, its shape kept).
             const mp4 = path.join(folder, 'motion.mp4');
             let r = await ff(['-v', 'error', '-y', '-i', src, '-t', String(VIDEO_SECONDS), '-an', '-vf',
               `${FIT},scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30,format=yuv420p`,
               '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-movflags', '+faststart', mp4], folder);
-            if (r.code !== 0 || !isFile(mp4)) throw new Error(`couldn't read ${path.basename(video)}`);
+            if (r.code !== 0 || !isFile(mp4)) throw new Error(`couldn't read ${path.basename(video)}: ${r.err.trim().split('\n').pop() || r.code}`);
             const info = await probeVideo(measureTools([]), mp4);
             const n = Math.max(1, Math.round((info.duration || info.frames / 30 || 1) * 30));
             const picks = [...new Set(Array.from({ length: 12 }, (_, k) => Math.min(n - 1, Math.round(((k + 0.5) * n) / 12))))];
@@ -1241,7 +1283,7 @@ function createReferences({ library, media = {}, tools = {}, sandbox = null, all
           for (const [i, p] of pictures.entries()) {
             const nn = String(i + 1).padStart(2, '0');
             const src = path.join(folder, 'source', `${nn}${path.extname(p).toLowerCase()}`);
-            await fs.promises.copyFile(p, src, fs.constants.COPYFILE_FICLONE);
+            await copyIn(p, src);
             const png = path.join(folder, 'frames', `still_${nn}.png`);
             const r = await ff(['-v', 'error', '-y', '-i', src, '-frames:v', '1', '-vf', FIT, png], folder);
             if ((r.code !== 0 || !isFile(png)) && process.platform === 'darwin') {
@@ -1261,7 +1303,12 @@ function createReferences({ library, media = {}, tools = {}, sandbox = null, all
         },
       });
       return { status: 'ok', item, card: readCard(item) };
-    }).catch((e) => { log(`references: ${e.message}`); return { status: 'refused', reason: 'unreadable', label: LABELS.unreadable }; });
+    }).catch((e) => {
+      // which step it was: the user's file (source), ffmpeg (tools), the Library's folder (library), else the decoding
+      const reason = e instanceof Refused ? e.reason : LIBRARY_CODES.has(e && e.code) ? 'library' : 'unreadable';
+      log(`references: addFiles ${reason}: ${e && e.message ? e.message : e}`);
+      return { status: 'refused', reason, label: LABELS[reason] };
+    });
   }
 
   const get = (id) => {
@@ -1296,6 +1343,6 @@ const CAPS = { link: ['stills', 'motion'], files: ['pictures', 'video'] };
 
 module.exports = {
   createReferences, measureCard, measureDetail, validateCard, withChips, crewView, cleanNote, cleanUrl, compareCards, paletteDistance,
-  isReference, assertNotReference, refuseUrl, isPublicAddress, onThisMachine, localNetworks, startCaptureProxy, captureRecord, labelFor,
+  isReference, assertNotReference, copyIn, refuseUrl, isPublicAddress, onThisMachine, localNetworks, startCaptureProxy, captureRecord, labelFor,
   rgb2lab, lab2hex, hex2lab, deltaE2000, SCHEMA, ENUMS, TOL, NOTE_MAX, CAPS, LABELS,
 };

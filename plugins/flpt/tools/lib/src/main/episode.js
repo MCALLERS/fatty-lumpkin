@@ -45,6 +45,18 @@ function slugify(title) {
   return String(title || 'Untitled').normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, ' ').slice(0, 60) || 'Untitled';
 }
 
+/** A delivery's short name, for its folder and its files: the title cut at a word, at most 40 characters. */
+function deliveryName(title) {
+  const s = slugify(title);
+  if (s.length <= 40) return s;
+  return s.slice(0, 41).replace(/\s+\S*$/, '').replace(/[\s-]+$/, '') || s.slice(0, 40);
+}
+/** What a delivery's files are called: "<short title> - video.mp4", its script, its CapCut master, its captions. */
+function deliveredNames(title) {
+  const n = deliveryName(title);
+  return { folder: n, video: `${n} - video.mp4`, script: `${n} - script.md`, master: `${n} (for CapCut).mov`, captions: `${n} - video.srt` };
+}
+
 function stateFile(dir) { return path.join(dir, 'flpt-project.json'); }
 
 // ── versions ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -369,7 +381,11 @@ function setStage(dir, id, patch) {
   const st = read(dir);
   const why = tooNew(st);
   if (why) throw new Error(why);
-  st.stages[id] = { ...st.stages[id], ...patch, at: new Date().toISOString() };
+  const was = st.stages[id] || {};
+  st.stages[id] = { ...was, ...patch, at: new Date().toISOString() };
+  // when a run began (its panel's clock, "Working… · 3:12"): kept while it runs, dropped once it ends
+  if (patch.status === 'running') st.stages[id].startedAt = was.status === 'running' && was.startedAt ? was.startedAt : st.stages[id].at;
+  else if (patch.status) delete st.stages[id].startedAt;
   if (patch.status === 'approved') st.stages[id].approvedBy = approver(patch.approvedBy);
   else if (patch.status && patch.status !== 'stale') delete st.stages[id].approvedBy;
   // Re-running a stage re-opens everything after it: later work was built on the old version.
@@ -421,6 +437,6 @@ function slideSeconds(slides) {
   });
 }
 
-module.exports = { STAGES, STAGE_IDS, slugify, read, readRaw, write, create, current, canRun, setStage, addCost, parseScript, estimateSeconds,
+module.exports = { STAGES, STAGE_IDS, slugify, deliveryName, deliveredNames, read, readRaw, write, create, current, canRun, setStage, addCost, parseScript, estimateSeconds,
   slideSeconds, slideTarget, clean, cleanPresenter, migrate, animationsMarked, liveMotionPlanned, tooNew, readerVersion, compareVersions, approver,
   approvedBefore, jazzOf, FORMAT, MIN_READER, JAZZ_THROUGH, JAZZ_DEFAULT };

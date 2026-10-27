@@ -36,6 +36,23 @@ const el = (tag, attrs = {}, ...kids) => {
 //                     with ▶ play regardless (PLAN §3.1 #5), so never gate those on it.
 const FLPT_UI = window.FLPT_UI = Object.assign({ panels: {}, components: {}, slots: {}, setupSteps: [] }, window.FLPT_UI || {});
 
+/**
+ * The plan's stat lines in words (main writes them compact: "5:16 · $40 · LIVE MOTION 36 %"), for the Storyboard, the
+ * ribbon and the Script: "5:16 long · Claude up to $40 · Live Motion 36 %". Anything else passes as it is.
+ */
+FLPT_UI.words = (line) => String(line || '').split(' · ').reduce((out, part, i, all) => {
+  let m;
+  if (i === 0 && /^\d+:\d\d$/.test(part)) out.push(`${part} long`);
+  else if ((m = /^\$(\d+)$/.exec(part))) out.push(`Claude up to $${m[1]}`);
+  else if ((m = /^LIVE MOTION (\d+) %$/.exec(part))) out.push(/^TARGET \d+ %$/.test(all[i + 1] || '') ? `Live Motion ${m[1]} %, aiming for ${all[i + 1].slice(7)}` : `Live Motion ${m[1]} %`);
+  else if (/^TARGET \d+ %$/.test(part) && /^LIVE MOTION/.test(all[i - 1] || '')) { /* said with the share */ }
+  else if ((m = /^PLAN (\d+:\d\d)$/.exec(part))) out.push(`Planned ${m[1]}`);
+  else if ((m = /^SCRIPT (\d+:\d\d)$/.exec(part))) out.push(`script ${m[1]}`);
+  else if (part === 'MISSING' && all.length > i + 1) { out.push(`Not used yet: ${all.slice(i + 1).map((x) => x.charAt(0) + x.slice(1).toLowerCase()).join(', ')}`); all.length = i + 1; }
+  else out.push(part);
+  return out;
+}, []).join(' · ');
+
 for (const n of document.querySelectorAll('[data-slot]')) FLPT_UI.slots[n.dataset.slot] = n;
 FLPT_UI.slot = (name, { anchored = false } = {}) => {
   if (!FLPT_UI.slots[name]) {
@@ -192,6 +209,7 @@ FLPT_UI.setupSteps.unshift(
   { id: 'sample', label: 'Free sample', done: () => session.sampleMade },
   { id: 'done', label: 'Done', done: () => S.settings.setupComplete,
     show: () => flpt.saveSettings({ setupComplete: true }).then((r) => { S.settings = r.settings; renderSteps('done'); }) },
+  { id: 'folders', label: 'Folders', extra: true, show: () => renderFolders() },
   { id: 'about', label: 'About', extra: true, show: () => { $('#about-version').textContent = S.version ? `Version ${S.version}` : ''; } },
 );
 const stepOf = (id) => FLPT_UI.setupSteps.find((st) => st && st.id === id);
@@ -323,6 +341,28 @@ flpt.onToolsProgress((p) => {
 });
 
 // ── keys ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+// ── folders ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Where episodes and finished videos go, each with Change… (the native folder dialog); iCloud's said once each. */
+function renderFolders() {
+  const f = (S && S.folders) || {};
+  const row = (which, label, dir, cloud) => el('div', { class: 'key folder', 'data-folder': which },
+    el('div', { class: 'label' }, el('strong', {}, label)),
+    el('code', { class: 'folder-path', title: dir || '' }, dir || ''),
+    el('div', { class: 'key-actions' }, el('button', { class: 'ghost', onclick: async () => {
+      const e = await flpt.settings.chooseFolder(which);
+      const r = e && e.ok ? e.value : null;
+      if (r && r.state) S = r.state;
+      renderFolders();
+      if (!r) $('#folder-list').append(el('div', { class: 'msg bad' }, (e && e.error) || 'That didn\'t work.'));
+      if (which === 'projects' && r && r.ok && $('#home-view') && typeof renderHome === 'function') renderHome();
+    } }, 'Change…')),
+    cloud ? el('div', { class: 'msg bad' }, 'iCloud syncs this folder, and its files can be offloaded mid-run.') : null);
+  $('#folder-list').replaceChildren(
+    row('projects', 'Episodes', f.projects, f.icloud && f.icloud.projects),
+    row('deliveries', 'Finished videos', f.deliveries, f.icloud && f.icloud.deliveries));
+}
 
 function keyRow(k) {
   const input = el('input', { type: 'password', placeholder: k.set ? `Saved (${k.hint}). Paste a new key to replace it.` : 'Paste the key', autocomplete: 'off', spellcheck: 'false', 'aria-label': `${k.label} key` });
@@ -499,7 +539,14 @@ $('#run-draft').addEventListener('click', async () => {
 $('#run-paid').addEventListener('click', async () => {
   const r = await flpt.approveSample();
   if (r.cancelled) return;
-  verdict($('#paid-result'), r.code === 0, 'Done: slide 1 rendered with your presenter.', 'The paid sample didn\'t finish.', r.lines);
+  const box = $('#paid-result');
+  verdict(box, r.code === 0, 'Slide 1 with your presenter.', 'The paid sample didn\'t finish.', r.lines);
+  if (r.code === 0 && r.output) {
+    const src = typeof flpt.fileUrl === 'function' ? flpt.fileUrl(r.output, Date.now()) : '';
+    if (src) box.append(el('div', { class: 'player-frame', 'data-realm': 'theater' }, el('video', { src, controls: true, playsinline: true, preload: 'metadata', 'aria-label': 'Slide 1 with your presenter' })));
+    box.append(el('div', { class: 'actions' }, src ? null : el('button', { onclick: () => flpt.openFile(r.output) }, 'Play it'),
+      el('button', { class: 'ghost', onclick: () => flpt.revealFile(r.output) }, 'Show in Finder')));
+  }
 });
 
 // ── live log ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -516,11 +563,15 @@ flpt.onJob((ev) => {
     pre.textContent += `${ev.line}\n`;
     pre.scrollTop = pre.scrollHeight;
   } else if (ev.phase === 'end' && ev.id === session.currentJob) {
-    $('#log-title').textContent = ev.code === 0 ? 'Finished' : `Stopped (exit ${ev.code})`;
+    $('#log-title').textContent = ev.code === 0 ? 'Finished' : 'Didn\'t finish';
+    $('#log-cancel').hidden = true;
     setTimeout(() => { if (session.currentJob === ev.id) log.hidden = true; }, ev.code === 0 ? 2500 : 15000);
   }
+  if (ev.phase === 'start') $('#log-cancel').hidden = false;
 });
 $('#log-cancel').addEventListener('click', () => { if (session.currentJob) flpt.cancelJob(session.currentJob); });
+// the log never holds the screen: × hides it, and the work goes on (2.0.1: it sat over Setup after the looks failed)
+$('#log-close').addEventListener('click', () => { $('#log').hidden = true; });
 
 // ── start ───────────────────────────────────────────────────────────────────────────────────────────────────
 

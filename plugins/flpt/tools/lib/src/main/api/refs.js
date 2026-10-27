@@ -24,6 +24,7 @@
 // Events: refs:changed (the references changed), refs:progress (a capture's phases), refs:study ({ id, kind:
 // 'line'|'state', event, latest (the crew's newest picture, when it has drawn one), view }; a 'state' with status
 // 'running' comes once the price is approved). Nothing costs anything but study and again, and each asks first.
+// A pick, a drop or a link that made no reference leaves its cause in <userData>/logs/refs.log (the sheet says a few words).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -66,6 +67,28 @@ function toolPaths(c) {
   return { ffmpeg: ff.path || sys('ffmpeg'), ffprobe: ff.ffprobe || sys('ffprobe'), chrome: of('chrome').path || null, headless: of('hyperframes').browser || null, node: of('node').path || sys('node') };
 }
 
+/** The toolchain found before a reference is made: a sheet opened before anything else asked must not fall back to guesses. */
+async function ready(c) {
+  if (c.lastDetect || typeof c.detectTools !== 'function') return;
+  try { await c.detectTools(); } catch { /* the system's tools, then */ }
+}
+
+/**
+ * One line in <userData>/logs/refs.log, redacted: why a reference didn't come of a pick, a drop or a link. In the app as
+ * people run it console.warn reaches no one, and the sheet's label is a few words; this keeps the cause. At most
+ * 256 KB (then one older file).
+ */
+function note(c, line) {
+  const dir = c.dirs && (c.dirs.logs || (c.dirs.userData && path.join(c.dirs.userData, 'logs')));
+  if (!dir) return;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'refs.log');
+    try { if (fs.statSync(f).size > 256 * 1024) fs.renameSync(f, `${f}.1`); } catch { /* a new one */ }
+    fs.appendFileSync(f, `${new Date().toISOString()} ${said(c, line).replace(/\s+/g, ' ')}\n`);
+  } catch { /* a log is never worth a failure */ }
+}
+
 /** The Library and its references (references.createReferences), or a plain error before the Library is set up. */
 function refsOf(c) {
   const lib = typeof c.getLibrary === 'function' ? c.getLibrary() : null;
@@ -77,7 +100,7 @@ function refsOf(c) {
     const allowLocal = process.env.FLPT_QA && process.env.FLPT_REFS_ALLOW_LOCAL ? String(process.env.FLPT_REFS_ALLOW_LOCAL).split(',').map((s) => s.trim()).filter((s) => /^(127\.0\.0\.1|localhost|\[::1\]):\d{2,5}$/.test(s)) : [];
     INSTANCES.set(lib, references.createReferences({
       library: lib, media: createMedia(() => toolPaths(c)), tools: () => toolPaths(c), sandbox, allowLocal, uaVersion: String(c.version || '2.0'),
-      log: (s) => console.warn(said(c, s)), // eslint-disable-line no-console
+      log: (s) => { console.warn(said(c, s)); note(c, s); }, // eslint-disable-line no-console
     }));
   }
   return { lib, refs: INSTANCES.get(lib) };
@@ -97,6 +120,7 @@ function cardView(item, { frames = false } = {}) {
     card,
   };
 }
+const hostOf = (u) => { try { return new URL(String(u)).host; } catch { return 'not a link'; } };
 const libId = (id) => { if (typeof id !== 'string' || !LIB_ID.test(id)) throw new Error('That reference isn\'t in the Library any more.'); return id; };
 
 // ── an episode's own copies ───────────────────────────────────────────────────────────────────────────────────────
@@ -258,8 +282,10 @@ module.exports = {
     get: { args: ['id:100'], handler: (c, id) => cardView(refsOf(c).refs.get(libId(id)), { frames: true }) },
     capture: { args: ['text:2000', 'bool?'], handler: async (c, url, motion) => {
       const { refs } = refsOf(c);
+      await ready(c);
       const r = await refs.captureLink(url, { motion: motion === true, onProgress: (p) => tell(c, 'refs:progress', { phase: p && p.phase ? String(p.phase).slice(0, 40) : null }) });
       if (r.status === 'ok') tell(c, 'refs:changed', { id: r.item.id });
+      else note(c, `capture ${hostOf(url)}: ${r.status}${r.reason ? ` (${r.reason})` : ''}${Array.isArray(r.reasons) && r.reasons.length ? ` ${r.reasons.slice(0, 4).join('; ')}` : ''} · "${r.label || ''}"`);
       return r.status === 'ok' ? { status: 'ok', ref: cardView({ ...r.item, card: r.card }, { frames: true }), seconds: r.seconds } : { status: r.status, label: r.label || null, offer: r.offer || null };
     } },
     pickFiles: { args: ['id:16?'], handler: async (c, kind) => {
@@ -279,8 +305,11 @@ module.exports = {
     } },
     addFiles: { args: ['token'], handler: async (c, token) => {
       const files = held(c).take(token);
-      const r = await refsOf(c).refs.addFiles(files);
+      const { refs } = refsOf(c);
+      await ready(c);
+      const r = await refs.addFiles(files);
       if (r.status === 'ok') tell(c, 'refs:changed', { id: r.item.id });
+      else note(c, `addFiles ${files.length} file(s) (${[...new Set(files.map((f) => path.extname(f).toLowerCase()))].join(' ')}): ${r.reason || r.status} · "${r.label || ''}"`);
       return r.status === 'ok' ? { status: 'ok', ref: cardView({ ...r.item, card: r.card }, { frames: true }) } : { status: r.status, label: r.label || null };
     } },
     chips: { args: ['id:100', 'json:4096'], handler: (c, id, chips) => {

@@ -48,8 +48,23 @@ const ep = {
   seen: '',
   restored: new Set(), // episodes whose pipeline was restored since its last refusal
   bulletsEdit: new Set(), // episodes whose bullets show as the file to edit, not as the document
+  started: new Map(), // `${dir}\n${stage}` → when this window started its crew (the clock's, before the record says)
 };
 const key2 = (a, b) => `${a}\n${b}`;
+
+// A running step's clock ("Working… · 3:12"): every [data-since] ticks each second, without drawing the panel again,
+// so a long think between the crew's lines never looks stalled.
+const clockText = (t0) => { const n = Math.max(0, Math.floor((Date.now() - t0) / 1000)); return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`; };
+const since = (rec) => { const t = Date.parse((rec && (rec.startedAt || rec.at)) || ''); return Number.isFinite(t) ? t : Date.now(); };
+function workingClock(label, t0) {
+  return el('span', { class: 'hud working', role: 'timer', 'data-since': String(t0), 'data-label': label }, `${label} · ${clockText(t0)}`);
+}
+setInterval(() => { for (const n of document.querySelectorAll('[data-since]')) n.textContent = `${n.dataset.label} · ${clockText(Number(n.dataset.since))}`; }, 1000);
+/** A crew run's cap, said inside the episode's Claude budget when there is one (the planning approval). */
+const capLine = (v, s, each = false) => {
+  const plan = v.state.planning && Number(v.state.planning.capUsd);
+  return `${each ? 'Each run' : 'This run'}: up to ${dollars(s.budgetUsd)} of Claude${plan ? `, from the episode's ${dollars(plan)}` : ''}.`;
+};
 
 /** Episode calls answer { ok, value } or { ok: false, error }. */
 async function call(fn, ...args) {
@@ -204,7 +219,9 @@ async function renderHome() {
           el('button', { class: 'ghost', onclick: () => { session.keychainSeen = true; renderHome(); } }, 'OK'))
         : S && S.tools && !S.tools.ready // a Setup finished before HyperFrames was required (2.0.0)
           ? el('div', { class: 'banner', role: 'status' }, el('p', {}, missingTool(S.tools)), el('button', { 'data-view': 'setup', onclick: () => { session.step = 'tools'; } }, 'Setup → Tools'))
-          : null;
+          : S && S.folders && S.folders.icloud && S.folders.icloud.projects // its offloaded files stop runs (2.0.1)
+            ? el('div', { class: 'banner', role: 'status' }, el('p', {}, 'Your episodes are in iCloud Drive, which can stop a run.'), el('button', { 'data-view': 'setup', onclick: () => { session.step = 'folders'; } }, 'Setup → Folders'))
+            : null;
   // the first tile: a new episode (the same sheet the empty page opens)
   const fresh = el('button', { type: 'button', class: 'ep-card ep-new', id: 'new-episode-btn', onclick: showIntake },
     el('span', { class: 'ep-cover' }, el('span', { class: 'plus', 'aria-hidden': 'true' }, '+')), el('span', { class: 'ep-title' }, 'New episode'));
@@ -279,7 +296,8 @@ async function presenterChips() {
 let intakeFiles = null;
 const showIntakeFiles = () => $('#intake-files').replaceChildren(...(intakeFiles ? intakeFiles.files.map((f) => el('span', {}, f.name)) : []));
 const takeIntakeFiles = async (stage) => {
-  try { const s = await stage(); if (s) { intakeFiles = s; showIntakeFiles(); } } catch (err) { $('#intake-note').textContent = err.message; }
+  // each pick or drop adds to the ones before (a token each; the episode takes them all)
+  try { const s = await stage(); if (s) { intakeFiles = { tokens: [...(intakeFiles ? intakeFiles.tokens : []), s.token], files: [...(intakeFiles ? intakeFiles.files : []), ...s.files] }; showIntakeFiles(); } } catch (err) { $('#intake-note').textContent = err.message; }
 };
 $('#intake-note').dataset.content = ''; // the main process's messages
 $('#intake-attach').addEventListener('click', () => takeIntakeFiles(() => call(flpt.pickFiles)));
@@ -294,7 +312,7 @@ $('#intake').addEventListener('submit', async (e) => {
   const fields = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => k !== 'presenter-pick'));
   const presenter = presenterPick ? (presenterPick === 'heygen' ? { kind: 'heygen' } : { kind: 'cartoon', rig: presenterPick.slice('cartoon:'.length) }) : null;
   try {
-    const dir = await call(flpt.createEpisode, { ...fields, ...(presenter ? { presenter } : {}), staged: intakeFiles && intakeFiles.token });
+    const dir = await call(flpt.createEpisode, { ...fields, ...(presenter ? { presenter } : {}), staged: intakeFiles ? intakeFiles.tokens : null });
     hideIntake();
     await openEpisode(dir);
   } catch (err) {
@@ -338,7 +356,7 @@ async function refresh({ quiet = false } = {}) {
   // A run this window didn't start (or one from before a reload), or a pipeline step it did (Film's phases): keep
   // checking until it ends.
   clearTimeout(ep.poll);
-  if (v.running && !ep.inflight.has(dir)) ep.poll = setTimeout(() => refresh({ quiet: true }), 4000);
+  if ((v.running || ep.busy.has(dir)) && !ep.inflight.has(dir)) ep.poll = setTimeout(() => refresh({ quiet: true }), 4000);
 }
 
 function statusOf(v, id) {
@@ -382,7 +400,8 @@ function renderRail() {
   const spend = v.state.stages.spend;
   const scribe = spent('elevenlabs'); // Scribe, for cutting laughs
   const scenes = v.scenes && v.scenes.spentUsd; // the Scenes step's stills and shots
-  $('#episode-cost').textContent = `Claude ${money(spent('anthropic'))}${scenes ? `\nScenes ${money(scenes)}` : ''}${spend.status === 'approved' && spend.usd ? `\nHeyGen approved ${money(spend.usd)}` : ''}`
+  // the running tally: what's spent so far, and what's approved for filming (not spent until it films)
+  $('#episode-cost').textContent = `Spent on Claude ${money(spent('anthropic'))}${scenes ? `\nScenes ${money(scenes)}` : ''}${spend.status === 'approved' && spend.usd ? `\nHeyGen approved ${money(spend.usd)}` : ''}`
     + `${scribe ? `\nElevenLabs ${money(scribe)}` : ''}`;
   renderJazz(v);
 }
@@ -400,9 +419,12 @@ function renderJazz(v) {
   const label = (id) => { const s = v.stages.find((x) => x.id === id); return s ? s.label : id; };
   const kids = [];
   if (j.running) {
-    kids.push(el('span', { class: 'hud', role: 'status' }, el('span', { class: 'eq', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')), `Jazz · ${label(j.stage || 'deck')}`),
+    // where the work is now (Film, pressed while Jazz was on Live Motion), else where Jazz last was
+    const now = v.stages.find((s) => statusOf(v, s.id) === 'running');
+    kids.push(el('span', { class: 'hud', role: 'status' }, el('span', { class: 'eq', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')), `Jazz · ${label(now ? now.id : j.stage || 'deck')}`),
       el('div', { class: 'actions' }, el('button', { type: 'button', class: 'small', onclick: () => jazzDo(v.dir, 'stop') }, 'Stop'),
-        el('button', { type: 'button', class: 'ghost small', title: 'The plan, directed from here', onclick: () => jazzDo(v.dir, 'everyStep') }, 'Every step')));
+        el('button', { type: 'button', class: 'ghost small', title: 'Jazz stops after this step, for your review of each one', onclick: () => jazzDo(v.dir, 'everyStep') }, 'Pause after each step')),
+      el('p', { class: 'why' }, 'Plays on within your approved budget. Stops before new spending.'));
   } else if (j.canPlay || j.stoppedAt) {
     kids.push(el('div', { role: 'status' }, el('span', { class: 'hud' }, `♪ Jazz${j.stoppedAt ? ` · ${label(j.stoppedAt)}` : ''}`),
       j.why ? el('p', { class: 'why', 'data-content': '', title: j.why }, j.why) : null));
@@ -469,8 +491,12 @@ function renderStage() {
   const status = statusOf(v, s.id);
   const head = [
     el('p', { class: 'kicker', 'data-content': '' }, v.state.title),
-    el('div', { class: 'stage-head' }, el('h2', {}, s.label), el('span', { class: `chip st-${status}` }, STATUS_TEXT[status] || status)),
+    el('div', { class: 'stage-head' }, el('h2', {}, s.label), el('span', { class: `chip st-${status}` }, status === 'approved' && rec.approvedBy === 'jazz' ? 'Approved by Jazz' : s.id === 'storyboard' && status === 'todo' && canRun(v, s.id) ? 'Your choice' : STATUS_TEXT[status] || status)),
   ];
+  // Jazz moved on by itself: where it is now, one press away, so this step never looks stuck
+  const j = v.jazz;
+  const on = j && j.running ? v.stages.find((x) => statusOf(v, x.id) === 'running') || v.stages.find((x) => x.id === j.stage) : null;
+  if (status === 'approved' && on && on.id !== s.id) head.push(el('p', { class: 'note' }, '♪ Jazz is on ', el('button', { class: 'linkish', onclick: () => select(on.id) }, on.label), ' now.'));
   const f = ep.flash;
   if (f && f.dir === v.dir && f.stage === s.id) {
     head.push(el('p', { class: `flash${f.bad ? ' bad' : ''}`, role: 'status', 'data-content': f.bad ? '' : false }, f.text,
@@ -518,8 +544,9 @@ function hasOutput(v, id) {
 function agentPanel(v, s, rec, status) {
   const out = [];
   if (status === 'running') {
-    out.push(el('div', { class: 'actions' }, el('button', { onclick: () => flpt.cancelStage(v.dir) }, 'Stop the crew'),
-      el('span', { class: 'muted' }, `Capped at ${dollars(s.budgetUsd)} of Claude usage.`)));
+    out.push(el('div', { class: 'actions' }, el('button', { title: 'What it spent so far stays spent. Nothing more is.', onclick: () => flpt.cancelStage(v.dir) }, 'Stop the crew'),
+      // the record's start once it says running; until then (this window started it) the press's own time
+      workingClock('Working…', rec.status === 'running' && rec.startedAt ? since(rec) : ep.started.get(key2(v.dir, s.id)) || since(rec)), el('span', { class: 'muted' }, capLine(v, s))));
     out.push(feedList(ep.feeds.get(key2(v.dir, s.id)) || [{ kind: 'note', text: 'The crew is working.' }], true));
     return out;
   }
@@ -527,6 +554,13 @@ function agentPanel(v, s, rec, status) {
     if (!canRun(v, s.id)) { out.push(el('p', { class: 'note' }, 'Waiting on the earlier steps.')); return out; }
     if (s.id === 'deck') out.push(modulesBlock(v));
     out.push(runBox(v, s, false));
+    // Fact-check is optional: skipped, the claims go into the deck unchecked
+    if (s.id === 'factcheck' && flpt.episode && flpt.episode.skipFactcheck) {
+      out.push(el('div', { class: 'actions' }, el('button', { class: 'ghost small', onclick: async () => {
+        try { await call(flpt.episode.skipFactcheck, v.dir); ep.stage = null; } catch (e) { flash(v.dir, s.id, e.message); }
+        await refresh();
+      } }, 'Skip'), el('span', { class: 'muted' }, 'The claims go into the deck unchecked.')));
+    }
     return out;
   }
   if (status === 'error' || status === 'interrupted') out.push(el('p', { class: 'bad', 'data-content': rec.error ? '' : false }, rec.error || 'The run stopped before it finished (the app may have closed).'));
@@ -535,8 +569,12 @@ function agentPanel(v, s, rec, status) {
   if (rec.report) {
     out.push(el('details', { class: 'report', open: status === 'review' }, el('summary', {}, 'The crew\'s report'), el('div', { class: 'md', 'data-content': '' }, md(rec.report))));
   }
+  // the crew asked something: answer it here, and Approve carries it to every later crew (answers.md)
+  const answers = status === 'review' && rec.report && /\?/.test(rec.report) && flpt.episode && flpt.episode.answer
+    ? el('textarea', { class: 'notes answers', rows: '3', 'aria-label': 'Your answers', placeholder: 'Your answers to its questions (optional). The next crews read them.' }) : null;
+  if (answers) out.push(answers);
   const acts = [];
-  if (status === 'review') acts.push(el('button', { class: 'primary', onclick: () => approve(v.dir, s.id) }, 'Approve and continue'));
+  if (status === 'review') acts.push(el('button', { class: 'primary', onclick: () => approve(v.dir, s.id, answers ? answers.value : '') }, 'Approve and continue'));
   if (status === 'stale' && canRun(v, s.id)) acts.push(el('button', { class: 'primary', onclick: () => approve(v.dir, s.id) }, 'Keep this version'));
   // A finished deck: bring a photo or a clip straight into a new call (it opens under "Ask for changes").
   if (s.id === 'deck' && canRun(v, s.id)) acts.push(el('button', { onclick: () => stageForCall(v.dir) }, 'Add a photo or clip'));
@@ -544,7 +582,8 @@ function agentPanel(v, s, rec, status) {
   if (acts.length) out.push(el('div', { class: 'actions' }, ...acts));
   if (canRun(v, s.id)) {
     const again = status === 'error' || status === 'interrupted';
-    out.push(el('details', { class: 'revise', open: again || (s.id === 'deck' && ep.openCalls === v.dir) },
+    // a failed run that left its work (a deck whose check stopped): the work leads, Run it again waits closed under it
+    out.push(el('details', { class: 'revise', open: (again && !hasOutput(v, s.id)) || (s.id === 'deck' && ep.openCalls === v.dir) },
       el('summary', {}, again ? 'Run it again' : 'Ask for changes'), s.id === 'deck' ? modulesBlock(v) : null, runBox(v, s, true)));
   }
   const feed = ep.feeds.get(key2(v.dir, s.id));
@@ -563,7 +602,9 @@ function bulletsView(v) {
   const toggle = el('button', { type: 'button', class: 'ghost small doc-edit', 'aria-pressed': String(editing), disabled: editing && ep.drafts.has(k),
     onclick: () => { if (editing) ep.bulletsEdit.delete(v.dir); else ep.bulletsEdit.add(v.dir); renderStage(); } }, 'Edit');
   if (editing) return [el('div', { class: 'doc-head' }, toggle), editor(v, 'bullets')];
-  return [el('div', { class: 'doc-head' }, toggle), bulletsDoc(v.files.bullets || '', chips)];
+  // the chips are the crew's first suggestions (a strawman): the Storyboard settles them
+  const lead = chips.length ? el('span', { class: 'muted doc-lead' }, 'Modules and visuals: the crew\'s first suggestions. The Storyboard settles them.') : null;
+  return [el('div', { class: 'doc-head' }, lead, toggle), bulletsDoc(v.files.bullets || '', chips)];
 }
 
 /** bullets.md as a doc, its Module: lines as chips (the sections the storyboard reads; others render as they are). */
@@ -615,7 +656,7 @@ function runBox(v, s, revise) {
   const notes = revise ? el('textarea', { class: 'notes', rows: '4', 'aria-label': 'Notes for the crew', placeholder: NOTES_HINT[s.id] }) : null;
   const start = el('button', { class: revise ? '' : 'primary', onclick: () => run(v.dir, s.id, notes ? notes.value.trim() : '') },
     revise ? 'Run again with these notes' : `Start the ${s.label.toLowerCase()} crew`);
-  return el('div', { class: 'runbox' }, notes, el('div', { class: 'actions' }, start, el('span', { class: 'muted' }, `Each run is capped at ${dollars(s.budgetUsd)} of Claude usage.`)));
+  return el('div', { class: 'runbox' }, notes, el('div', { class: 'actions' }, start, el('span', { class: 'muted' }, capLine(v, s, true))));
 }
 
 async function run(dir, stage, feedback) {
@@ -624,6 +665,7 @@ async function run(dir, stage, feedback) {
   if (unsaved.length && !window.confirm('You have unsaved edits in this episode. Discard them and start the crew?')) return;
   for (const k of unsaved) ep.drafts.delete(k); // the crew is about to rewrite the files
   ep.inflight.set(dir, stage);
+  ep.started.set(key2(dir, stage), Date.now());
   ep.feeds.set(key2(dir, stage), [{ kind: 'note', text: 'Starting the crew…' }]);
   ep.flash = null;
   if (ep.dir === dir) { renderRail(); renderStage(); }
@@ -643,8 +685,9 @@ async function run(dir, stage, feedback) {
   }
 }
 
-async function approve(dir, stage) {
+async function approve(dir, stage, answers = '') {
   try {
+    if (answers.trim()) await call(flpt.episode.answer, dir, stage, answers.trim());
     await call(flpt.approveStage, dir, stage);
     ep.stage = null; // on to the next stage
     ep.flash = null;
@@ -676,7 +719,7 @@ function editor(v, which) {
       ep.view = await call(flpt.saveEpisodeFile, v.dir, which, ta.value);
       ep.drafts.delete(k);
       const stale = ep.view.stages.filter((s) => ep.view.state.stages[s.id].status === 'stale').map((s) => s.label);
-      flash(v.dir, ep.stage, `Saved ${FILE_NAME[which]}.${stale.length ? ` Out of date now: ${stale.join(', ')}.` : ''}`, false);
+      flash(v.dir, ep.stage, `Saved. The next steps use your edits.${stale.length ? ` Out of date now: ${stale.join(', ')}.` : ''}`, false);
       renderRail();
       renderStage();
     } catch (e) {
@@ -686,7 +729,7 @@ function editor(v, which) {
   });
   discard.addEventListener('click', () => { ep.drafts.delete(k); renderStage(); });
   return el('div', { class: 'editor-box' },
-    el('div', { class: 'editor-head' }, el('code', {}, FILE_NAME[which])),
+    el('div', { class: 'editor-head' }, el('span', {}, 'Make your edits below.'), el('code', { title: 'The file in the episode folder' }, FILE_NAME[which])),
     ta, el('div', { class: 'actions' }, save, discard, msg));
 }
 
@@ -716,21 +759,27 @@ function modulesBlock(v) {
     grid.append(...v.catalog.map((m) => el('button', { class: 'module', disabled: !editable, onclick: () => openForm(m.id) }, el('b', {}, m.name), el('span', {}, m.short))));
   }
   /** The call form, for a module; with files (staged in the main process) it starts from the likely module and asks. */
-  function openForm(moduleId, staged = null) {
+  function openForm(moduleId, staged = null, lib = null) {
     const pick = el('select', { 'aria-label': 'Module' }, ...v.catalog.map((m) => el('option', { value: m.id, selected: m.id === moduleId }, m.name)));
     const slide = el('select', { 'aria-label': 'Which slide' }, el('option', { value: '' }, 'Wherever it fits'),
       ...v.slideTitles.map((t) => el('option', { value: String(t.n), 'data-content': '' }, `Slide ${t.n}: ${t.title}`)));
     const ask = el('textarea', { rows: '2', 'aria-label': 'What should it do?' });
     const mod = () => v.catalog.find((m) => m.id === pick.value);
     let edited = false;
-    const fill = () => { ask.placeholder = mod().ask; if (staged && !edited) ask.value = mod().withFile || ''; };
+    const fill = () => { ask.placeholder = mod().ask; if ((staged || lib) && !edited) ask.value = mod().withFile || ''; };
     ask.addEventListener('input', () => { edited = true; });
     pick.addEventListener('change', fill);
     fill();
     const add = el('button', { class: 'primary' }, 'Add');
-    add.addEventListener('click', () => updateCalls(v.dir, () => call(flpt.addCall, v.dir, { module: pick.value, slide: slide.value || null, ask: ask.value, staged: staged && staged.token })));
+    add.addEventListener('click', () => updateCalls(v.dir, async () => {
+      const made = await call(flpt.addCall, v.dir, { module: pick.value, slide: slide.value || null, ask: ask.value, staged: staged && staged.token });
+      const c = lib && made.calls[made.calls.length - 1]; // a Library item goes on the call just made
+      if (!c) return made;
+      try { return await call(flpt.attachLibraryItem, v.dir, c.id, lib.id); } catch (e) { await call(flpt.removeCall, v.dir, c.id).catch(() => {}); throw e; }
+    }));
     form.replaceChildren(el('div', { class: 'call-form-head' }, pick, slide), ask,
       staged ? el('div', { class: 'staged' }, ...staged.files.map((f) => el('span', {}, f.name))) : null,
+      lib ? el('div', { class: 'staged' }, el('span', { 'data-content': '' }, lib.title)) : null,
       el('div', { class: 'actions' }, add, el('button', { class: 'ghost', onclick: () => { form.hidden = true; } }, 'Cancel')));
     form.hidden = false;
     ask.focus();
@@ -741,7 +790,9 @@ function modulesBlock(v) {
   const box = el('section', { class: 'modules', 'aria-label': 'Modules' },
     el('div', { class: 'modules-head' },
       el('p', {}, el('b', {}, 'Modules')),
-      el('button', { class: 'ghost small', disabled: !editable, onclick: () => fromFiles(() => call(flpt.pickFiles)) }, 'Add a photo or clip')),
+      el('span', { class: 'modules-add' },
+        el('button', { class: 'ghost small', disabled: !editable, onclick: () => libraryPicker({}, (it) => openForm(null, null, it)) }, 'From the Library'),
+        el('button', { class: 'ghost small', disabled: !editable, onclick: () => fromFiles(() => call(flpt.pickFiles)) }, 'Add a photo or clip'))),
     grid, form,
     v.calls.length ? el('ul', { class: 'calls' }, ...v.calls.map((c) => callRow(v, c, editable))) : null);
   if (editable) dropTarget(box, (files) => fromFiles(() => call(flpt.stageDropped, files)));
@@ -883,7 +934,7 @@ function deckOutput(v, rec) {
       'data-shot': shot ? shot.id : false, 'data-family': mod ? familyOf(mod.module) : false,
       onclick: () => (toon ? playClip(toon.clip, toon.clipAt, `Slide ${n} · ${toon.title}`) : zoom(v.slides, i, v.slidesAt)) },
       el('img', { src: toon && (poster.poster || poster.file) ? flpt.fileUrl(poster.poster || poster.file) : flpt.fileUrl(p, v.slidesAt), alt: '', loading: 'lazy' }),
-      el('span', { class: 'n' }, String(n)), badge ? el('span', { class: `mod-badge${live ? ' live hud' : ''}` }, toon ? `${badge} ▶` : badge) : null,
+      el('span', { class: 'n' }, String(n)), badge ? el('span', { class: `mod-badge${live ? ' live hud' : ''}`, title: !toon && pieces.some((c) => c.kind === 'cartoon' && c.n === n) ? 'Its cartoon is made in Scenes. Till then, its title card.' : false }, toon ? `${badge} ▶` : pieces.some((c) => c.kind === 'cartoon' && c.n === n) ? `${badge} · in Scenes` : badge) : null,
       // the deck crew built another module than the plan's: shown, not hidden (its reason in the tooltip and the report)
       shot && shot.changed ? crewChange(n, shot) : null);
     return [thumb, ...between(v.deckOrder[i], n), ...cuts(n)];
@@ -937,9 +988,9 @@ function scriptOutput(v) {
   const rb = v.planview && v.planview.ribbon;
   if (rb && rb.script) {
     // S7: the plan against the script, in one mono line; each Live Motion slide's beat cues, red where the script misses one
-    out.push(el('p', { class: 'plan-line hud' }, rb.script));
+    out.push(el('p', { class: 'plan-line hud' }, FLPT_UI.words(rb.script)));
     if (rb.cues && rb.cues.length) {
-      out.push(el('div', { class: 'cues', 'aria-label': 'Cues' }, ...rb.cues.map((c) => el('div', { class: 'cue-row' },
+      out.push(el('div', { class: 'cues', 'aria-label': 'Cues' }, el('p', { class: 'muted cues-lead' }, 'Cues: the words each moving scene\'s beats land on.'), ...rb.cues.map((c) => el('div', { class: 'cue-row' },
         el('span', { class: 'cue-where hud' }, `${String(c.n).padStart(2, '0')} · ${c.tile}`),
         ...c.cues.map((x) => el('span', { class: `cue${x.found ? '' : ' missing'}`, title: x.found ? 'In the script' : 'Not in the script', 'data-content': '' }, x.cue))))));
     }
@@ -957,7 +1008,8 @@ function feedItem(ev) {
   const who = ev.slide ? el('b', { class: 'f-slide' }, `${ev.slide} `) : null;
   if (ev.kind === 'note') return el('li', { class: 'f-note' }, who, ev.text);
   if (ev.kind === 'init') return el('li', { class: 'f-note' }, who, `The ${ev.slide ? 'animator' : 'crew'} is ready (${ev.model || 'Claude'}${ev.skills && ev.skills.length ? `, with the method's ${ev.skills.length} skills` : ''}).`);
-  if (ev.kind === 'text') return el('li', { class: 'f-text', 'data-content': '' }, who, ev.text);
+  // the crew's own words: its tables, lists and bold drawn as the report is, never as raw markdown
+  if (ev.kind === 'text') return /^\s*\||\*\*|^#{1,6}\s|^\s*[-*]\s/m.test(ev.text || '') ? el('li', { class: 'f-text md', 'data-content': '' }, who, md(ev.text)) : el('li', { class: 'f-text', 'data-content': '' }, who, ev.text);
   if (ev.kind === 'tool') {
     const d = ev.detail && ev.detail.includes('/skills/') ? `the method: ${ev.detail.split('/').pop()}` : ev.detail;
     return el('li', { class: 'f-tool' }, who, TOOL_LABEL[ev.name] || ev.name, d ? el('code', { 'data-content': '' }, d) : null);
@@ -1044,8 +1096,12 @@ function scenesPanel(v, rec, status) {
   const sc = v.scenes || { pieces: [] };
   const out = [];
   if (!sc.pieces.length) out.push(el('p', { class: 'muted' }, 'No cartoons or cut scenes in this deck.'));
+  else out.push(el('p', { class: 'muted' }, 'Small paid steps, each approved first. Or drawn in code, free.'));
   for (const p of sc.pieces) out.push(sceneCard(v, p, sc));
   if (status !== 'approved') {
+    // one left unmade shows its title card in the film: said before Approve, never found in the film
+    const unmade = sc.pieces.filter((p) => !p.clip);
+    if (unmade.length) out.push(el('p', { class: 'note', 'data-content': '' }, `Not made yet: ${unmade.map((p) => (p.kind === 'cartoon' ? `slide ${p.n}` : p.title)).join(', ')}. The film shows a title card there.`));
     out.push(el('div', { class: 'actions' }, el('button', { class: 'primary', disabled: sc.working > 0 || Boolean(sc.assembling) || Boolean(ep.sceneBusy), onclick: () => approve(v.dir, 'scenes') }, 'Approve and continue')));
   }
   return out;
@@ -1055,7 +1111,7 @@ function sceneCard(v, p, sc) {
   const busy = Boolean(ep.sceneBusy) || ep.busy.has(v.dir) || ep.inflight.has(v.dir);
   const where = p.kind === 'cartoon' ? `Slide ${p.n}` : p.afterN ? `After slide ${p.afterN}` : 'Before slide 1';
   // Until it's made: what the whole piece comes to, as planned.
-  const total = p.total != null && !p.clip && !p.tiles.some((t) => t.takes) ? ` · about ${priced(p.total, p.totalGuess)}` : '';
+  const total = p.total != null && !p.clip && !p.tiles.some((t) => t.takes) ? ` · about ${priced(p.total, p.totalGuess)} in all` : '';
   const parts = [el('div', { class: 'scene-head' }, el('span', { class: 'addon-kind' }, PIECE_KIND[p.kind]), el('span', { class: 'scene-title', title: p.title, 'data-content': '' }, p.title),
     el('span', { class: 'muted' }, `${where}${total}`))];
   if (p.clip) parts.push(el('video', { class: 'scene-clip', controls: true, preload: 'metadata', src: flpt.fileUrl(p.clip, p.clipAt) }));
@@ -1101,7 +1157,7 @@ function sceneTile(v, p, t) {
     class: `scene-tile s-${t.status}${t.kind === 'video' ? ' is-video' : ''}`, 'data-slot': t.slot, title: t.error || t.about || '', disabled: !pic && !t.file,
     'aria-label': `${t.label}: ${t.status}`, onclick: () => scenePreview(v, p, t),
   },
-  pic ? el('img', { src: flpt.fileUrl(pic), alt: '' }) : el('span', { class: 'ph' }),
+  pic ? el('img', { src: flpt.fileUrl(pic), alt: '' }) : el('span', { class: 'ph' }, t.status === 'working' ? '' : 'Not made yet'),
   el('span', { class: 'tile-label' }, t.kind === 'video' && t.file ? `▶ ${t.label}` : t.label),
   MARK[t.status] ? el('span', { class: 'tile-mark' }, MARK[t.status]) : null,
   t.status === 'working' ? el('span', { class: 'tile-progress' }, '…') : null);
@@ -1246,6 +1302,8 @@ async function pipelineStep(dir, what, fn, done) {
   ep.busy.set(dir, what);
   ep.flash = null;
   if (ep.dir === dir) { renderRail(); renderStage(); }
+  // its record moves while it runs (Film's phase, the Jazz box): read it again until it ends (refresh's poll)
+  setTimeout(() => { if (ep.busy.get(dir) === what && ep.dir === dir) refresh({ quiet: true }); }, 1500);
   try {
     const r = await call(fn, dir);
     if (r && r.ok) flash(dir, stage, done(r), false);
@@ -1301,7 +1359,13 @@ function spliceLines(v, which) {
   if (!sp || (!sp.pieces && !sp.error && !(sp.notes || []).length)) return [];
   const out = [];
   if (sp.error) out.push(el('p', { class: 'splice-line bad', 'data-content': '' }, sp.error));
-  else if (sp.pieces) out.push(el('p', { class: 'splice-line hud' }, `${sp.pieces} between slides`));
+  else if (sp.pieces) {
+    // where they are ("after slide 6"), and one press to Live Motion, where they're made
+    const at = ((v.livemotion && v.livemotion.pieces) || []).filter((p) => p.placement === 'between' && p.afterN).map((p) => p.afterN);
+    const where = at.length === sp.pieces ? ` (after slide${at.length > 1 ? 's' : ''} ${at.join(', ')})` : '';
+    out.push(el('p', { class: 'splice-line' }, el('button', { class: 'linkish', title: 'Live Motion', onclick: () => select('animate') },
+      `${sp.pieces} piece${sp.pieces === 1 ? '' : 's'} between slides${where}`)));
+  }
   if ((sp.notes || []).length) out.push(el('ul', { class: 'splice-notes', 'data-content': '' }, ...sp.notes.slice(0, 6).map((n) => el('li', {}, n))));
   return out;
 }
@@ -1352,7 +1416,7 @@ function spendPanel(v, rec) {
 function draftSection(v) {
   const busy = ep.busy.get(v.dir) === 'draft';
   const kids = [el('div', { class: 'draft-head' }, el('h3', {}, 'Free draft'),
-    el('span', { class: 'hud muted', title: 'The slides and the script in the Mac\'s own voice, to check them before filming.' }, 'Mac voice · free'))];
+    el('span', { class: 'hud muted', title: 'The slides and the script in the Mac\'s own voice, to check them before filming.' }, 'Optional · Mac voice · free'))];
   if (v.draft && !busy) kids.push(el('video', { class: 'player', controls: true, preload: 'metadata', src: flpt.fileUrl(v.draft, v.draftAt), 'aria-label': 'The free draft' }));
   else kids.push(el('div', { class: 'screen-ph' }, busy ? el('span', { class: 'hud' }, 'Making the draft…') : el('img', { class: 'vignette', src: 'assets/vignettes/reel.svg', alt: '' })));
   kids.push(...spliceLines(v, 'draft'));
@@ -1370,8 +1434,8 @@ function filmPanel(v, rec, status) {
   const spend = v.state.stages.spend;
   if (status === 'running') {
     // the phase it's in, and for how long (flow.film writes them as they happen): never a frozen "Filming…"
-    const mins = rec.phaseAt ? Math.floor((Date.now() - Date.parse(rec.phaseAt)) / 60000) : 0;
-    return [el('p', { class: 'note', role: 'status' }, el('span', { class: 'hud' }, rec.phase ? `${rec.phase}${mins >= 1 ? ` · ${mins} min` : '…'}` : 'Filming…'))];
+    return [el('p', { class: 'note', role: 'status' }, workingClock(rec.phase || 'Filming…', rec.phaseAt ? since({ at: rec.phaseAt }) : since(rec))),
+      el('p', { class: 'muted' }, 'Stop keeps the clips already filmed. Filming again reuses them.')];
   }
   if (status === 'error' && rec.error === CHANGED) {
     // refused before anything was spent (the approval is kept): Restore, then Film it again
@@ -1426,7 +1490,8 @@ function deliverPanel(v, rec, status) {
       el('img', { class: 'vignette', src: 'assets/vignettes/trotting-pony.svg', alt: '' }),
       el('h3', {}, status === 'stale' ? 'Delivered, before the latest change' : 'Delivered'),
       el('p', { class: 'where', 'data-content': '', title: rec.folder }, rec.folder),
-      el('div', { class: 'actions' }, el('button', { class: 'primary', onclick: () => flpt.revealFile(rec.folder) }, 'Show in Finder')),
+      // inside the delivery, the video selected (a folder alone would be shown from the folder above it)
+      el('div', { class: 'actions' }, el('button', { class: 'primary', onclick: () => flpt.revealFile(rec.video || rec.folder) }, 'Show in Finder')),
       el('div', { class: 'deliver-opts' }, deliverOptions(v), again))
     : el('div', { class: 'deliver-side' },
       el('div', { class: 'actions' }, again),
@@ -1434,7 +1499,7 @@ function deliverPanel(v, rec, status) {
   out.push(el('section', { class: 'deliver-moment' }, frame, side));
   // what goes out (or went out): the files, as chips
   const caps = v.deliverOptions && v.deliverOptions.captions;
-  const files = [`presentation.mp4${v.refine && v.refine.video ? (v.refine.addons.length ? ' with your add-ons' : ', tightened') : ''}`, 'CapCut master', 'script', caps ? 'captions' : null, 'player page'].filter(Boolean);
+  const files = [`video${v.refine && v.refine.video ? (v.refine.addons.length ? ' with your add-ons' : ', tightened') : ''}`, 'CapCut master', 'script', caps ? 'captions' : null, 'player page'].filter(Boolean);
   out.push(el('ul', { class: 'deliver-files hud', 'aria-label': 'Files' }, ...files.map((f) => el('li', { class: rec.folder ? 'made' : '' }, f))));
   if (rec.folder) out.push(slackSection(v, rec));
   return out;
@@ -1450,7 +1515,7 @@ function deliverOptions(v) {
     try { await call(flpt.delivery.captions, v.dir, input.checked); } catch (e) { flash(v.dir, 'deliver', e.message); }
     if (ep.dir === v.dir) await refresh();
   });
-  return el('label', { class: 'toggle', title: 'presentation.srt, from the script and its word times. Free.' }, input, ' Captions');
+  return el('label', { class: 'toggle', title: 'An SRT beside the video, from the script and its word times. Free.' }, input, ' Captions');
 }
 if (flpt.delivery && typeof flpt.delivery.onChanged === 'function') flpt.delivery.onChanged((e) => { if (e && e.dir === ep.dir) refresh({ quiet: true }); });
 
@@ -1461,8 +1526,10 @@ function slackSection(v, rec) {
   const pack = rec.slack && (rec.slack.files || []).length ? rec.slack : null;
   const box = el('section', { class: 'slack' }, el('h3', { class: 'hud' }, 'Slack pack'),
     pack ? el('ul', { class: 'slack-files', 'data-content': '' }, ...pack.files.map((f) => el('li', {}, f))) : null,
-    el('div', { class: 'actions' }, el('button', { class: 'ghost small', disabled: busy || ep.busy.has(v.dir), onclick: () => pipelineStep(v.dir, 'slack', flpt.slackPick, done) },
-      busy ? 'Making the Slack pack…' : pack ? 'From a new export…' : 'From your export…')));
+    el('div', { class: 'actions' }, el('button', { class: 'ghost small', disabled: busy || ep.busy.has(v.dir), title: 'The video you exported from CapCut after your edit', onclick: () => pipelineStep(v.dir, 'slack', flpt.slackPick, done) },
+      busy ? 'Making the Slack pack…' : pack ? 'From a new CapCut export…' : 'From your CapCut export…'),
+    // no edit of your own: the delivered video as it is
+    !busy && flpt.episode && flpt.episode.slackDelivered ? el('button', { class: 'ghost small', disabled: ep.busy.has(v.dir), onclick: () => pipelineStep(v.dir, 'slack', flpt.episode.slackDelivered, done) }, 'From the delivered video') : null));
   if (!ep.busy.has(v.dir)) dropTarget(box, (files) => pipelineStep(v.dir, 'slack', (dir) => flpt.slackDrop(dir, files), done));
   return box;
 }
@@ -1470,6 +1537,7 @@ function slackSection(v, rec) {
 // ── refine: add-ons on the finished film ───────────────────────────────────────────────────────────────────────
 
 const ADDON_KIND = { clip: 'Clip', transition: 'Transition', music: 'Music', broll: 'B-roll' };
+const ADDON_TIP = { clip: 'A video of yours, placed between slides', transition: 'A short move from one slide to the next', music: 'A music bed under the voice', broll: 'Generated footage over a slide' };
 
 /** Run one change to the add-ons, then show the result. */
 async function updateAddons(dir, fn) {
@@ -1478,20 +1546,22 @@ async function updateAddons(dir, fn) {
 }
 
 function refinePanel(v, rec, status) {
-  if (status === 'running') return [el('p', { class: 'note' }, 'Refining…')];
+  if (status === 'running') return [el('p', { class: 'note' }, workingClock('Refining…', since(rec)))];
   if (!canRun(v, 'refine') && status !== 'approved') return [el('p', { class: 'note' }, 'Waiting on the film.')];
   const r = v.refine || { addons: [], slides: [], notes: [] };
   const t = r.tighten || { on: false, laughs: false, offered: false };
   const busy = ep.busy.has(v.dir);
   const out = [];
   if (status === 'error' || status === 'interrupted') out.push(el('p', { class: 'bad', 'data-content': rec.error ? '' : false }, rec.error || 'Refine was interrupted.'));
+  // the first read: what Refine is for, and that the film itself is never changed
+  if (status !== 'approved') out.push(el('p', { class: 'muted' }, 'Optional, free finishing touches. Apply makes a refined copy; the film stays.'));
   if (r.addons.length) {
     out.push(el('ul', { class: 'addons' }, ...r.addons.map((a) => el('li', {},
-      el('span', { class: 'addon-kind' }, ADDON_KIND[a.kind] || a.kind),
+      el('span', { class: 'addon-kind', title: ADDON_TIP[a.kind] || '' }, ADDON_KIND[a.kind] || a.kind),
       el('span', { class: 'addon-title', title: a.title }, el('span', { 'data-content': '' }, a.title), a.music ? el('span', { class: 'note-mark', title: 'Its own music', 'aria-label': 'its own music' }, '♪') : null),
       el('span', { class: 'addon-where' }, el('span', { 'data-content': '' }, a.where),
         a.underMusic ? el('span', { class: 'chip music', title: 'The bed sits under it, quieter.' }, 'Has its own music') : null),
-      busy ? el('span') : a.locked ? el('span', { class: 'addon-where' }, 'From the storyboard')
+      busy ? el('span') : a.locked ? el('span', { class: 'addon-where', title: 'Change it in the Storyboard' }, 'Planned in the storyboard')
         : el('button', { class: 'linkish', onclick: () => updateAddons(v.dir, () => call(flpt.removeAddon, v.dir, a.id)) }, 'Remove')))));
   }
   const form = el('div', { class: 'addon-form', hidden: true });
@@ -1539,7 +1609,7 @@ function tightenToggles(v, t, busy) {
 
 /** The one Add menu: Clip, Transition, Music, B-roll. */
 function refineAddMenu(open) {
-  const item = (kind) => el('button', { type: 'button', role: 'menuitem', onclick: (e) => { e.stopPropagation(); closeMenus(); open(kind); } }, ADDON_KIND[kind]); // eslint-disable-line no-undef
+  const item = (kind) => el('button', { type: 'button', role: 'menuitem', title: ADDON_TIP[kind], onclick: (e) => { e.stopPropagation(); closeMenus(); open(kind); } }, ADDON_KIND[kind]); // eslint-disable-line no-undef
   const menu = el('div', { class: 'lib-menu', role: 'menu', hidden: true }, ...['clip', 'transition', 'music', 'broll'].map(item));
   const btn = el('button', { type: 'button', class: 'lib-add-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: (e) => {
     e.stopPropagation();
@@ -1548,7 +1618,7 @@ function refineAddMenu(open) {
     menu.hidden = !show;
     btn.setAttribute('aria-expanded', String(show));
     if (show) menu.querySelector('button').focus();
-  } }, 'Add');
+  } }, 'Add clip, music or B-roll');
   return el('div', { class: 'lib-add refine-add' }, btn, menu);
 }
 

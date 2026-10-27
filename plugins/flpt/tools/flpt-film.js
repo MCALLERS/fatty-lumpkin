@@ -12,7 +12,7 @@
 //              With tightening off and no add-ons of the user's, it delivers the film as filmed, the storyboard's pieces
 //              between slides spliced in (presentation_full) while that splice is current and Deliver's chapters and
 //              captions follow it: Refine adds nothing to it, so it's skipped (the Wave 3 ruling; PLAN §2.7)
-//   --captions on: Deliver also writes presentation.srt beside the video (free; the app's Deliver toggle); off: not
+//   --captions on: Deliver also writes an SRT beside the video (free; the app's Deliver toggle); off: not
 //   --slack    free: the Slack pack from the user's own export (after their edit), beside the deliveries
 //   --restore  free: the plugin's own pipeline scripts put back into the episode (T18), anything else Python could load
 //              from there set aside in a new folder, never deleted. --check, --final and a draft point to it when they're
@@ -35,7 +35,7 @@ Usage: flpt-film [<episode>] --draft | --check | --final --approved <US dollars>
   --tighten   free: on shortens the film's over-long pauses (picture and sound stay in sync); off undoes it
   --deliver   the web parts, the player page and the extras (levelled, with a clip guide), copied to your deliveries folder;
               with tightening off, the film as filmed (with the storyboard's pieces between slides, when it has them)
-  --captions  free: on, Deliver also writes captions (presentation.srt) beside the video; a change makes a delivery out of date
+  --captions  free: on, Deliver also writes captions (an SRT) beside the video; a change makes a delivery out of date
   --slack     free: the Slack pack (the (vF), a 1.25x cut, an MP3 and a cover) from your own export, after your edit
   --restore   free: puts the plugin's own pipeline scripts back into the episode; anything else there that Python
               could load is set aside in a new folder, not deleted
@@ -221,7 +221,7 @@ main(async () => {
   if (values.captions) {
     // the app's Deliver toggle (api/delivery.js): the choice lives in the record's Deliver stage
     const r = app('api/delivery').setCaptions(dir, values.captions === 'on');
-    say(r.captions ? 'Captions are on: Deliver writes presentation.srt beside the video.' : 'Captions are off.');
+    say(r.captions ? 'Captions are on: Deliver writes an SRT beside the video.' : 'Captions are off.');
     return 0;
   }
 

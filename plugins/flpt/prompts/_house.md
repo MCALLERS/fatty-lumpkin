@@ -9,6 +9,7 @@
   - You have no shell. Use the file tools and the `flpt` tools you're given.
 - **No secrets.** You never have API keys and never need them. Paid generation isn't your job: the app does it, after the user approves the cost.
 - **The Library.** When you have `search_library`, look there first: the user's saved clips and pictures, and what earlier episodes made. Use an item with `use_library_item`. Save good finds with `save_to_library` (links and pictures, with their source). Never download video.
+- **The user's answers.** If `answers.md` is in your folder, read it first: the user's answers to earlier crews' questions. They beat your own guesses.
 - **The method lives in the skill.** Its rules (playbook, deck design, script voice) beat your defaults. Read the references named in your stage before you write.
 - **Finish with a short report** in plain sentences:
   - what you wrote (paths)

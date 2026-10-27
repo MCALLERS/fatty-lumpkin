@@ -49,6 +49,24 @@ const exists = (p) => { try { fs.accessSync(p); return true; } catch { return fa
  * @param {Function} [o.generator]     () → the generator (B-roll, the Scenes step's stills and shots), or null
  * @param {object} [o.scribeBases]     QA only: Scribe at a local stand-in (providers.qaBases)
  */
+/**
+ * Is this folder synced by iCloud Drive (inside it, or inside Desktop or Documents when "Desktop & Documents Folders"
+ * is on: ~/Library/Mobile Documents/com~apple~CloudDocs/<Desktop|Documents> exists)? iCloud's Optimize Mac Storage
+ * turns files there into placeholders, and a read of one can fail (EINTR).
+ */
+function inICloud(dir, home = os.homedir()) {
+  if (typeof dir !== 'string' || !dir) return false;
+  const cloud = path.join(home, 'Library', 'Mobile Documents');
+  const within = (d, root) => { const r = path.relative(root, d); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+  if (within(path.resolve(dir), cloud)) return true;
+  // Desktop & Documents syncing: iCloud Drive's Desktop or Documents is a link to the home's own (a folder left there
+  // after the sync was turned off isn't)
+  const synced = (n) => {
+    try { return fs.lstatSync(path.join(cloud, 'com~apple~CloudDocs', n)).isSymbolicLink() && fs.realpathSync(path.join(cloud, 'com~apple~CloudDocs', n)) === fs.realpathSync(path.join(home, n)); } catch { return false; }
+  };
+  return ['Desktop', 'Documents'].some((n) => within(path.resolve(dir), path.join(home, n)) && synced(n));
+}
+
 function createServices(o) {
   const dirs = appDirs(o.userData);
   const settings = createSettings({ dir: dirs.userData });
@@ -122,6 +140,8 @@ function createServices(o) {
       vaultAvailable,
       keys,
       keychainAsked,
+      // where episodes and deliveries go, and whether iCloud syncs them (the files it offloads break runs: 2.0.1)
+      folders: { projects: st.projectsDir, deliveries: st.deliverablesDir, icloud: { projects: inICloud(st.projectsDir), deliveries: inICloud(st.deliverablesDir) } },
       tools: s.lastDetect,
       presenter: s.pipeline.readPresenter(),
       sample: { dir: s.sampleDir(), scaffolded: exists(path.join(s.sampleDir(), 'presentation', 'video', '.venv', 'bin', 'python')) },
@@ -147,11 +167,12 @@ function createServices(o) {
   s.ensureSampleProject = async (job) => {
     const dir = s.sampleDir();
     const py = path.join(dir, 'presentation', 'video', '.venv', 'bin', 'python');
+    if (typeof s.pipeline.healVenv === 'function') s.pipeline.healVenv(dir); // a .venv another Mac made: set aside
     if (!exists(py)) {
       fs.mkdirSync(dir, { recursive: true });
       const base = await s.basePython();
       if (!base) throw new Error('Python isn\'t set up yet. Finish the Tools step first.');
-      const r = await s.pipeline.scaffold(dir, base, { onLine: job.onLine, signal: job.signal });
+      const r = await s.pipeline.scaffold(dir, base, { onLine: require('./pipeline').quietScaffold(job.onLine), signal: job.signal });
       if (r.code !== 0 || !exists(py)) throw new Error('Setting up the sample project failed. See the log for details.');
     }
     // The sample is FLPT's own: a pipeline scaffolded by an earlier version is put back to FLPT's copy (free, T18), or
@@ -296,7 +317,7 @@ function createServices(o) {
   s.pipeline = slidebox.sandboxSlides(createPipeline({ engineRoot: root, presenterDir: dirs.presenter, vault, redact, toolEnv: s.toolEnv, broker,
     trustedPython: () => toolchain.venvPython(dirs.toolchain), privateDirs: s.appPrivate, fontCacheDir: path.join(dirs.userData, 'deck-fonts'),
     // who presents an episode: its own choice, else the app's (W3-05's presenter.of)
-    presenterOf: (dir) => require('./presenter').of(dir, settings.read().presenter) }), { box: s.slideSandbox });
+    presenterOf: (dir) => require('./presenter').of(dir, settings.read().presenter), basePython: () => s.basePython() }), { box: s.slideSandbox });
   s.flow = createFlow({
     settings, vault, pipeline: s.pipeline, broker, redact, toolEnv: s.toolEnv, send: (channel, payload) => s.send(channel, payload),
     engineRoot: root,
@@ -324,4 +345,4 @@ function createServices(o) {
   return s;
 }
 
-module.exports = { createServices, ADDON_KINDS, LEGACY_DIR, MANIFEST };
+module.exports = { createServices, inICloud, ADDON_KINDS, LEGACY_DIR, MANIFEST };

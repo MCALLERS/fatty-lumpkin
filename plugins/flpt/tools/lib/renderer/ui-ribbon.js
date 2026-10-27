@@ -62,7 +62,7 @@
     });
     const box = el('nav', { class: `rb${script ? ' rb-script' : ''}`, 'aria-label': 'Storyboard', 'data-realm': opts.realm || false },
       el('div', { class: 'rb-strip' }, ...segs),
-      el('span', { class: 'rb-line hud' }, script ? rb.script : rb.line));
+      el('span', { class: 'rb-line hud' }, (UI.words || String)(script ? rb.script : rb.line)));
     hostIn(slot).replaceChildren(box);
     return box;
   }

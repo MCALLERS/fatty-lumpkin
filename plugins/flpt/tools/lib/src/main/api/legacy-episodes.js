@@ -4,9 +4,12 @@
 // and its Stop button works), and files picked in a native dialog or dropped on the window. The page names an episode
 // and what to do; paths are worked out here (a dropped file's path comes from the preload, never from page code).
 // Each keeps the name the page has always called it by (`expose`); the page gets { ok, value } or { ok: false, error }.
+const fs = require('fs');
 const modules = require('../modules');
 
 // Files for a call or a new episode: the page gets back a token and the files' names (and the likely module).
+// macOS's file picker shows the Photos library, but its pictures aren't files it hands over: said in the picker itself
+const FROM_PHOTOS = 'From Photos: export the picture first (File → Export), then pick it here.';
 const DOCS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'mp4', 'mov', 'm4v', 'pdf', 'txt', 'md', 'rtf', 'docx', 'html', 'htm'];
 const held = (c, paths) => { const s = c.staging.stage(paths); return { ...s, guess: modules.guessFor(s.files) }; };
 
@@ -30,7 +33,7 @@ const files = {
   ns: 'files',
   methods: {
     pick: { args: [], expose: 'pickFiles', handler: async (c) => {
-      const r = await c.dialogs.open({ title: 'Add a photo, a clip or a document', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Photos, clips and documents', extensions: DOCS }] });
+      const r = await c.dialogs.open({ title: 'Add a photo, a clip or a document', message: FROM_PHOTOS, properties: ['openFile', 'multiSelections'], filters: [{ name: 'Photos, clips and documents', extensions: DOCS }] });
       return r.canceled || !r.filePaths.length ? null : held(c, r.filePaths);
     } },
     stage: { args: ['dropped'], expose: 'stageDropped', handler: (c, paths) => held(c, paths) },
@@ -54,7 +57,7 @@ const refine = {
 const episode = {
   ns: 'episode',
   methods: {
-    create: { args: ['json:4194304?'], expose: 'createEpisode', handler: (c, intake) => c.flow.create(intake, intake && intake.staged ? c.staging.take(intake.staged) : []) },
+    create: { args: ['json:4194304?'], expose: 'createEpisode', handler: (c, intake) => c.flow.create(intake, intake && intake.staged ? [].concat(intake.staged).flatMap((t) => c.staging.take(t)) : []) },
     open: { args: ['episode'], expose: 'openEpisode', handler: (c, dir) => c.flow.open(dir) },
     run: { args: ['episode', 'stage', 'text:100000?'], expose: 'runStage', handler: (c, dir, stage, feedback) => c.flow.runStage(dir, stage, feedback) },
     // The animator crew: every marked slide, or one ({ slide: n }), with the user's notes ({ feedback }).
@@ -62,6 +65,10 @@ const episode = {
       feedback: opts && typeof opts.feedback === 'string' ? opts.feedback.slice(0, 4000) : '' }) },
     cancel: { args: ['episode'], expose: 'cancelStage', handler: (c, dir) => c.flow.cancel(dir) },
     approve: { args: ['episode', 'stage'], expose: 'approveStage', handler: (c, dir, stage) => c.flow.approve(dir, stage) },
+    // Fact-check, skipped: the claims go into the deck unchecked (2.0.1)
+    skipFactcheck: { args: ['episode'], expose: 'episode.skipFactcheck', handler: (c, dir) => c.flow.approve(dir, 'factcheck', { skip: true }) },
+    // Your answers to a crew's questions, for every later crew (presentation/answers.md, 2.0.1)
+    answer: { args: ['episode', 'stage', 'text:8000?'], expose: 'episode.answer', handler: (c, dir, stage, text) => c.flow.saveAnswers(dir, stage, text) },
     save: { args: ['episode', 'id', 'text:400000?'], expose: 'saveEpisodeFile', handler: (c, dir, which, text) => c.flow.saveFile(dir, which, text) },
     estimate: { args: ['episode'], expose: 'spendEstimate', handler: (c, dir) => c.flow.spendEstimate(dir) },
     // The user's calls for the deck: a module, where, what to do, and any files or links to use.
@@ -82,7 +89,7 @@ const episode = {
       return v;
     } },
     attach: { args: ['episode', 'id'], expose: 'attachToCall', handler: async (c, dir, id) => {
-      const r = await c.dialogs.open({ title: 'Attach to this call', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Photos, clips and documents', extensions: DOCS }] });
+      const r = await c.dialogs.open({ title: 'Attach to this call', message: FROM_PHOTOS, properties: ['openFile', 'multiSelections'], filters: [{ name: 'Photos, clips and documents', extensions: DOCS }] });
       return r.canceled || !r.filePaths.length ? c.flow.open(dir) : c.flow.attachFiles(dir, id, r.filePaths);
     } },
     approveSpend: { args: ['episode'], expose: 'approveSpend', handler: (c, dir) => c.flow.approveSpend(dir) },
@@ -99,8 +106,17 @@ const episode = {
     deliver: { args: ['episode'], expose: 'deliver', handler: asJob('Delivering', async (c, dir, job) => made(c, await c.flow.deliver(dir, job.onLine, job.signal), 'folder')) },
     // The Slack pack, from the user's own export: picked in the native dialog, or dropped (its path comes from the preload).
     slackPick: { args: ['episode'], expose: 'slackPick', handler: async (c, dir) => {
-      const r = await c.dialogs.open({ title: 'Your export', properties: ['openFile'], filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v'] }] });
+      let at; // the picker opens at the delivery
+      try { at = c.flow.open(dir).state.stages.deliver.folder || undefined; } catch { at = undefined; }
+      const r = await c.dialogs.open({ title: 'Your CapCut export', message: 'Pick the video you exported from CapCut after your edit.', defaultPath: at,
+        properties: ['openFile'], filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v'] }] });
       return r.canceled || !r.filePaths.length ? { ok: false, cancelled: true } : slackJob(c, dir, r.filePaths[0]);
+    } },
+    // The Slack pack from the video Deliver made, when there's no edit of your own (2.0.1)
+    slackDelivered: { args: ['episode'], expose: 'episode.slackDelivered', handler: (c, dir) => {
+      const del = c.flow.open(dir).state.stages.deliver;
+      if (!del.video || !fs.existsSync(del.video)) throw new Error('Deliver again first: this delivery is from before 2.0.1.');
+      return slackJob(c, dir, del.video);
     } },
     slackPack: { args: ['episode', 'dropped1'], expose: 'slackDrop', handler: (c, dir, file) => slackJob(c, dir, file) },
   },

@@ -190,7 +190,10 @@
     const kids = [head(v, f), strip(v, f)];
     // a plan waiting on its approval always offers one: the two ways (arriving, or a Jazz plan an edit or a re-plan
     // re-opened), or Directed's own Approve the plan below
-    if (!f.approved && f.edit && !directed) kids.push(choices());
+    if (!f.approved && f.edit && !directed) {
+      kids.unshift(el('p', { class: 'sb-lead' }, 'The crew\'s starting suggestion. Change any shot, then pick one way on.'));
+      kids.push(choices());
+    }
     const body = el('div', { class: `sb-body${directed && focus ? ' with-insp' : ''}` }, cards(v, f));
     if (directed && focus) body.append(inspector(v, focus, f));
     if (state.pending) kids.push(replanBar());
@@ -230,13 +233,14 @@
 
   // ── the head: the totals line, the status lines, Undo · Redo ──
   function head(v, f) {
-    const lines = [el('p', { class: 'sb-line hud', title: (v.tooltip || []).join(' · ') }, v.line)];
+    const said = (x) => (UI.words ? UI.words(x) : x); // the stat lines in words (app.js)
+    const lines = [el('p', { class: 'sb-line hud', title: (v.tooltip || []).join(' · ') }, said(v.line))];
     if (f.approved && v.mode) lines.push(el('span', { class: 'sb-mode hud' }, v.mode === 'jazz' ? 'Jazz' : 'Directed'));
     const undo = el('button', { type: 'button', class: 'ghost small', disabled: !f.edit || !v.undo, title: '⌘Z', onclick: () => edit(null, 'undo') }, 'Undo');
     const redo = el('button', { type: 'button', class: 'ghost small', disabled: !f.edit || !v.redo, title: '⇧⌘Z', onclick: () => edit(null, 'redo') }, 'Redo');
     const out = el('div', { class: 'sb-head' }, el('div', { class: 'sb-totals' }, ...lines), el('div', { class: 'sb-undo' }, undo, redo));
-    const said = planLine(v);
-    const notes = [...(v.status || []), ...(said ? [said] : [])];
+    const vs = planLine(v);
+    const notes = [...(v.status || []), ...(vs ? [vs] : [])].map(said);
     const removed = v.diff && Array.isArray(v.diff.removed) ? v.diff.removed : [];
     return el('div', { class: 'sb-top' }, out,
       notes.length ? el('p', { class: 'sb-status hud' }, notes.join(' · ')) : null,
@@ -453,9 +457,10 @@
       return pic;
     };
     return el('div', { class: 'sb-choices' },
-      el('button', { type: 'button', class: 'sb-choice sb-jazz', disabled: cur.state.busy, onclick: jazz }, mini('jazz'), el('b', {}, 'Let FLPT play jazz')),
+      el('button', { type: 'button', class: 'sb-choice sb-jazz', disabled: cur.state.busy, onclick: jazz }, mini('jazz'), el('b', {}, 'Let FLPT play jazz'),
+        el('span', { class: 'sb-choice-what' }, 'FLPT plays it through. It stops before new spending.')),
       el('button', { type: 'button', class: 'sb-choice', disabled: cur.state.busy, onclick: () => op({ op: 'mode', mode: 'directed' }).then((x) => { if (x && !cur.state.focus) focusShot(x.shots[0].id, false); }) },
-        mini('directed'), el('b', {}, 'User directed')));
+        mini('directed'), el('b', {}, 'User directed'), el('span', { class: 'sb-choice-what' }, 'You set each shot, then approve the plan.')));
   }
   /** Let FLPT play jazz: the playhead sweeps the strip, each shot lighting in turn (1400 ms); then the plan's approval. */
   async function jazz() {
@@ -524,7 +529,9 @@
       el('span', { class: 'sb-card-pic' }, media(s, on && !directed)),
       el('span', { class: 'sb-card-top' }, s.n ? el('span', { class: 'sb-card-n hud' }, pad2(s.n)) : null,
         el('span', { class: 'sb-card-tile hud' }, s.tile), changedIds.has(s.id) ? el('span', { class: 'sb-dot', title: 'Changed' }) : null,
-        s.locked ? el('span', { class: 'sb-lock', title: 'Locked' }) : null),
+        s.locked ? el('span', { class: 'sb-lock', title: 'Locked' }) : null,
+        // an Inset with no clip yet: said on its card (Clippy → the Library → its Clip well), in either way on
+        s.needsClip && !clipsOf(cur.ctx.view, s).length ? el('span', { class: 'sb-needs hud', title: 'Get it with Clippy, then add it in the shot\'s Clip well' }, 'Needs your clip') : null),
       el('span', { class: 'sb-card-title', 'data-content': '' }, s.title || s.idea || ''),
       el('span', { class: 'sb-card-meta hud' }, clockOf(s.seconds), s.usd != null ? el('span', { class: 'sb-money' }, usd(s.usd)) : null));
     }));
@@ -681,6 +688,8 @@
     paint();
   }
 
+  /** What a slide's Inset calls hold (its clip, once you've given one). */
+  function clipsOf(v, s) { return (v.calls || []).filter((c) => c.module === 'inset' && c.slide === s.n).flatMap((c) => c.attachments || []); }
   /**
    * An Inset's CLIP well (draft-ux S5b): the Deck's call attachment, from here. A clip dropped on it or picked becomes
    * this slide's Inset call (flpt.addCall with the staged files, as the Deck's own call form does), which the deck crew
@@ -689,7 +698,7 @@
   function clipWell(s, ro) {
     const { ctx } = cur;
     const v = ctx.view;
-    const atts = (v.calls || []).filter((c) => c.module === 'inset' && c.slide === s.n).flatMap((c) => c.attachments || []);
+    const atts = clipsOf(v, s);
     const off = ro || !s.n || !flpt.addCall || Boolean(v.state.stages.deck && v.state.stages.deck.status === 'running');
     const take = async (stage) => {
       try {
@@ -717,7 +726,19 @@
         if (e.dataTransfer.files.length) take(() => flpt.stageDropped(e.dataTransfer.files));
       });
     }
-    return section('Clip', well);
+    // no clip of your own yet: clip it with Clippy (it lands in the Library), then take it from there
+    const lib = !off && typeof libraryPicker === 'function' && flpt.attachLibraryItem ? el('button', { type: 'button', class: 'linkish', onclick: () => libraryPicker({ kind: 'clip' }, async (it) => { // eslint-disable-line no-undef
+      try {
+        const m = (v.catalog || []).find((x) => x.id === 'inset') || {};
+        const made = await ctx.call(flpt.addCall, ctx.dir, { module: 'inset', slide: s.n, ask: s.ask || m.withFile || m.ask || 'Play this clip inside the slide.' });
+        const id = made.calls[made.calls.length - 1].id;
+        // the item didn't attach: its empty call goes too, so the deck crew never gets a call with no clip
+        try { await ctx.call(flpt.attachLibraryItem, ctx.dir, id, it.id); } catch (e) { await ctx.call(flpt.removeCall, ctx.dir, id).catch(() => {}); throw e; }
+      } catch (e) { say(e.message); ctx.refresh(); return; }
+      ctx.refresh();
+    }) }, 'From the Library') : null;
+    const clip = !off && flpt.clippy && typeof flpt.clippy.open === 'function' ? el('button', { type: 'button', class: 'linkish', title: 'Clip a scene from a video link into your Library', onclick: () => flpt.clippy.open() }, 'Get it with Clippy') : null;
+    return section('Clip', well, lib || clip ? el('p', { class: 'sb-well-more' }, clip, clip && lib ? ' · ' : null, lib) : null);
   }
 
   // ── the actions under it all ──

@@ -141,6 +141,10 @@ function writePlayerConfig(dir, finalOutput, { engineRoot } = {}) {
   return true;
 }
 
+/** A read macOS cut short: an iCloud file not yet downloaded ("Optimize Mac Storage"), 2026-10-27. Said plainly. */
+const INTERRUPTED = /\bEINTR\b|interrupted system call/;
+const ICLOUD_READ = 'A file in this episode was still coming down from iCloud. Try again, or keep episodes out of iCloud (Setup → Folders).';
+
 function createFlow(d) {
   // d: { settings, vault, pipeline, broker, toolEnv, chrome(), engineRoot, configDir, executable, confirm(opts), send,
   //      basePython(), loadSdk(), redact, motion: { available(), clear(dir), render(dir, which, opts), assemble(dir, key, opts) }
@@ -163,7 +167,7 @@ function createFlow(d) {
   provenance.configure({ ...(d.engineRoot && path.isAbsolute(d.engineRoot) ? { engineRoot: d.engineRoot } : {}),
     ...(d.settings && 'toolchainMode' in (d.settings.read() || {}) ? { modeOf: () => d.settings.read().toolchainMode } : {}) });
   const hookError = (e) => e instanceof ext.HookError;
-  const said = (e) => d.redact(String(e && e.message ? e.message : e)).slice(0, 400);
+  const said = (e) => { const t = String(e && e.message ? e.message : e); return INTERRUPTED.test(t) ? ICLOUD_READ : d.redact(t).slice(0, 400); };
   /** What the storyboard plans for here (D13): ext/storyboard.capsFor over the host's caps and the vault's status. */
   const planCaps = () => { try { return require('./ext/storyboard').capsFor(d); } catch { return null; } };
 
@@ -743,11 +747,15 @@ function createFlow(d) {
   function capFor(lines) {
     const board = episode.STAGES.find((s) => s.id === 'storyboard');
     const base = board && lines.some((l) => l.from === 'stage' && l.label === board.label) ? BASE_FOR : BASE_FOR.replace('storyboard, ', '');
-    const more = lines.filter((l) => l.from !== 'stage' && l.from !== 'mark' && l.usd > 0).map((l) => l.label);
+    // the plan's Live Motion pieces are counted ("6 Live Motion pieces"), not listed by style ("Solo, Solo ♪…")
+    const extra = lines.filter((l) => l.from !== 'stage' && l.from !== 'mark' && l.usd > 0);
+    const pieces = extra.filter((l) => PIECE_EXTS.has(l.from)).length;
+    const more = [...(pieces ? [`${pieces} Live Motion piece${pieces === 1 ? '' : 's'}`] : []), ...extra.filter((l) => !PIECE_EXTS.has(l.from)).map((l) => l.label)];
     if (!more.length) return base;
     return `${base}, plus ${more.length > 4 ? `${more.slice(0, 3).join(', ')} and ${more.length - 3} more` : more.join(', ')}`;
   }
 
+  const PIECE_EXTS = new Set(['storyboard', 'livemotion']); // the extensions whose planning lines are Live Motion pieces
   const plainLines = (lines) => lines.map(({ label, usd }) => ({ label, usd }));
 
   /**
@@ -760,7 +768,7 @@ function createFlow(d) {
     const ok = await d.confirm({
       title: 'Spend on Claude?',
       message: `Planning "${st.title}" uses your Anthropic key.`,
-      detail: `Up to ${cap} US dollars for ${capFor(lines)}. Each run is capped, and only its real cost counts against this budget, so revisions draw on it too. You'll see the cost after each run, and you'll be asked again if it runs low.`,
+      detail: `Up to ${cap} US dollars for the whole episode: ${capFor(lines)}. Each run has its own smaller cap inside this, and only its real cost counts, so revisions draw on it too. You'll see the cost after each run, and you'll be asked again if it runs low.`,
       button: `Approve up to ${cap} US dollars`,
     });
     if (!ok) return null;
@@ -970,6 +978,26 @@ function createFlow(d) {
     return hooks.transformSync('stageVars', stageVars(readState(dir)), { dir, stageId });
   }
 
+  /**
+   * The user's answers to a crew's questions (the "any question for the user" of its report), in presentation/answers.md:
+   * one section per stage, a new answer replacing that stage's. Every later crew reads it first (_house.md).
+   */
+  function saveAnswers(dir, stageId, text) {
+    dir = guard(dir);
+    const s = episode.STAGES.find((x) => x.id === stageId);
+    if (!s || s.kind !== 'agent') throw new Error('Unknown stage.');
+    const file = path.join(dir, 'presentation', 'answers.md');
+    let cur = '';
+    try { cur = fs.readFileSync(file, 'utf8'); } catch { cur = ''; }
+    const head = `## To the ${s.label.toLowerCase()} crew's questions`;
+    const parts = cur.split(/^(?=## )/m).filter((p) => p.startsWith('## ') && !p.startsWith(`${head}\n`));
+    const body = String(text || '').trim().replace(/^#/gm, '\\#'); // an answer's own headings stay inside its section
+    if (body) parts.push(`${head}\n\n${body}\n`);
+    if (parts.length) fs.writeFileSync(file, `# Your answers\n\n${parts.map((p) => p.trimEnd()).join('\n\n')}\n`);
+    else fs.rmSync(file, { force: true });
+    return { saved: Boolean(body) };
+  }
+
   function cancel(dir) { const c = running.get(path.resolve(dir)); if (c) c.abort(); return Boolean(c); }
 
   // ── Animate: the animator crew (animators.js) ──
@@ -1150,6 +1178,13 @@ function createFlow(d) {
       const done = markApproved(dir, 'scenes', { made, skipped: !made }, by);
       if (made && d.keep) Promise.resolve().then(() => d.keep(dir, 'scenes')).catch(() => {}); // the cut scenes, to the Library
       return done;
+    }
+    if (stageId === 'factcheck' && opts && opts.skip) {
+      // Optional (2.0.1): skipped, the claims go into the deck unchecked (the later crews read claims.md only if present)
+      if (!episode.canRun(st, 'factcheck')) throw new Error('Approve the bullets first.');
+      if (status === 'running') throw new Error('The fact-check crew is working. Stop it first.');
+      if (status === 'approved') throw new Error('There\'s nothing to approve yet.');
+      return markApproved(dir, 'factcheck', { skipped: true }, by);
     }
     const ok = status === 'review' || (status === 'stale' && s.kind === 'agent');
     if (!ok) throw new Error('There\'s nothing to approve yet.');
@@ -1724,6 +1759,25 @@ function createFlow(d) {
     });
   }
 
+  const OWNER = '.flpt-episode'; // in each delivery folder: the episode it's for
+  /**
+   * This episode's delivery folder: its short name in the deliveries folder, numbered past one that holds another
+   * episode's delivery ("… part" for both "… part 1" and "… part 2" would otherwise be one folder). One it delivered to
+   * before keeps being its own.
+   */
+  function deliveryFolder(dir, st, name) {
+    const base = d.settings.read().deliverablesDir;
+    const was = st.stages.deliver && st.stages.deliver.folder;
+    for (let n = 1; n < 1000; n += 1) {
+      const out = path.join(base, n === 1 ? name : `${name} ${n}`);
+      if (!exists(out) || out === was) return out;
+      let owner = null;
+      try { owner = fs.readFileSync(path.join(out, OWNER), 'utf8').trim(); } catch { owner = null; }
+      if (owner === dir) return out;
+    }
+    throw new Error('The deliveries folder has too many folders of this name.');
+  }
+
   async function deliver(dir, onLine = () => {}, signal) {
     dir = guard(dir);
     let st = readState(dir);
@@ -1745,19 +1799,21 @@ function createFlow(d) {
     const made = refined || spliced;
     const video = made ? made.video : d.pipeline.finalOutput(dir);
     const master = made ? made.master : d.pipeline.editMasterOutput(dir);
-    const slug = episode.slugify(st.title);
+    const names = episode.deliveredNames(st.title); // short, cut at a word; the files say what they are
+    const out = deliveryFolder(dir, st, names.folder);
     return exclusive(dir, async () => {
       // which video this delivery takes, recorded before the hooks run: Deliver's hook times DESCRIPTION.txt's chapters
       // and the captions to it (interstitials.deliveredTimeline reads stages.deliver.spliced)
-      episode.setStage(dir, 'deliver', { status: 'running', error: null, refined: Boolean(refined), spliced: Boolean(spliced) });
+      episode.setStage(dir, 'deliver', { status: 'running', error: null, folder: out, refined: Boolean(refined), spliced: Boolean(spliced) });
       try {
         const w = await d.pipeline.web(dir, { onLine, signal, source: made ? made.video : null });
         if (w.code === 0 && !writePlayerConfig(dir, d.pipeline.finalOutput(dir), { engineRoot: d.engineRoot })) onLine('The player page keeps your own titles (player_config.json).');
         const p = w.code === 0 ? await d.pipeline.player(dir, { onLine, signal }) : w;
-        const out = path.join(d.settings.read().deliverablesDir, slug);
         fs.mkdirSync(out, { recursive: true });
-        const copies = [[video, 'presentation.mp4'], [master, `${slug} (for CapCut).mov`],
-          [path.join(dir, 'presentation', 'script.md'), 'script.md']];
+        fs.writeFileSync(path.join(out, OWNER), `${dir}\n`);
+        // a folder this episode delivered to before 2.0.1's names: its old files go, so only one video is there
+        for (const f of ['presentation.mp4', 'script.md', 'presentation.srt']) fs.rmSync(path.join(out, f), { force: true });
+        const copies = [[video, names.video], [master, names.master], [path.join(dir, 'presentation', 'script.md'), names.script]];
         for (const [src, name] of copies) if (exists(src)) fs.copyFileSync(src, path.join(out, name));
         // CC BY music is credited, with what was done to it.
         const credits = made ? refineMod.musicCredits(st.addons, st.title) : null;
@@ -1792,15 +1848,15 @@ function createFlow(d) {
           refined: refined && (st.addons || []).length ? readJson(o.timeline) : spliced ? readJson(spliced.timeline) : null,
           insets, cutscenes, addons: st.addons || [], files: lev.bySrc, pres }) : [];
         const length = (readJson(made ? made.timeline : o.filmTimeline) || {}).total_duration || 0;
-        const guide = extras.clipGuide({ title: st.title, master: `${slug} (for CapCut).mov`, seconds: length, slots, levelled: lev.files.length > 0 });
+        const guide = extras.clipGuide({ title: st.title, master: names.master, seconds: length, slots, levelled: lev.files.length > 0 });
         if (guide) fs.writeFileSync(path.join(out, 'CAPCUT_CLIP_GUIDE.md'), guide);
         else fs.rmSync(path.join(out, 'CAPCUT_CLIP_GUIDE.md'), { force: true });
 
         const slack = st.stages.deliver.slack && (st.stages.deliver.slack.files || []).every((f) => exists(path.join(out, f))) ? st.stages.deliver.slack : null;
-        markApproved(dir, 'deliver', { folder: out, playerOk: p.code === 0, refined: Boolean(refined), spliced: Boolean(spliced), tightened: Boolean(refined) && tk !== 'off',
+        markApproved(dir, 'deliver', { folder: out, video: path.join(out, names.video), playerOk: p.code === 0, refined: Boolean(refined), spliced: Boolean(spliced), tightened: Boolean(refined) && tk !== 'off',
           extras: lev.files.length, guide: Boolean(guide), slack });
         if (d.keep) Promise.resolve().then(() => d.keep(dir, 'deliver', { finalVideo: video })).catch(() => {});
-        return { ok: true, folder: out, playerOk: p.code === 0, refined: Boolean(refined), spliced: Boolean(spliced), extras: lev.files, guide: Boolean(guide), lines: p.lines ? p.lines.slice(-8) : [] };
+        return { ok: true, folder: out, video: path.join(out, names.video), playerOk: p.code === 0, refined: Boolean(refined), spliced: Boolean(spliced), extras: lev.files, guide: Boolean(guide), lines: p.lines ? p.lines.slice(-8) : [] };
       } catch (e) {
         episode.setStage(dir, 'deliver', { status: 'error', error: said(e) });
         throw e;
@@ -2247,7 +2303,7 @@ function createFlow(d) {
 
   return { list, create, open, runStage, cancel: cancelPage, approve: approvePage, saveFile, spendEstimate, approveSpend, draft, film, deliver, slackPack, inProjects,
     addCall, removeCall, attachFiles, addCallLink, addAddon, removeAddon, setTighten, refine, animate, sceneAction, sceneLanded, assembleScene,
-    passScenes, topUpPlanning, reservePlanning: reserveCrews, isBusy, stageVars: stageVarsFor, caps, extensions,
+    passScenes, topUpPlanning, reservePlanning: reserveCrews, isBusy, stageVars: stageVarsFor, saveAnswers, caps, extensions,
     // Spend opened again (T20), for livemotion.drawInCode and the API (W2-02's handoff 1c)
     reopenSpend: (dir, why) => reopenSpend(guard(dir), typeof why === 'string' ? why.slice(0, 40) : 'changed'),
     // Jazz (W3-03)
@@ -2256,4 +2312,4 @@ function createFlow(d) {
     deliversSpliced: (dir) => { dir = guard(dir); const st = readState(dir); return tightenKey(st) === 'off' && !refinedOutputs(dir, st) && Boolean(splicedFilm(dir, st)); } };
 }
 
-module.exports = { createFlow, stageVars, playerConfig, writePlayerConfig, tightenKey, spendBlocked, SPEND_PROVIDERS, FILM_PAID };
+module.exports = { ICLOUD_READ, createFlow, stageVars, playerConfig, writePlayerConfig, tightenKey, spendBlocked, SPEND_PROVIDERS, FILM_PAID };

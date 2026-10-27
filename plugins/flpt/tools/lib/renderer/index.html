@@ -49,7 +49,7 @@
 <dialog class="sheet" id="intake-sheet" aria-label="New episode">
   <form class="card intake" id="intake">
     <h2>New episode</h2>
-    <label>Title <input name="title" required maxlength="120" placeholder="e.g. Why would a law firm buy GPUs?"></label>
+    <label>Title <input name="title" required maxlength="120" placeholder="e.g. Three things we learned this year"></label>
     <label>The point <textarea name="point" rows="2" maxlength="600" placeholder="What should change in your audience's head?"></textarea></label>
     <div class="row">
       <label>Audience <input name="audience" maxlength="300" placeholder="e.g. our executive team"></label>
@@ -182,6 +182,12 @@
       <div class="actions"><button class="primary" data-view="home" id="done-new">New episode</button></div>
     </section>
 
+    <!-- ───────────── folders ───────────── -->
+    <section class="screen" data-name="folders">
+      <h2>Folders</h2>
+      <div id="folder-list"></div>
+    </section>
+
     <!-- ───────────── about ───────────── -->
     <section class="screen" data-name="about">
       <h2>About</h2>
@@ -204,7 +210,7 @@
 
 <!-- live log for any running job -->
 <aside class="log" id="log" hidden>
-  <header><span id="log-title">Working…</span><button class="ghost small" id="log-cancel">Stop</button></header>
+  <header><span id="log-title">Working…</span><button class="ghost small" id="log-cancel" title="Stops the run. What it spent so far stays spent, and nothing more is.">Stop</button><button class="ghost small" id="log-close" aria-label="Hide the log" title="Hide (it keeps working)">×</button></header>
   <pre id="log-lines" aria-live="polite"></pre>
 </aside>
 

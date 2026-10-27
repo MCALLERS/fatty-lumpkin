@@ -212,7 +212,8 @@
 .thumb .crew-change { position: absolute; left: 6px; top: 6px; padding: 1px 8px; border-radius: var(--r-pill); color: #fff; background: var(--chestnut); }
 
 /* ── the Bullets as a document: module chips ── */
-.doc-head { display: flex; justify-content: flex-end; margin: 4px 0 -6px; }
+.doc-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; margin: 4px 0 10px; }
+.doc-head .doc-lead { margin-right: auto; font-size: var(--fs-small); }
 .doc-edit[aria-pressed="true"] { border-color: var(--navy); color: var(--navy); }
 .bullets-doc .mod-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 6px 0 12px; }
 .mod-chip { padding: 2px 9px; border-radius: var(--r-pill); border: 1px solid var(--fam); color: var(--fam); background: color-mix(in srgb, var(--fam) 9%, transparent); white-space: nowrap; }
@@ -241,3 +242,10 @@ html.fx-paused .mp-tile:hover .mp-media, html.fx-paused .sb-choice:hover .sb-cho
   .sb-insp, .mp-media, .sb-choice-pic i, .sb-choice-pic::after, .sb-seg, .sb-plus, .sb-well { animation: none !important; transition: none; }
   .mp-tile:hover .mp-media, .sb-choice:hover .sb-choice-pic i { transform: none; }
 }
+
+/* 2.0.1: the board's first read (the crew's starting suggestion) and what each way on means */
+.sb-lead { margin: 0 0 10px; color: var(--text-2); }
+.sb-choice .sb-choice-what { display: block; margin-top: -6px; font-size: var(--fs-small); font-weight: 400; color: var(--text-2); }
+.cues .cues-lead { margin: 0; font-size: var(--fs-small); }
+.sb-card .sb-needs { margin-left: auto; color: var(--gold-ink, var(--text-2)); }
+.sb-well-more { margin: 6px 0 0; font-size: var(--fs-small); color: var(--text-2); }

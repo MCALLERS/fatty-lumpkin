@@ -42,8 +42,35 @@ const settings = {
       const value = c.settings.write(clean);
       return { settings: value, persisted: c.settings.persisted() };
     } },
+    // Setup → Folders: where episodes and deliveries go, picked in the native dialog (never a path from the page).
+    // The episodes folder also holds the Library, Transitions & Music, Presenters and Styles, so it's only ever pointed
+    // at where they already are (the whole folder moved there with FLPT closed), never at a new, empty one.
+    chooseFolder: { args: ['id'], expose: 'settings.chooseFolder', handler: async (c, which) => {
+      const now = c.settings.read();
+      const key = { projects: 'projectsDir', deliveries: 'deliverablesDir' }[which];
+      if (!key) throw new Error('Episodes or deliveries.');
+      const r = await c.dialogs.open({ title: which === 'projects' ? 'Where FLPT keeps your episodes' : 'Where FLPT puts finished videos', buttonLabel: 'Use this folder',
+        defaultPath: now[key], properties: ['openDirectory', 'createDirectory'] });
+      if (r.canceled || !r.filePaths.length) return { cancelled: true, state: c.state() };
+      const to = r.filePaths[0];
+      let dir = false;
+      try { dir = fs.statSync(to).isDirectory(); } catch { dir = false; }
+      if (!dir) throw new Error('Pick a folder.');
+      if (which === 'projects' && path.resolve(to) !== path.resolve(now.projectsDir) && holdsFlpt(now.projectsDir) && !holdsFlpt(to)) {
+        throw new Error('Your Library and episodes would stay behind. Quit FLPT, move the whole folder there, then choose it here.');
+      }
+      c.settings.write({ [key]: to });
+      return { ok: true, state: c.state() };
+    } },
   },
 };
+
+/** Does this folder hold FLPT's own things (an episode, the Library, Transitions & Music, Presenters, Styles)? */
+function holdsFlpt(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return false; }
+  return names.some((n) => ['Library', 'Transitions & Music', 'Presenters', 'Styles'].includes(n) || fs.existsSync(path.join(dir, n, 'flpt-project.json')));
+}
 
 const tools = {
   ns: 'tools',
@@ -232,7 +259,9 @@ const sample = {
         const r = await c.pipeline.sampleFinal(dir, tokens.heygen, { onLine: job.onLine, signal: job.signal });
         c.broker.record(tokens.heygen, { what: 'sample slide 1', code: r.code });
         c.broker.close(tokens.heygen);
-        return job.finish(r);
+        // the slide with the presenter, to play where it was asked for (2.0.1: "Done", and nowhere to watch it)
+        const out = path.join(dir, 'presentation', 'video', 'output', 'presentation_slides_01-01.mp4');
+        return job.finish({ ...r, output: r.code === 0 && exists(out) ? out : null });
       } catch (err) { c.broker.close(tokens.heygen); return job.finish({ code: 1, lines: [c.redact(err.message)] }); }
     } },
   },

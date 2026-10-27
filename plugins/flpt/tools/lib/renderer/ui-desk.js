@@ -26,9 +26,9 @@
 
   const CHAT_STAGES = ['scenes', 'spend', 'film', 'refine', 'deliver']; // approved in chat (flpt-desk.js)
   // the buttons that start or stop a crew, a draft, a film or one of chat's steps, by their label (as the screens write them)
-  const RUNS = /^(Start the .+ crew|Run again with these notes|Stop the (crew|animators)|Animate (the slide|\d+ slides)|Polish|Make the free draft|Make again|Making…|Film it|Film again|Film again: approve a new budget…|Approve a new budget…|Approve the film|Nothing to pay: continue|Apply|Deliver|Deliver again|From your export…|From a new export…|Making the Slack pack…|Put it together|Starting…|Play on)$/;
+  const RUNS = /^(Start the .+ crew|Run again with these notes|Stop the (crew|animators)|Animate (the slide|\d+ slides)|Polish|Make the free draft|Make again|Making…|Film it|Film again|Film again: approve a new budget…|Approve a new budget…|Approve the film|Nothing to pay: continue|Apply|Deliver|Deliver again|From your export…|From a new export…|From your CapCut export…|From a new CapCut export…|From the delivered video|Making the Slack pack…|Put it together|Starting…|Play on)$/;
   const WALL = /^(Make all\b.*|Stop)$/; // the Live Motion wall's bar
-  const JAZZ = /^(Stop|Every step)$/; // the rail's Jazz box while it plays (chat's play-through)
+  const JAZZ = /^(Stop|Every step|Pause after each step)$/; // the rail's Jazz box while it plays (chat's play-through)
   const PRICED = /\$\s?\d|\$$|US dollars/; // a label with a price in it
   const MONEY = /of Claude usage|US dollars|\$\s?\d|^Budget: |its own approval\.$|^Nothing to pay/; // a price or cap line
   const SETUP = ['tools-install', 'run-check', 'run-draft'];

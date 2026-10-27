@@ -21,7 +21,7 @@
   const unwrap = async (p) => { const r = await p; if (!r || !r.ok) throw new Error((r && r.error) || 'Something went wrong.'); return r.value; };
   const held = () => (typeof UI.motionHeld === 'function' ? UI.motionHeld() : false);
   const STYLE = (id) => String(id || '').replace(/-/g, ' ');
-  const CHIP = { ok: ['Ready', 'st-review'], stale: ['Out of date', 'st-stale'], failed: ['Didn\'t finish', 'st-error'], yours: ['Yours', 'st-approved'] };
+  const CHIP = { todo: ['Not made yet', 'st-todo'], ok: ['Ready', 'st-review'], stale: ['Out of date', 'st-stale'], failed: ['Didn\'t finish', 'st-error'], yours: ['Yours', 'st-approved'] };
 
   let cur = null; // the wall on screen: { ctx, dir, root, pieces }
   const fetched = new Map(); // episode → pieces, where the episode's view carries none (a surface without the extension)
@@ -302,8 +302,8 @@
     if (ctx.status !== 'approved') {
       if (running) acts.push(el('button', { type: 'button', class: 'ghost', onclick: () => stopAll(ctx, pieces) }, 'Stop'));
       else if (!jazzing) {
-        if (todo.length) acts.push(el('button', { type: 'button', class: 'primary', disabled: Boolean(mine) || Boolean(v.running), onclick: () => makeAll(ctx, pieces) }, cost ? `Make all · up to ${usd(cost)}` : 'Make all'));
-        if (made.length) acts.push(el('button', { type: 'button', class: todo.length ? 'ghost' : 'primary', disabled: Boolean(mine), onclick: () => approveAll(ctx, pieces) }, 'Approve all'));
+        if (todo.length) acts.push(el('button', { type: 'button', class: 'primary', disabled: Boolean(mine) || Boolean(v.running), title: 'The crews make every piece not made yet.', onclick: () => makeAll(ctx, pieces) }, cost ? `Make all · up to ${usd(cost)}` : 'Make all'));
+        if (made.length) acts.push(el('button', { type: 'button', class: todo.length ? 'ghost' : 'primary', disabled: Boolean(mine), title: 'Approves the made pieces. The rest show their slide.', onclick: () => approveAll(ctx, pieces) }, 'Approve all'));
         else acts.push(el('button', { type: 'button', class: 'ghost', disabled: Boolean(mine), onclick: () => ctx.approve('animate') }, 'Skip'));
       }
     }
@@ -315,8 +315,10 @@
     // Faster: Sonnet's crews instead of Opus's, the same caps (an app setting: Jazz's runs use it too)
     const fast = ahead && flpt.saveSettings ? el('button', { type: 'button', class: 'ghost small lm-fast', 'aria-pressed': String(crewOf() === 'sonnet'), disabled: Boolean(mine),
       title: crewOf() === 'sonnet' ? 'Sonnet\'s crews: quicker. The same caps.' : 'Opus\'s crews. Faster uses Sonnet\'s, with the same caps.',
-      onclick: async () => { const r = await flpt.saveSettings({ liveCrew: crewOf() === 'sonnet' ? 'opus' : 'sonnet' }); if (r && r.settings) S.settings = r.settings; ctx.render(); } }, 'Faster') : null;
+      onclick: async () => { const r = await flpt.saveSettings({ liveCrew: crewOf() === 'sonnet' ? 'opus' : 'sonnet' }); if (r && r.settings) S.settings = r.settings; ctx.render(); } }, 'Faster (Sonnet)') : null;
     root.append(el('div', { class: 'lm-bar' }, count, ahead, el('span', { class: 'lm-gap' }), fast, ...acts));
+    // the bar in words, once: what Approve all leaves out (Make all's price is on its button)
+    if (made.length && todo.length && !running && !jazzing && ctx.status !== 'approved') root.append(el('p', { class: 'muted lm-say' }, 'Approve all keeps the made pieces. The rest show their slide.'));
     if (!avail && pieces.some((p) => p.source === 'animator' && p.status === 'todo')) root.append(el('p', { class: 'note' }, 'Animations need HyperFrames (Setup → Tools).'));
     root.append(el('div', { class: 'lm-wall' }, ...pieces.map((p) => card(ctx, p, running))));
     if (ctx.record && ctx.record.costUsd != null && ctx.status !== 'todo' && !running) root.append(el('p', { class: 'muted lm-cost' }, `Last run: ${usd(ctx.record.costUsd)} of Claude usage.`));

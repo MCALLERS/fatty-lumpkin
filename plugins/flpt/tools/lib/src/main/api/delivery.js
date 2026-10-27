@@ -1,6 +1,6 @@
 'use strict';
 // flpt.delivery (W2-03, PLAN §3.3 S13): what Deliver hands over besides the video.
-//   captions(episode, on) → { captions }   presentation.srt beside the delivered video, from the script's words and
+//   captions(episode, on) → { captions }   an SRT beside the delivered video, by its name, from the script's words and
 //                                          their times in it (free). A change after a delivery makes it out of date.
 // The record keeps the choice in its Deliver stage (`captions`); the flow's open view carries it as
 // view.deliverOptions.captions (ext/interstitials.js). Refused while a step runs for the episode. Event:

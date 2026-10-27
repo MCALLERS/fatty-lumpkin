@@ -61,6 +61,10 @@ main { overflow: auto; padding: 36px 48px 120px; position: relative; scroll-beha
 .jazz-box .hud .eq i { width: 2px; height: 100%; background: currentColor; border-radius: 2px; animation: eq 900ms var(--ease) infinite alternate; transform-origin: bottom; }
 .jazz-box .hud .eq i:nth-child(2) { animation-delay: -300ms; } .jazz-box .hud .eq i:nth-child(3) { animation-delay: -600ms; }
 @keyframes eq { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+/* a running step's clock ("Working… · 3:12"): a small turning ring beside it, the same as the rail's */
+.hud.working { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.hud.working::before { content: ''; width: 9px; height: 9px; border: 1.5px solid var(--rule); border-top-color: var(--navy); border-radius: 50%; animation: spin 900ms linear infinite; }
+@media (prefers-reduced-motion: reduce) { .hud.working::before { animation: none; border-color: var(--navy); } }
 html.fx-paused .jazz-box .eq i { animation: none; transform: scaleY(.6); }
 @media (prefers-reduced-motion: reduce) { .jazz-box .eq i { animation: none; transform: scaleY(.6); } }
 .jazz-box .why { margin: 0; font-size: var(--fs-small); color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -215,6 +219,7 @@ html.fx-paused .screen.active { animation: none; }
 .key input { width: 100%; font: var(--fs-small) var(--font-mono); padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--paper); color: var(--ink); }
 .key .label strong { display: block; }
 .key-actions { display: flex; gap: 6px; }
+.folder .folder-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-size: var(--fs-small); }
 .key .msg { grid-column: 2 / 4; font-size: var(--fs-small); color: var(--ink-2); }
 .key .msg.ok { color: var(--moss); } .key .msg.bad { color: var(--red); }
 details.optional { margin: 14px 0; }
@@ -526,7 +531,7 @@ video.scene-clip { display: block; width: 100%; max-width: 640px; margin: 0 0 12
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
 .scene-tile { position: relative; padding: 0; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--r-2); background: var(--paper-2); border: 1px solid var(--rule); }
 .scene-tile img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.scene-tile .ph { position: absolute; inset: 6px; border: 1.5px dashed var(--rule); border-radius: var(--r-1); }
+.scene-tile .ph { position: absolute; inset: 6px; border: 1.5px dashed var(--rule); border-radius: var(--r-1); display: grid; place-items: center; font-size: var(--fs-hud); color: var(--ink-2); }
 .scene-tile:disabled { opacity: 1; cursor: default; }
 .scene-tile .tile-label { position: absolute; left: 6px; bottom: 5px; padding: 0 6px; border-radius: var(--r-pill); background: rgba(0,0,0,.55); color: #fff; font-size: var(--fs-small); line-height: 17px; }
 .scene-tile .tile-mark { position: absolute; right: 6px; top: 5px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--r-pill); font-size: var(--fs-small); line-height: 17px; text-align: center; color: #fff; background: rgba(0,0,0,.55); }
@@ -548,7 +553,8 @@ dialog.scene-zoom video { width: 100%; display: block; background: #000; }
 /* ── the live log (any running job): Theater, always ── */
 .log { position: fixed; right: 24px; bottom: 24px; width: min(620px, 60vw); max-height: 42vh; display: flex; flex-direction: column; background: rgba(26, 25, 21, .96); color: var(--theater-text); color-scheme: dark;
   border-radius: var(--r-3); border: 1px solid var(--theater-line); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .55); backdrop-filter: blur(12px); animation: fx-rise var(--d-3) var(--ease) both; }
-.log header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--theater-line); }
+.log header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--theater-line); }
+.log header #log-cancel { margin-left: auto; }
 .log header .ghost { color: var(--theater-text); border-color: var(--theater-line); }
 .log pre { margin: 0; padding: 10px 14px; overflow: auto; font: var(--fs-small)/1.5 var(--font-mono); white-space: pre-wrap; color: var(--theater-text-2); }
 html.fx-paused .log { animation: none; }

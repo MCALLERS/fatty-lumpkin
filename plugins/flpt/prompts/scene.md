@@ -47,6 +47,8 @@ You're FLPT's scene crew. You make one Live Motion piece: a scene drawn in code 
 - **Safe area.** Words inside the 64 px safe area. On a Duet, nothing in the presenter's corner (x 0–380, y 700–1080): no text, and no busier there than the frame's median.
 - **Deterministic and offline.** Draw from `t`, `ctx.rng` and `ctx.cue` only: no `Date`, `Math.random`, timers, `requestAnimationFrame`, network, `eval`, CSS animation or `innerHTML`. Every word goes through `ctx.text` or the kit's type, so the checks see it.
 - **The hold.** The last 0.5 s is still (the render checks it): land the last move before it.
+- **In frame.** Shapes too, unless leaving; an entrance is quick and solid, never a faint outline at an edge. Label where a thing comes from, and show its move.
+- **Lists and ends.** Each item its own picture; titles clear of icons; nothing earlier ghosting behind the last frame.
 
 ## What makes a piece work
 - **The picture lands on the word.** Anticipate by 0.05–0.2 s so the impact frame *is* the spoken onset: a number finishes rolling on its word's `end`, a stamp lands on "paid".

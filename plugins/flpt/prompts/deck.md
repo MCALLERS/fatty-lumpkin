@@ -125,11 +125,16 @@ For the `scene` of each Live Motion shot. Unless the storyboard names one, a Due
   - a source line in mono, pinned clear of the bubble
   - build them from HTML `<div>`s or inline SVG shapes, with labels as HTML `<p>` placed over the SVG (SVG `<text>` doesn't get the fonts)
 - **Infographics:** one structure (process, ladder, 2×2, timeline, before/after), at most about six objects, labels touching what they name.
-- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels. It draws itself: `draw` builds with `"pen": true`, one per stroke or doodle. Mark it `animate`, so the animator crew draws it with the method's doodle kit and marker.
+- **Counts:** a count drawn as boxes or icons labels every one, or says what the rest are ("+ 11 more"). Never unlabelled boxes without a word.
+- **A build never opens empty:** its first beat already shows the title and the first marks (a count starts with its label and its first items), never a bare "0" on half a slide.
+- **A highlight follows the voice:** one that marks the step being spoken moves on with the narration; never leave the rest greyed after the voice has moved on.
+- **A named term gets a gloss** on screen when there's room (two to five words: "Action Plan · favours open-weight models").
+- **Whiteboard sketch slot:** design its finished frame on a warm-white board (`#FBFAF6`): simple hand-drawn-looking doodles of concrete things, with short hand-lettered labels set clear of the strokes, never on the drawing. It draws itself: `draw` builds with `"pen": true`, one per stroke or doodle. Mark it `animate`, so the animator crew draws it with the method's doodle kit and marker.
 - **Images.**
   - **Allowed:** only the user's own attachments (their photos, their clips' poster frames), through the asset map.
   - **Everything else:** draw with HTML/CSS/SVG.
   - **Placeholders:** where a photo or archival footage belongs, leave a tasteful placeholder card and say what goes there. The footage grabber fills it later.
+  - **Clips to get:** where a film or TV moment would serve (an Inset), name it in your report as a clip to get with Clippy (the work, the scene, about how long). The user clips it into the Library and adds it in the Storyboard's Clip well.
 - **Don't use** `x-shape`, `x-icon` or `x-connector` elements, external scripts, or remote images.
 
 ## Check your own work

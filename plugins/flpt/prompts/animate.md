@@ -38,7 +38,8 @@ You're the animator for slide {{n}} of "{{title}}". You turn it into an animatio
    A `to` beat's vars and any `ease` stay inside flpt-tween's subset: CSS properties (numbers with units, colours, `clipPath` insets), `--custom` properties, the transforms `x`, `y`, `xPercent`, `yPercent`, `scale`, `scaleX`, `scaleY`, `rotation`, `skewX`, `skewY` and `transformOrigin`, `autoAlpha`, and `attr: {…}`, with px or % on `x` and `y` and deg on angles; eases `none`, `power0`–`power4`, `sine`, `expo`, `circ` and `back(n)`, each `.in`, `.out` or `.inOut`. Anything else (`repeat`, `yoyo`, `keyframes`, labels, plugins such as `motionPath` or `drawSVG`, 3D transforms, other units) doesn't render: `align_beats`, `snapshot` and `render_preview` name it in a `FlptTweenUnsupported` line, and the stills show it in red.
 5. **The bubble corner:** {{corner}}
 6. **Local assets only:** no web fonts, CDNs, remote pictures or scripts (the render has no network, so they'd fail anyway). Use the starter's fonts and `use_picture`.
-7. **Finish every move by duration − hold** (the hold is 1.5 s), so the hold test passes. A finale cued on the slide's last words lands in the hold: cue it a phrase earlier or keep it under 1.3 s.
+7. **Never an empty opening:** cue the first marks on the slide's first words, so it never sits on a bare count or an empty half. A highlight that follows the steps moves on each step's cue; the steps already said don't stay greyed.
+8. **Finish every move by duration − hold** (the hold is 1.5 s), so the hold test passes. A finale cued on the slide's last words lands in the hold: cue it a phrase earlier or keep it under 1.3 s.
 
 ## How to work
 1. Read the references, the slide's HTML and its picture. Plan the beats against the narration: what appears on which words.

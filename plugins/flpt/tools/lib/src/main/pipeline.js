@@ -271,8 +271,14 @@ function venvOnPath(env) {
  * model, voices, modelId }: the free voice where there's no `say`; default from the environment, see freeTtsOf), edge
  * ({ heygenBase, jobFor(provider, { kind, token }) → capability|null }: the web image's broker; also setEdge()).
  */
+/** The scaffold's log without its file list (every file it kept or copied, two lines each): what it set up, and problems. */
+function quietScaffold(onLine) {
+  if (typeof onLine !== 'function') return onLine;
+  return (line) => { const l = String(line); if (/\((kept|copied|new)\)\s*$/.test(l) || /^\s*=\s*\//.test(l)) return; onLine(line); };
+}
+
 function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, broker, trustedPython = null, privateDirs = () => [],
-  fontCacheDir = null, fetchImpl = globalThis.fetch, presenterOf = null, freeTts = null, edge = null }) {
+  fontCacheDir = null, fetchImpl = globalThis.fetch, presenterOf = null, freeTts = null, edge = null, basePython = null }) {
   const scripts = scriptsDir(engineRoot);
   const engineVideo = path.join(scripts, 'video');
   const voice = freeTtsOf(freeTts);
@@ -307,7 +313,53 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
     if (o && TRUSTED.has(o.kind) && (episodeCode(path.resolve(o.cwd || '.', String(o.script || ''))) || episodeCode(o.python))) {
       return Promise.resolve({ code: 2, lines: [`Refused: a ${o.kind} run of an episode's pipeline goes through FLPT's own Python (check, looks or final).`], refused: true });
     }
+    // an episode's .venv set aside is made again once: runs that start meanwhile wait for the same repair
+    const dir = episodeOfPython(o && o.python);
+    let fix = dir ? healing.get(dir) : null;
+    if (dir && !fix && healVenv(dir)) {
+      fix = rebuildVenv(dir, o).finally(() => healing.delete(dir));
+      healing.set(dir, fix);
+    }
+    if (fix) {
+      return fix.then((made) => (made ? spawnRun(o)
+        : { code: 1, lines: ['This episode\'s Python couldn\'t be set up again. Setup → Tools, then try again.'] }));
+    }
     return spawnRun(o);
+  }
+  const healing = new Map(); // episode folder → its .venv being made again
+
+  /** The episode folder whose .venv this Python is, or null. */
+  function episodeOfPython(py) {
+    const m = typeof py === 'string' && py.match(/^(.*)\/presentation\/video\/\.venv\/bin\/python$/);
+    return m ? m[1] : null;
+  }
+  /**
+   * An episode's .venv whose Python won't start (copied from another Mac, it links to a Python this one hasn't: the
+   * move to the Studio, 2026-10-27) is set aside as .venv-broken-<time>, never deleted. → true when it was (or there's
+   * none), so the next run makes it again (rebuildVenv). Read, never run: a crew could have put anything in there,
+   * and only the sandbox runs it. Broken = its python's link leads nowhere, or pyvenv.cfg's home is gone.
+   */
+  function healVenv(projectDir) {
+    const venv = path.join(video(projectDir), '.venv');
+    if (fs.existsSync(path.join(venv, 'bin', 'python')) && !homeGone(venv)) return false;
+    let there = false;
+    try { fs.lstatSync(venv); there = true; } catch { there = false; }
+    if (there) fs.renameSync(venv, `${venv}-broken-${Date.now()}`);
+    return true;
+  }
+  function homeGone(venv) {
+    let cfg = '';
+    try { cfg = fs.readFileSync(path.join(venv, 'pyvenv.cfg'), 'utf8'); } catch { return false; }
+    const m = cfg.match(/^home\s*=\s*(.+?)\s*$/m);
+    return Boolean(m) && !fs.existsSync(m[1]);
+  }
+  /** Make an episode's .venv again with FLPT's scaffold (it keeps every file already there). */
+  async function rebuildVenv(projectDir, o = {}) {
+    const base = typeof basePython === 'function' ? await basePython() : null;
+    if (!base) return false;
+    if (o.onLine) o.onLine('Setting up this episode\'s Python again (it came from another Mac)…');
+    const r = await spawnRun({ kind: 'scaffold', python: base, script: path.join(scripts, 'scaffold.py'), args: [projectDir], cwd: path.dirname(projectDir), onLine: quietScaffold(o.onLine), signal: o.signal });
+    return r.code === 0 && fs.existsSync(path.join(video(projectDir), '.venv', 'bin', 'python'));
   }
 
   /**
@@ -677,6 +729,7 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
     presenterEnvFile,
     run,
     projectPython,
+    healVenv,
     scaffold: (projectDir, basePython, opts = {}) => run({ kind: 'scaffold', python: basePython, script: path.join(scripts, 'scaffold.py'), args: [projectDir], cwd: path.dirname(projectDir), ...opts }),
     // Free: the slide pictures (in a sandbox when the caller gives one, see render above).
     render,
@@ -760,5 +813,5 @@ function createPipeline({ engineRoot, presenterDir, vault, redact, toolEnv, brok
   };
 }
 
-module.exports = { createPipeline, parsePresenterEnv, parseEstimate, venvOnPath, freeTtsOf, edgeOf, PRESENTER_DEFAULTS, KEYS_FOR, PAID, KEY_PROVIDER, TRUSTED,
+module.exports = { quietScaffold, createPipeline, parsePresenterEnv, parseEstimate, venvOnPath, freeTtsOf, edgeOf, PRESENTER_DEFAULTS, KEYS_FOR, PAID, KEY_PROVIDER, TRUSTED,
   SANDBOXED, NO_LOOPBACK, MUST_BOX, TRUSTED_FLAGS, CHANGED, HOUSE_TOKEN, HOUSE_SIGNIN, slidesOf };

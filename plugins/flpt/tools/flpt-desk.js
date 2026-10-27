@@ -54,8 +54,8 @@ const SHOT = /^s[1-9][0-9]{0,3}$/;
 // and after are chat's, and money is asked there), the reference study and capture (crews and the network), and
 // Setup's runs (the tools' install goes online: flpt-setup --install-tools; the check and the sample are the pipeline's).
 const CHAT_METHODS = ['episode.run', 'episode.animate', 'episode.draft', 'episode.film', 'episode.approveSpend', 'episode.tighten', 'episode.refine',
-  'episode.deliver', 'episode.slackPack', 'episode.scene', 'jazz.play', 'livemotion.render', 'refs.study', 'refs.again', 'refs.capture',
-  'tools.install', 'check.run', 'sample.draft', 'sample.approveAndRun'];
+  'episode.deliver', 'episode.slackPack', 'episode.slackDelivered', 'episode.scene', 'jazz.play', 'livemotion.render', 'refs.study', 'refs.again', 'refs.capture',
+  'tools.install', 'check.run', 'sample.draft', 'sample.approveAndRun', 'settings.chooseFolder'];
 // and the steps from Scenes on are approved there too (Spend's money above all): the Desk approves up to Live Motion
 const CHAT_STAGES = ['scenes', 'spend', 'film', 'refine', 'deliver'];
 
